@@ -5,5 +5,6 @@ include(
     "jasx-runtime",
     "jasx-target-html",
     "jasx-compiler",
+    "jasx-processor",
     "jasx-conformance",
 )
