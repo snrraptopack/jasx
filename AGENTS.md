@@ -27,7 +27,7 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 
 ## Known gaps
 
-- **javac errors in Gradle builds** are printed twice: first by `compileJava`, pointing at the generated file (same line number as the `.jasx` source), then by `reportJasxJavacErrors` at the `.jasx` location. The second compilation doesn't run annotation processors, so code that uses processor-generated classes can get extra errors there.
+- **The Gradle type check compiles twice.** `compileJasx` type-checks the generated Java with javac (`JavacRunner.typeCheck`: same classpath, annotation processors and release as `compileJava`, no class files) so that javac's errors in `.jasx` code are reported once, at `.jasx` locations, and `compileJava` doesn't run. On success, `compileJava` then compiles the source set again. `jasx { typeCheck.set(false) }` turns the check off; javac's errors then point at the generated files (same line numbers). Other `compileJava` options (`compilerArgs`) are not copied into the check.
 - **The language server checks JASX only.** Java type errors need the project's classpath and still come from the build, and components of the project's jars are unknown to it (a tag using one is reported as JASX2001). It analyses a Gradle-style source directory (`src/<set>/java` or `src/<set>/jasx`) as one group, and any other file alone.
 - **Not published to a public repository.** `./gradlew publishToMavenLocal` installs everything in `~/.m2`; `examples/hello` uses a composite build instead.
 
@@ -51,7 +51,7 @@ jasx-compiler/             declaration scanner, file classes, component index, r
 jasx-target-html/          html reference target: descriptor, schemas/html.json, factory jasx.html.Html,
                            renderer; attribute builders jasx.html.attrs.* generated from the schema
 jasx-processor/            annotation processor: writes META-INF/jasx/components.json
-jasx-gradle-plugin/        Gradle plugin id "dev.jasx": compileJasx task per source set
+jasx-gradle-plugin/        Gradle plugin id "dev.jasx": compileJasx task per source set (compiles .jasx, type-checks with javac)
 jasx-conformance/          JUnit runner for jasx-spec/tests (all levels)
 jasx-lsp/                  language server over stdio (no third-party deps): diagnostics, definition, hover
 editors/vscode/            VS Code extension: TextMate grammar, language server client (extension.js), Node tests
@@ -93,7 +93,7 @@ These decisions are already made. Follow them unless the user changes them.
 1. Parse each `.jasx` file (`JasxParser`).
 2. Scan each source with `JavaStructure` (tokens only, markup skipped) for the package, imports, named types, method headers and top-level declarations, and build the component index. If a `.jasx` file has top-level fields or methods, `JavaStructure` creates its **file class** (`semantics.md` §9) and `FileClass` computes the text that wraps the file in it. Problems here are JASX2006, JASX2010–JASX2013. `StyleBlocks` then checks the file's style block (`semantics.md` §10) and scopes its CSS with `ScopedCss` (JASX2014–JASX2016, JASX2106).
 3. Lower each `.jasx` file without syntax errors (`Lowering`, writing through `Emitter`). Java code is copied verbatim, except for **insertions** (`Lowering.Insertion`) on the same line: `@jasx.Component` before components, and for a file class its header after the imports, `static` in each top-level declaration, and `}` after the end of the file. Markup becomes `F.h(...)`, `F.fragment(...)`, `F.keyed(...)` and direct component calls. Style blocks are removed (their lines stay, empty); the file's one style sheet becomes a `jasx$styles` field inserted at the start of the style class (the file class, or the top-level class of the first block), and every intrinsic element of the file is wrapped in `F.scoped(C.jasx$styles, ...)`. `Emitter` only adds line breaks to catch up with the source line, and records a `SpanMap`.
-4. `JavacRunner` compiles the generated Java in memory and remaps javac's diagnostics through the span maps (code `javac`).
+4. `JavacRunner` compiles the generated Java and remaps javac's diagnostics through the span maps (code `javac`): `compile` in memory for the tests and the conformance suite, `typeCheck` as a build would (classpath, annotation processors, release) for the Gradle plugin.
 
 ## Commands
 

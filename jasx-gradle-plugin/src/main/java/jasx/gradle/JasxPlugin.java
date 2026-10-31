@@ -5,29 +5,26 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.plugins.JavaPlugin;
+import org.gradle.api.plugins.JavaPluginExtension;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.TaskProvider;
+import org.gradle.api.tasks.compile.JavaCompile;
+import org.gradle.jvm.toolchain.JavaLanguageVersion;
 
 /**
  * The JASX Gradle plugin, {@code id("dev.jasx")}.
  *
- * <p>For each source set ({@code main}, {@code test}, ...) it adds two tasks:
- *
- * <ul>
- *   <li>{@code compileJasx} (for {@code main}; {@code compileTestJasx} for {@code test}, ...) compiles the
- *       {@code .jasx} files found in the source set's Java directories ({@code src/main/java}) and in
- *       {@code src/main/jasx}, and writes the generated Java to {@code build/generated/sources/jasx/main}.
- *       It also reads the {@code .java} files there, so that {@code @jasx.Component} methods in plain Java
- *       can be used from markup.
- *   <li>{@code reportJasxJavacErrors} runs only when {@code compileJava} fails, and reprints javac's errors
- *       in generated code at their {@code .jasx} locations ({@link JasxJavacReport}).
- * </ul>
+ * <p>For each source set ({@code main}, {@code test}, ...) it adds a task {@code compileJasx} (for
+ * {@code main}; {@code compileTestJasx} for {@code test}, ...). It compiles the {@code .jasx} files found in
+ * the source set's Java directories ({@code src/main/java}) and in {@code src/main/jasx}, type-checks the
+ * result with javac (see {@link JasxCompile}), and writes the generated Java to
+ * {@code build/generated/sources/jasx/main}. It also reads the {@code .java} files there, so that
+ * {@code @jasx.Component} methods in plain Java can be used from markup.
  *
  * <p>The output directory is added to the source set's Java sources, so {@code compileJava} depends on
  * {@code compileJasx} and compiles the generated files along with the hand-written ones.
@@ -40,6 +37,7 @@ public final class JasxPlugin implements Plugin<Project> {
 
         JasxExtension extension = project.getExtensions().create("jasx", JasxExtension.class);
         extension.getTarget().convention("html");
+        extension.getTypeCheck().convention(true);
 
         SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
         sourceSets.all(sourceSet -> configure(project, extension, sourceSet));
@@ -74,26 +72,27 @@ public final class JasxPlugin implements Plugin<Project> {
                     task.getJavaSources().from(javaFiles);
                     task.getClasspath().from(jasxClasspath);
                     task.getTarget().set(extension.getTarget());
+                    task.getTypeCheck().set(extension.getTypeCheck());
+                    task.getCompileClasspath().from(sourceSet.getCompileClasspath());
+                    task.getProcessorPath().from(sourceSet.getAnnotationProcessorPath());
+                    task.getRelease().set(javaRelease(project, sourceSet));
                     task.getOutputDirectory().set(outputDirectory);
                 });
 
         // Adding the task's output as a source directory also makes compileJava depend on the task.
         sourceSet.getJava().srcDir(compileJasx.flatMap(JasxCompile::getOutputDirectory));
+    }
 
-        // When compileJava fails, reprint its errors in generated code at their .jasx locations.
-        TaskProvider<Task> compileJava = project.getTasks().named(sourceSet.getCompileJavaTaskName());
-        TaskProvider<JasxJavacReport> report = project.getTasks().register(
-                sourceSet.getTaskName("report", "JasxJavacErrors"), JasxJavacReport.class, task -> {
-                    task.setDescription("Reports javac errors in code generated from .jasx files at their .jasx locations.");
-                    task.getSourceRoots().from(sourceRoots);
-                    task.getJavaSources().from(javaFiles);
-                    task.getCompileClasspath().from(sourceSet.getCompileClasspath());
-                    task.getJasxClasspath().from(jasxClasspath);
-                    task.getTarget().set(extension.getTarget());
-                    // Only useful when compileJava failed, and only if there are .jasx files.
-                    task.onlyIf("compileJava failed", t -> compileJava.get().getState().getFailure() != null);
-                    task.onlyIf("there are .jasx files", t -> !jasxFiles.isEmpty());
-                });
-        compileJava.configure(task -> task.finalizedBy(report));
+    /**
+     * The Java release {@code compileJava} compiles for, so that the type check compiles for the same one:
+     * its {@code options.release} if set, otherwise the version of the project's Java toolchain if one is
+     * configured, otherwise none (the JDK Gradle runs on).
+     */
+    private static Provider<Integer> javaRelease(Project project, SourceSet sourceSet) {
+        TaskProvider<JavaCompile> compileJava =
+                project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class);
+        Provider<Integer> toolchainVersion = project.getExtensions().getByType(JavaPluginExtension.class)
+                .getToolchain().getLanguageVersion().map(JavaLanguageVersion::asInt);
+        return compileJava.flatMap(task -> task.getOptions().getRelease()).orElse(toolchainVersion);
     }
 }

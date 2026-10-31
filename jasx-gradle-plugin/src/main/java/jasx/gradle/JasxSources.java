@@ -23,8 +23,7 @@ import java.util.stream.Stream;
 import org.gradle.api.GradleException;
 
 /**
- * The sources of one source set, read from disk, and the JASX compilation of them. Shared by
- * {@link JasxCompile} and {@link JasxJavacReport}.
+ * The sources of one source set, read from disk, and the JASX compilation of them, for {@link JasxCompile}.
  *
  * <p>{@code .jasx} files are named by their path relative to their source root ({@code app/Page.jasx}),
  * which becomes the generated file's path ({@code app/Page.java}). {@code .java} files are named by their

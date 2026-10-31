@@ -1,6 +1,8 @@
 package jasx.gradle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
@@ -168,21 +170,69 @@ class JasxPluginFunctionalTest {
         // "undefinedName" is on line 7, at column 20 (1-based).
         String expected = project.toRealPath().resolve("src/main/java/app/Pages.jasx") + ":7:20: error: javac: ";
         assertTrue(result.getOutput().contains(expected), result.getOutput());
-        assertTrue(result.getOutput().contains("JASX: javac's errors in generated code"), result.getOutput());
+        // Reported once: compileJasx failed, so compileJava didn't run and print it in the generated file.
+        assertEquals(TaskOutcome.FAILED, result.task(":compileJasx").getOutcome());
+        assertNull(result.task(":compileJava"), result.getOutput());
+        assertFalse(result.getOutput().contains("Pages.java"), result.getOutput());
     }
 
     @Test
-    void javacReportDoesNotRunWhenCompilationSucceeds() throws IOException {
+    void leavesErrorsInJavaFilesToCompileJava() throws IOException {
         write("src/main/java/app/Pages.jasx", """
                 package app;
                 public class Pages {
                     public static jasx.runtime.Element Home() { return <p>x</p>; }
                 }
                 """);
+        write("src/main/java/app/Broken.java", """
+                package app;
+                class Broken { int x = undefinedInJava; }
+                """);
 
-        BuildResult result = gradle("compileJava").build();
+        BuildResult result = gradle("compileJava").buildAndFail();
 
-        assertEquals(TaskOutcome.SKIPPED, result.task(":reportJasxJavacErrors").getOutcome());
+        assertEquals(TaskOutcome.SUCCESS, result.task(":compileJasx").getOutcome());
+        assertEquals(TaskOutcome.FAILED, result.task(":compileJava").getOutcome());
+        assertTrue(result.getOutput().contains("Broken.java:2: error"), result.getOutput());
+    }
+
+    @Test
+    void typeChecksForTheReleaseCompileJavaUses() throws IOException {
+        // List.getFirst() is new in Java 21, so it doesn't exist for release 17.
+        write("build.gradle.kts", Files.readString(project.resolve("build.gradle.kts"))
+                + "\ntasks.compileJava { options.release.set(17) }\n");
+        write("src/main/java/app/Pages.jasx", """
+                package app;
+                public class Pages {
+                    public static jasx.runtime.Element Home() {
+                        return <p>{java.util.List.of("a").getFirst()}</p>;
+                    }
+                }
+                """);
+
+        BuildResult result = gradle("compileJava").buildAndFail();
+
+        String expected = project.toRealPath().resolve("src/main/java/app/Pages.jasx") + ":4:";
+        assertTrue(result.getOutput().contains(expected), result.getOutput());
+        assertEquals(TaskOutcome.FAILED, result.task(":compileJasx").getOutcome());
+    }
+
+    @Test
+    void typeCheckCanBeTurnedOff() throws IOException {
+        write("build.gradle.kts", Files.readString(project.resolve("build.gradle.kts"))
+                + "\njasx { typeCheck.set(false) }\n");
+        write("src/main/java/app/Pages.jasx", """
+                package app;
+                public class Pages {
+                    public static jasx.runtime.Element Home() { return <p>{undefinedName}</p>; }
+                }
+                """);
+
+        BuildResult result = gradle("compileJava").buildAndFail();
+
+        // compileJava reports the error, in the generated file.
+        assertEquals(TaskOutcome.SUCCESS, result.task(":compileJasx").getOutcome());
+        assertEquals(TaskOutcome.FAILED, result.task(":compileJava").getOutcome());
     }
 
     @Test

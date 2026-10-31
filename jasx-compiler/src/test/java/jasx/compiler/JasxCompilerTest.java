@@ -6,12 +6,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jasx.html.Html;
 import jasx.parser.LineMap;
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class JasxCompilerTest {
     private static final Target HTML = Target.load("html", JasxCompilerTest.class.getClassLoader());
@@ -385,6 +388,33 @@ class JasxCompilerTest {
                     static Element Test() { return <input disabled="yes" />; }
                     """)).files(), List.of(), CLASSPATH);
             assertFalse(compiled.success());
+        }
+
+        @Test
+        void typeCheckReportsErrorsAtTheirJasxPosition(@TempDir Path work) throws IOException {
+            SourceFile f = file("static Element Test() { return <p>{undefinedName}</p>; }");
+            JavacRunner.BuildOptions options = new JavacRunner.BuildOptions(CLASSPATH, "", null, work);
+
+            List<CompilerDiagnostic> diagnostics = JavacRunner.typeCheck(compile(f).files(), List.of(), options);
+
+            assertEquals(1, diagnostics.size(), () -> format(diagnostics));
+            assertEquals("T.jasx", diagnostics.get(0).path());
+            assertEquals(f.content().indexOf("undefinedName"), diagnostics.get(0).diagnostic().start());
+        }
+
+        @Test
+        void typeCheckCompilesForTheGivenRelease(@TempDir Path work) throws IOException {
+            // List.getFirst() is new in Java 21.
+            SourceFile f = file("static Element Test() { return <p>{List.of(1).getFirst()}</p>; }");
+
+            List<CompilerDiagnostic> for21 = JavacRunner.typeCheck(compile(f).files(), List.of(),
+                    new JavacRunner.BuildOptions(CLASSPATH, "", 21, work));
+            List<CompilerDiagnostic> for17 = JavacRunner.typeCheck(compile(f).files(), List.of(),
+                    new JavacRunner.BuildOptions(CLASSPATH, "", 17, work));
+
+            assertTrue(for21.stream().noneMatch(CompilerDiagnostic::isError), () -> format(for21));
+            assertTrue(for17.stream().anyMatch(CompilerDiagnostic::isError), () -> format(for17));
+            assertTrue(format(for17).contains("getFirst"), () -> format(for17));
         }
     }
 
