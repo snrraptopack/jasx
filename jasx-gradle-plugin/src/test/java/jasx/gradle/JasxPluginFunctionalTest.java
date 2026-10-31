@@ -150,6 +150,42 @@ class JasxPluginFunctionalTest {
     }
 
     @Test
+    void reportsJavacErrorsInGeneratedCodeAtTheirJasxLocation() throws IOException {
+        write("src/main/java/app/Pages.jasx", """
+                package app;
+
+                import jasx.runtime.Element;
+
+                public class Pages {
+                    public static Element Home() {
+                        return <p>{undefinedName}</p>;
+                    }
+                }
+                """);
+
+        BuildResult result = gradle("compileJava").buildAndFail();
+
+        // "undefinedName" is on line 7, at column 20 (1-based).
+        String expected = project.toRealPath().resolve("src/main/java/app/Pages.jasx") + ":7:20: error: javac: ";
+        assertTrue(result.getOutput().contains(expected), result.getOutput());
+        assertTrue(result.getOutput().contains("JASX: javac's errors in generated code"), result.getOutput());
+    }
+
+    @Test
+    void javacReportDoesNotRunWhenCompilationSucceeds() throws IOException {
+        write("src/main/java/app/Pages.jasx", """
+                package app;
+                public class Pages {
+                    public static jasx.runtime.Element Home() { return <p>x</p>; }
+                }
+                """);
+
+        BuildResult result = gradle("compileJava").build();
+
+        assertEquals(TaskOutcome.SKIPPED, result.task(":reportJasxJavacErrors").getOutcome());
+    }
+
+    @Test
     void isUpToDateWhenNothingChanged() throws IOException {
         write("src/main/java/app/Pages.jasx", """
                 package app;

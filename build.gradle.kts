@@ -3,6 +3,16 @@ allprojects {
     version = "0.1.0-SNAPSHOT"
 }
 
+/** The modules that are published as artifacts (dev.jasx:<module>). The others are test-only. */
+val publishedModules = setOf(
+    "jasx-parser",
+    "jasx-runtime",
+    "jasx-compiler",
+    "jasx-target-html",
+    "jasx-processor",
+    "jasx-gradle-plugin",
+)
+
 subprojects {
     apply(plugin = "java")
 
@@ -21,6 +31,30 @@ subprojects {
         testLogging {
             events("failed")
             exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        }
+    }
+
+    // Publishing: `./gradlew publishToMavenLocal` installs every published module in ~/.m2.
+    if (name in publishedModules) {
+        apply(plugin = "maven-publish")
+        extensions.configure<JavaPluginExtension> {
+            withSourcesJar()
+        }
+        // The Gradle plugin module gets its publications (the jar and the plugin marker) from the
+        // java-gradle-plugin plugin; the other modules publish their Java component.
+        if (name != "jasx-gradle-plugin") {
+            extensions.configure<PublishingExtension> {
+                publications {
+                    create<MavenPublication>("maven") {
+                        from(components["java"])
+                        pom {
+                            name.set(project.name)
+                            description.set("JASX: JSX-style markup for Java")
+                            url.set("https://github.com/snrraptopack/jasx")
+                        }
+                    }
+                }
+            }
         }
     }
 }

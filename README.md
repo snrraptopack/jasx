@@ -32,7 +32,15 @@ Early development. The specification is a draft.
 - [`jasx-spec/`](jasx-spec/README.md): the language specification and its conformance tests.
 - Parser, compiler and `html` target: implemented, and passing the whole conformance suite.
 - Gradle plugin, annotation processor and VS Code syntax highlighting: implemented.
-- Not yet: published artifacts, error reporting in the editor (a language server).
+- Not yet: artifacts in a public repository, error reporting in the editor (a language server).
+
+## Try the example
+
+```
+./gradlew -p examples/hello run
+```
+
+This builds [`examples/hello`](examples/hello) (a small to-do page written in `.jasx`) and serves it at http://localhost:8080. Add `--args=--print` to print the HTML instead.
 
 ## Using JASX in a Gradle project
 
@@ -45,13 +53,13 @@ plugins {
 }
 
 dependencies {
-    implementation("dev.jasx:jasx-target-html:0.1.0")   // the html reference target
+    implementation("dev.jasx:jasx-target-html:0.1.0-SNAPSHOT")   // the html reference target
 }
 ```
 
-Put `.jasx` files next to your `.java` files (`src/main/java`) or in `src/main/jasx`. The `compileJasx` task turns them into Java before `compileJava` runs, and JASX errors fail the build with their `.jasx` file, line and column.
+Put `.jasx` files next to your `.java` files (`src/main/java`) or in `src/main/jasx`. The `compileJasx` task turns them into Java before `compileJava` runs. JASX errors, and javac errors in code that came from markup, are reported with their `.jasx` file, line and column.
 
-The artifacts are not published yet. Until they are, build this repository and use the plugin from a local build.
+The artifacts are not in a public repository yet. Run `./gradlew publishToMavenLocal` in this repository, and add `mavenLocal()` to your project's `repositories` and to `pluginManagement.repositories` in its settings.
 
 For libraries, add `jasx-processor` as an annotation processor. It writes `META-INF/jasx/components.json` into your jar, so other projects can use your components from markup.
 

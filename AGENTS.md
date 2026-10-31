@@ -23,12 +23,12 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 
 - `jasx-spec/` is the **normative source of truth**. `JASX-update1.md` is the **historical** design proposal: don't implement from it.
 - **Milestones 1 and 2 are done.** The parser passes the parse and error conformance tests, and the compiler with the `html` reference target passes the render tests: `.jasx` compiles to Java, javac compiles it, and it renders the expected HTML.
-- **Milestone 3 is mostly done:** the annotation processor, the Gradle plugin and VS Code syntax highlighting exist and are tested. Still missing: publishing artifacts, javac error remapping inside Gradle builds (see Known gaps), and a language server.
+- **Milestone 3 is mostly done:** the annotation processor, the Gradle plugin (with javac errors reported at `.jasx` locations), VS Code syntax highlighting, publishing to Maven Local, and a runnable example (`examples/hello`). Still missing: publishing to a public repository, and a language server.
 
 ## Known gaps
 
-- **javac errors in Gradle builds** point at the generated file (`build/generated/sources/jasx/main/...java`), not the `.jasx` file. Line numbers match because lowering preserves lines, but the path and column don't. `diagnostics.md` §6 requires remapping, and `JavacRunner` does it, but Gradle's `compileJava` runs javac itself.
-- **Nothing is published yet**, so a project can't depend on `dev.jasx:*` artifacts. The plugin's functional tests use local jar files.
+- **javac errors in Gradle builds** are printed twice: first by `compileJava`, pointing at the generated file (same line number as the `.jasx` source), then by `reportJasxJavacErrors` at the `.jasx` location. The second compilation doesn't run annotation processors, so code that uses processor-generated classes can get extra errors there.
+- **Not published to a public repository.** `./gradlew publishToMavenLocal` installs everything in `~/.m2`; `examples/hello` uses a composite build instead.
 
 ## Repository layout
 
@@ -53,6 +53,7 @@ jasx-processor/            annotation processor: writes META-INF/jasx/components
 jasx-gradle-plugin/        Gradle plugin id "dev.jasx": compileJasx task per source set
 jasx-conformance/          JUnit runner for jasx-spec/tests (all levels)
 editors/vscode/            VS Code extension: TextMate grammar + Node tests (npm test)
+examples/hello/            standalone example build (composite build of this repository)
 ```
 
 ## Implementation plan
@@ -103,6 +104,9 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew :jasx-compiler:test            # compiler unit tests only
 ./gradlew :jasx-gradle-plugin:test       # plugin functional tests (runs real Gradle builds; slow)
 (cd editors/vscode && npm install && npm test)   # grammar tests (Node)
+./gradlew publishToMavenLocal            # install all dev.jasx artifacts in ~/.m2
+./gradlew -p examples/hello run --args=--print   # build and run the example (prints the page)
+./gradlew -p examples/hello run          # serve the example at http://localhost:8080
 ./gradlew -q :jasx-parser:run --args="--dump-ast ../jasx-spec/tests/parse/001-element.jasx"
 ./gradlew -q :jasx-compiler:run --args="../jasx-spec/tests/render/001-basic.jasx"
                                          # prints the generated Java; --out DIR writes files

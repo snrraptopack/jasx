@@ -1,0 +1,43 @@
+package hello.ui;
+
+import jasx.runtime.Element;
+import java.util.List;
+
+/**
+ * Shared page layout. Its components are used from another package with `import static hello.ui.Layout.*`.
+ */
+public class Layout {
+
+    /** A full HTML page. `children` receives whatever is written between <Page> and </Page>. */
+    public static Element Page(String title, List<Element> children) {
+        return (
+            <html lang="en">
+                <head>
+                    <meta charset="utf-8" />
+                    <title>{title}</title>
+                    <style>{CSS}</style>
+                </head>
+                <body>
+                    <main class="page">
+                        <h1>{title}</h1>
+                        {children}
+                    </main>
+                </body>
+            </html>
+        );
+    }
+
+    /** A small badge. `@jasx.Default` gives the prop a value when the attribute is left out. */
+    public static Element Badge(String text, @jasx.Default("\"neutral\"") String tone) {
+        return <span class={"badge " + tone}>{text}</span>;
+    }
+
+    private static final String CSS = """
+        body { font-family: system-ui, sans-serif; background: #f6f7f9; }
+        .page { max-width: 32rem; margin: 3rem auto; background: white; padding: 2rem; border-radius: 12px; }
+        .todo { display: flex; gap: .5rem; align-items: center; padding: .25rem 0; }
+        .todo.done span { text-decoration: line-through; opacity: .6; }
+        .badge { font-size: .8rem; padding: .1rem .5rem; border-radius: 999px; background: #e5e7eb; }
+        .badge.good { background: #d1fae5; }
+        """;
+}
