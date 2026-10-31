@@ -1,0 +1,13 @@
+import jasx.runtime.Element;
+import java.util.List;
+
+Element Test() {
+  return (
+    <dl>
+      {for (String key : List.of("x", "y")) {
+        <dt>{key}</dt>
+        <dd>{for (int n = 1; n <= 2; n++) { <i>{key}{n}</i> }}</dd>
+      }}
+    </dl>
+  );
+}

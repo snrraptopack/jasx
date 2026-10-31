@@ -1,0 +1,2 @@
+Element e = <ul>{for (String s : xs) {
+  <li>{s}</li>

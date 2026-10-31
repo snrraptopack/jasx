@@ -61,7 +61,7 @@ Codes are never renumbered or reused.
 |---|---|---|
 | JASX1001 | Closing tag name does not match the opening tag name | The closing element |
 | JASX1002 | Unclosed element or fragment at end of input | The opening element or fragment |
-| JASX1003 | Unclosed expression container at end of input | The `{` |
+| JASX1003 | Unclosed expression or statement container at end of input | The `{` |
 | JASX1004 | Duplicate attribute name on one element | The second occurrence |
 | JASX1005 | Invalid attribute value | The value |
 | JASX1006 | Unexpected token in markup | The token |

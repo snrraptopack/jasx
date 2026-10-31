@@ -103,6 +103,21 @@ The content of a non-empty expression container. Markup nested inside the Java e
 2. `JasxElement` for `<li>{i}</li>`
 3. `JavaCode` with source `).toList()`
 
+```
+interface JavaStatement <: Node {
+  type: "JavaStatement";
+  segments: [ JavaCode | JasxElement | JasxFragment | JasxMarkupStatement | JasxStyleBlock ];
+}
+```
+
+The content of a statement container (§6.8). Like `JavaExpression`, `segments` covers the whole range with no gaps, and the range excludes the surrounding `{` and `}`. Markup at the start of a statement appears as a `JasxMarkupStatement`, a style block written there as a `JasxStyleBlock`, and any other markup (an expression, by `grammar.md` §4) as `JasxElement` or `JasxFragment`.
+
+**Example.** For `{for (T t : ts) { <li>{t}</li> }}`, the `JavaStatement` has three segments:
+
+1. `JavaCode` with source `for (T t : ts) { `
+2. `JasxMarkupStatement` for `<li>{t}</li>`
+3. `JavaCode` with source ` }`
+
 ---
 
 ## 6. Markup nodes
@@ -201,7 +216,8 @@ interface JasxStringLiteral <: Node {
 ### 6.5 Children
 
 ```
-type JasxChild = JasxText | JasxElement | JasxFragment | JasxExpressionContainer | JasxStyleBlock;
+type JasxChild = JasxText | JasxElement | JasxFragment | JasxExpressionContainer | JasxStatementContainer
+               | JasxStyleBlock;
 
 interface JasxText <: Node {
   type: "JasxText";
@@ -237,7 +253,25 @@ interface JasxStyleBlock <: Node {
 }
 ```
 
-A style block (`grammar.md` §7.3) appears in `JasxCompilationUnit.segments`, or in `children` when it is written inside markup. Its `range` runs from the `<` of `<style>` to the end of `</style>`. Its `css` is not processed in any way: comments, whitespace and line terminators are kept. If the block is not closed (JASX1012), its range and its `css` run to the end of the file.
+A style block (`grammar.md` §7.3) appears in `JasxCompilationUnit.segments`, in `children` when it is written inside markup, or in `JavaStatement.segments` when it is written at the start of a statement in a statement container. Its `range` runs from the `<` of `<style>` to the end of `</style>`. Its `css` is not processed in any way: comments, whitespace and line terminators are kept. If the block is not closed (JASX1012), its range and its `css` run to the end of the file.
+
+### 6.8 Statement containers
+
+```
+interface JasxStatementContainer <: Node {
+  type: "JasxStatementContainer";
+  statement: JavaStatement;
+}
+
+interface JasxMarkupStatement <: Node {
+  type: "JasxMarkupStatement";
+  markup: JasxElement | JasxFragment;
+}
+```
+
+A statement container (`grammar.md` §6.7) is a child. Its `range` includes the braces, and the range of its `statement` excludes them; as for an expression container, the closing `}` may be a Unicode escape.
+
+A markup statement's `range` starts at its markup and ends after the `;` that follows it, if there is one, or else at the end of the markup. Comments and whitespace between the markup and the `;` are inside the range.
 
 ---
 
@@ -246,10 +280,13 @@ A style block (`grammar.md` §7.3) appears in `JasxCompilationUnit.segments`, or
 | Node | Parent field(s) where it appears |
 |---|---|
 | `JasxCompilationUnit` | root |
-| `JavaCode` | `JasxCompilationUnit.segments`, `JavaExpression.segments` |
+| `JavaCode` | `JasxCompilationUnit.segments`, `JavaExpression.segments`, `JavaStatement.segments` |
 | `JavaExpression` | `JasxExpressionContainer.expression` |
-| `JasxElement` | `segments`, `children`, `JasxAttribute.value` |
-| `JasxFragment` | `segments`, `children`, `JasxAttribute.value` |
+| `JavaStatement` | `JasxStatementContainer.statement` |
+| `JasxElement` | `segments`, `children`, `JasxAttribute.value`, `JasxMarkupStatement.markup` |
+| `JasxFragment` | `segments`, `children`, `JasxAttribute.value`, `JasxMarkupStatement.markup` |
+| `JasxStatementContainer` | `children` |
+| `JasxMarkupStatement` | `JavaStatement.segments` |
 | `JasxOpeningElement` | `JasxElement.openingElement` |
 | `JasxClosingElement` | `JasxElement.closingElement` |
 | `JasxOpeningFragment` | `JasxFragment.openingFragment` |
@@ -262,7 +299,7 @@ A style block (`grammar.md` §7.3) appears in `JasxCompilationUnit.segments`, or
 | `JasxText` | `children` |
 | `JasxExpressionContainer` | `children`, `JasxAttribute.value` |
 | `JasxEmptyExpression` | `JasxExpressionContainer.expression` |
-| `JasxStyleBlock` | `JasxCompilationUnit.segments`, `children` |
+| `JasxStyleBlock` | `JasxCompilationUnit.segments`, `children`, `JavaStatement.segments` |
 
 ---
 

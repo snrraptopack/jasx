@@ -22,6 +22,22 @@ Element Page(List<String> titles) {
 }
 ```
 
+Children can also come from Java statements: a `{...}` child that starts with `if`, `for`, `while`, `do` or a block runs that statement, and every piece of markup written at the start of a statement inside it adds a child:
+
+```java
+<ul>
+  {for (Todo t : todos) {
+    <li>{t.title()}</li>
+  }}
+  {if (todos.isEmpty()) {
+    <p>Nothing to do</p>
+  } else {
+    int done = countDone(todos);
+    <p>{done} of {todos.size()} done</p>
+  }}
+</ul>
+```
+
 A `.jasx` file is ordinary Java plus markup expressions. The JASX compiler rewrites only the markup, into plain method calls, and javac type-checks the result. Components are plain static methods, attributes are checked at compile time, and every Java feature works inside `{...}`.
 
 Methods and fields can be written at the top level of a `.jasx` file, as above. They become static members of a class named after the file (`app.Todos`), so other files use them with `import static app.Todos.*;`, or as `<Todos.Item ... />`. Without an access modifier they have package access, as in Java; declare them `public` to use them from other packages. Files with an ordinary `class` work too.

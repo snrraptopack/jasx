@@ -8,6 +8,8 @@ import jasx.parser.ast.Ast.JasxCompilationUnit;
 import jasx.parser.ast.Ast.JasxElement;
 import jasx.parser.ast.Ast.JasxEmptyExpression;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
+import jasx.parser.ast.Ast.JasxMarkupStatement;
+import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxIdentifier;
 import jasx.parser.ast.Ast.JasxNamespacedName;
@@ -19,6 +21,7 @@ import jasx.parser.ast.Ast.JasxText;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
+import jasx.parser.ast.Ast.JavaStatement;
 import jasx.parser.ast.Ast.Node;
 
 /**
@@ -122,6 +125,9 @@ public final class AstJson {
                 w.name("raw").value(t.raw());
             }
             case JasxExpressionContainer c -> field("expression", c.expression());
+            case JasxStatementContainer c -> field("statement", c.statement());
+            case JavaStatement st -> nodes("segments", st.segments());
+            case JasxMarkupStatement m -> field("markup", m.markup());
         }
         w.endObject();
     }

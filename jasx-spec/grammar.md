@@ -83,6 +83,8 @@ Comments and whitespace are not significant tokens. If there is no previous sign
 
 A `{` that opens a type body, a block, a lambda body or a switch block is **not** in **S**.
 
+Inside a statement container, markup is also recognized at the start of a statement (§6.7).
+
 ### 4.2 Array-initializer braces
 
 A `{` in Java mode opens an array initializer if and only if:
@@ -260,8 +262,11 @@ JasxChild:
     JasxElement
     JasxFragment
     JasxExpressionContainer
+    JasxStatementContainer
     JasxStyleBlock
 ```
+
+A child that starts with `{` is a `JasxStatementContainer` (§6.7) if the first significant token after the `{` is `{`, `if`, `for`, `while` or `do`; otherwise it is a `JasxExpressionContainer` (§6.6).
 
 A child that starts with `<style>` is a `JasxStyleBlock` (§7.3) unless the first character after `<style>` that is not whitespace is `{`. So `<style>{css}</style>`, whose content is an expression, remains an ordinary element, and so does `<style media="print">`, which has attributes.
 
@@ -277,6 +282,52 @@ The content between `{` and the matching `}` is scanned in **Java mode**. Brace 
 A container whose content is empty, or contains only whitespace and comments, is a `JasxEmptyExpression`. An empty container is permitted as a child (it renders nothing, and is the idiomatic way to write a comment in markup: `{/* note */}`) but not as an attribute value (JASX1008).
 
 `JavaExpression` is not parsed by JASX. Its validity as a Java expression is checked by javac after lowering.
+
+### 6.7 Statement containers
+
+```
+JasxStatementContainer:
+    { JavaStatement }
+```
+
+A statement container holds one Java statement instead of an expression, so that loops, conditionals and local variables can produce children:
+
+```java
+<ul>
+  {for (Todo t : todos) {
+    <li>{t.title()}</li>
+  }}
+  {if (todos.isEmpty()) {
+    <p>Nothing to do</p>
+  } else {
+    int done = countDone(todos);
+    <p>{done} of {todos.size()} done</p>
+  }}
+</ul>
+```
+
+A child container is a statement container when the first significant token after its `{` is `{` (a block: `{{ int n = 0; ... }}`), `if`, `for`, `while` or `do` (§6.5). No Java expression can begin with one of these tokens, so the choice never changes the meaning of a container that is an expression. A statement container is a child only; in attribute position, `{` always begins an expression container or a spread attribute (§6.4).
+
+The content between the braces is scanned in Java mode exactly like the content of an expression container (§6.6), including brace matching and markup detection by §4, with one addition: **markup statements**.
+
+**Markup statements.** Within a statement container, and not inside an expression container nested in it, a `<` also begins markup when it is at the **start of a statement**, that is, when the previous significant token is
+
+- `;`, when the innermost unclosed bracket is not `(`;
+- `}`;
+- a `{` that is not an array-initializer brace (§4.2); or
+- the end of a markup statement or of a style block.
+
+That markup, together with the next significant token if it is `;`, is a **markup statement**. Executing it adds the markup to the children (`semantics.md` §3.5). If the markup is `<style>` and the first character after `<style>` that is not whitespace is not `{`, it is a style block (§7.3) instead, as among children (§6.5).
+
+So in `{for (Todo t : todos) { <li>{t}</li> }}`, the `<li>` follows a block-opening `{` and is a markup statement, while in `{for (Todo t : todos) { Element e = <li>{t}</li>; }}` it follows `=` and is an ordinary markup expression (§4). Consecutive markup statements need no separator: `{ <dt>{k}</dt> <dd>{v}</dd> }`.
+
+Restrictions:
+
+- The body of a statement that contains a markup statement must be a block: `if (c) { <p/> }`, not `if (c) <p/>`. After `)` or `else`, `<` is not at the start of a statement, so `if (c) <p/>` is parsed as Java and javac rejects it.
+- Inside a statement container, a generic method declared without modifiers at the start of a local or anonymous class body (`<T> void m() {}`) and an explicit generic constructor invocation (`<String>this(x);`) are not supported, because their `<` is at the start of a statement. Add a modifier (`private <T> void m() {}`).
+- A markup statement after `->` in a switch statement (`case A -> <a/>;`) is not recognized, because `<` after `->` is a markup expression (§4.1). Write `case A -> { <a/> }`.
+
+`JavaStatement` is not parsed by JASX. Its validity is checked by javac after lowering (`semantics.md` §6.8).
 
 ---
 
@@ -368,7 +419,7 @@ The following are syntax errors that a conforming parser **MUST** report, with t
 |---|---|
 | The `JasxElementName` of a `JasxClosingElement` is not identical to that of its `JasxOpeningElement` | JASX1001 |
 | End of input inside markup (an unclosed element or fragment) | JASX1002 |
-| End of input inside a `JasxExpressionContainer` | JASX1003 |
+| End of input inside a `JasxExpressionContainer` or `JasxStatementContainer` | JASX1003 |
 | Two attributes of the same element have the same `JasxAttributeName` | JASX1004 |
 | An attribute value is not a string literal, expression container, element or fragment | JASX1005 |
 | An unexpected token in markup mode | JASX1006 |

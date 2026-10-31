@@ -1,0 +1,13 @@
+import jasx.runtime.Element;
+import java.util.List;
+
+Element Test() {
+  List<String> items = List.of("a", "b", "c");
+  return (
+    <ul>
+      {for (String item : items) {
+        <li>{item}</li>
+      }}
+    </ul>
+  );
+}

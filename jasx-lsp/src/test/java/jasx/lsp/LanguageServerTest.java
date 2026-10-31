@@ -334,6 +334,14 @@ class LanguageServerTest {
         }
 
         @Test
+        void markupStatementsAreCompleted() {
+            List<Map<String, Object>> tags = completeAt(page, pageWith("<ul>{for (int i = 0; i < 3; i++) { <|"));
+            assertTrue(labels(tags).contains("li"), labels(tags).toString());
+            List<Map<String, Object>> props = completeAt(page, pageWith("<ul>{if (true) { <Ui.Card |"));
+            assertEquals(List.of("title"), labels(props));
+        }
+
+        @Test
         void nothingIsOfferedInJavaOrInValues() {
             assertEquals(List.of(), labels(completeAt(page, pageWith("1 < le|"))));
             assertEquals(List.of(), labels(completeAt(page, pageWith("<a href=\"x|"))));

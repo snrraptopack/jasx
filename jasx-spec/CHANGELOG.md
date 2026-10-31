@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0-draft, revision 11
+
+### Added
+
+- **Statement containers** (`grammar.md` §6.5, §6.7, `ast.md` §5, §6.8, `semantics.md` §3.5, §6.8). A child `{...}` whose first token is `{`, `if`, `for`, `while` or `do` holds a Java statement instead of an expression. Inside it, markup at the start of a statement (after `;`, `}`, a block `{`, or another markup statement) is a **markup statement**, which adds its markup to the children each time it runs. So loops, `if`/`else` and local variables can produce children: `{for (Todo t : todos) { <li>{t}</li> }}`. It lowers to a switch expression whose block fills a list, so the statement can read and assign the enclosing local variables; `return` is not allowed in it. A statement child value is a dynamic child (`semantics.md` §8).
+- AST nodes `JasxStatementContainer`, `JavaStatement` and `JasxMarkupStatement`.
+- JASX1003 also covers an unclosed statement container.
+- Conformance tests `parse/016-statement-container`, `errors/014-unclosed-statement-container`, and `render/016-statement-for`, `017-statement-if-else`, `018-statement-block-and-locals`, `019-nested-statement-containers`.
+
 ## 1.0-draft, revision 10
 
 ### Changed

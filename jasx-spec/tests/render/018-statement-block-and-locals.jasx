@@ -1,0 +1,24 @@
+import jasx.runtime.Element;
+
+Element Test() {
+  int total = 0;
+  Element list = (
+    <ol>
+      {{
+        int i = 0;
+        while (true) {
+          i++;
+          if (i == 2) {
+            continue;
+          }
+          if (i > 4) {
+            break;
+          }
+          total += i;
+          <li>{i}</li>
+        }
+      }}
+    </ol>
+  );
+  return <>{list}<p>total {total}</p></>;
+}

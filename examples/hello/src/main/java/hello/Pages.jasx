@@ -31,7 +31,10 @@ Element TodoItem(Todo todo) {
     );
 }
 
-/** The home page: a list built with a stream, a computed summary, and a conditional message. */
+/**
+ * The home page: a computed summary, and a list or a message, chosen and built by Java statements inside the
+ * markup (a statement container, grammar.md §6.7).
+ */
 public Element Home(List<Todo> todos) {
     long done = todos.stream().filter(Todo::done).count();
 
@@ -43,9 +46,15 @@ public Element Home(List<Todo> todos) {
                 <Badge text="server-rendered" />
             </p>
 
-            {todos.isEmpty()
-                ? <p>Nothing to do &mdash; enjoy your day.</p>
-                : <ul>{todos.stream().map(t -> <TodoItem key={t.id()} todo={t} />).toList()}</ul>}
+            {if (todos.isEmpty()) {
+                <p>Nothing to do &mdash; enjoy your day.</p>
+            } else {
+                <ul>
+                    {for (Todo t : todos) {
+                        <TodoItem key={t.id()} todo={t} />
+                    }}
+                </ul>
+            }}
 
             <footer>
                 <small>Rendered by the <code>html</code> target &amp; plain Java.</small>

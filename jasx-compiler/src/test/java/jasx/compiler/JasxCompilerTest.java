@@ -1055,4 +1055,47 @@ class JasxCompilerTest {
             assertNull(VisibleComponents.named("Card", page, offset, index));
         }
     }
+
+    /** semantics.md §3.5, §6.8. */
+    @Nested
+    class StatementContainers {
+        @Test
+        void asTheChildrenOfAComponent() {
+            assertEquals("<ul><li>1</li><li>2</li></ul>", render("""
+                    static Element List(List<Element> children) { return <ul>{children}</ul>; }
+                    static Element Test() {
+                      return <List>{for (int i = 1; i <= 2; i++) { <li>{i}</li> }}</List>;
+                    }
+                    """));
+        }
+
+        @Test
+        void aStatementThatAddsNothingRendersNothing() {
+            assertEquals("<p></p>", render("""
+                    static Element Test() { return <p>{if (false) { <b/> }}</p>; }
+                    """));
+        }
+
+        @Test
+        void aStyleBlockInAStatementJoinsTheStyleSheet() {
+            String html = render("""
+                    static Element Test() {
+                      return <div>{jasx.html.Html.styles()}{if (true) { <style>b { color: red; }</style> <b>x</b> }}</div>;
+                    }
+                    """);
+            assertTrue(html.contains("b.jx-") && html.contains("<b class=\"jx-"), html);
+        }
+
+        @Test
+        void returnIsRejectedByJavacAtItsJasxPosition() {
+            SourceFile f = file("static Element Test() { return <p>{if (true) { return null; }}</p>; }");
+            CompilationResult r = compile(f);
+            assertFalse(r.hasErrors(), () -> format(r.diagnostics()));
+            JavacRunner.Result compiled = JavacRunner.compile(r.files(), List.of(), CLASSPATH);
+            assertFalse(compiled.success());
+            CompilerDiagnostic d = compiled.diagnostics().get(0);
+            assertEquals("T.jasx", d.path());
+            assertEquals(f.content().indexOf("return null"), d.diagnostic().start());
+        }
+    }
 }

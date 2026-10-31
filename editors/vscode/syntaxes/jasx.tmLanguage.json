@@ -64,7 +64,7 @@
       "patterns": [
         {
           "name": "meta.tag.jasx",
-          "begin": "(?<=^|[(\\[,=?:{]|->|&&|\\|\\||\\breturn|\\byield)\\s*(<)\\s*(>)",
+          "begin": "(?<=^|[(\\[,=?:{};]|->|&&|\\|\\||\\breturn|\\byield)\\s*(<)\\s*(>)",
           "beginCaptures": {
             "1": { "name": "punctuation.definition.tag.begin.jasx" },
             "2": { "name": "punctuation.definition.tag.end.jasx" }
@@ -78,7 +78,7 @@
         },
         {
           "name": "meta.tag.jasx",
-          "begin": "(?!(?<=^|\\{)\\s*<style>)(?<=^|[(\\[,=?:{]|->|&&|\\|\\||\\breturn|\\byield)\\s*(?!<\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?(?:\\s*,\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?)*\\s*>\\s*[A-Za-z_$][\\w$.]*(?:\\s*<[^()]*?>)?(?:\\s*\\[\\])*\\s+[A-Za-z_$][\\w$]*\\s*\\()(<)\\s*([A-Za-z_$][\\w$.:-]*)(?=[\\s/>{]|$)",
+          "begin": "(?!(?<=^|\\{)\\s*<style>)(?<=^|[(\\[,=?:{};]|->|&&|\\|\\||\\breturn|\\byield)\\s*(?!<\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?(?:\\s*,\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?)*\\s*>\\s*[A-Za-z_$][\\w$.]*(?:\\s*<[^()]*?>)?(?:\\s*\\[\\])*\\s+[A-Za-z_$][\\w$]*\\s*\\()(<)\\s*([A-Za-z_$][\\w$.:-]*)(?=[\\s/>{]|$)",
           "beginCaptures": {
             "1": { "name": "punctuation.definition.tag.begin.jasx" },
             "2": { "patterns": [{ "include": "#tag-name" }] }

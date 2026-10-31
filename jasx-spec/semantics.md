@@ -2,7 +2,7 @@
 
 **Spec version:** 1.0-draft
 
-This document defines what JASX markup **means** independently of any target. It covers how element names are classified, how text and attributes are normalized, how components are resolved and called, the standard **factory lowering**, the **target interface** through which targets plug in, the classification of **static and dynamic positions**, **file classes** for top-level declarations, and scoped **style blocks**.
+This document defines what JASX markup **means** independently of any target. It covers how element names are classified, how text and attributes are normalized, how components are resolved and called, the standard **factory lowering**, the **target interface** through which targets plug in, the classification of **static and dynamic positions**, **file classes** for top-level declarations, scoped **style blocks**, and **statement containers** (children produced by Java statements).
 
 JASX relates to its targets the way JSX relates to React, Preact or Solid. The language defines syntax and a standard transform to calls on a factory supplied by a library. A target is that library. It supplies the factory and an attribute schema and, optionally, its own lowering. Target-specific behaviour is specified separately, under [`targets/`](targets/).
 
@@ -95,6 +95,14 @@ Every target **MUST** interpret an expression child value according to its runti
 A `Boolean` is text (`true` / `false`) and is not hidden, because JASX does not change Java's semantics. Conditional rendering uses the conditional operator: `{flag ? <A/> : null}`.
 
 This contract is part of the language, not of a target, so that a component means the same thing on every target. How a target escapes text (for example HTML-escaping), and how it inserts raw content (for example a `rawHtml(String)` call), is target-defined.
+
+### 3.5 Statement containers
+
+A `JasxStatementContainer` (`grammar.md` §6.7) becomes a **statement child value**. Its value is a list: its statement is executed once, when the markup expression is evaluated, and every markup statement executed during that run appends the value of its markup to the list, in execution order. A markup statement inside a loop therefore appends once per iteration, and one in a branch not taken appends nothing.
+
+The list is interpreted by §3.4 like any `Iterable`: its items are the children, in order, where the container is written. A statement container that appends nothing renders nothing.
+
+The statement is ordinary Java and runs in the scope where the markup is written: it may read and assign local variables (an assignment is visible after the markup expression), declare its own, call methods, and use `break` and `continue` for loops inside it. It **MUST NOT** use `return`, or `break`, `continue` or `yield` that would leave the container; javac rejects them (§6.8).
 
 ---
 
@@ -335,6 +343,24 @@ This makes most javac diagnostics and runtime stack traces carry correct `.jasx`
 - Every child **MUST** reach `h` or `fragment` as exactly one variadic argument. A lowering **MUST** prevent javac from treating a lone `null` or array child as the variadic array itself, for example by casting each expression child to `Object`. (Otherwise `<p>{null}</p>` would pass a `null` array.)
 - Generated code **MUST** use fully qualified names for factory classes, builder classes and component classes.
 
+### 6.8 Statement containers
+
+A statement container lowers to a switch expression whose single `default` rule is a block, because a switch expression can hold statements and, unlike a lambda, can read and assign the enclosing local variables:
+
+```java
+(java.lang.Object) switch (0) { default -> {
+    java.util.ArrayList<java.lang.Object> V = new java.util.ArrayList<>();
+    S
+    yield V; } }
+```
+
+- `S` is the container's statement, lowered as Java code with markup in it (`JavaCode` copied, markup expressions lowered as everywhere else), except that each **markup statement** becomes `V.add((java.lang.Object) M);`, where `M` is the lowering of its markup. A style block in the statement is removed (§10.5).
+- `V` is a local variable name, chosen by the compiler, that starts with `jasx$` and is different from the name used by every other statement container of the file, so that nested containers don't clash.
+- The switch expression is the child argument; like every child (§6.7), it is cast to `Object`.
+- Line preservation (§6.5) applies: the text before `S` is placed on the line of the container's `{`, and the text after it on the line of its `}`.
+
+The lowering is why `return` is rejected inside a statement container: javac doesn't allow `return` to jump out of a switch expression. A `yield` in the statement would leave the generated switch, so it is not allowed either; `break` and `continue` work for loops inside the statement.
+
 ---
 
 ## 7. Targets
@@ -434,6 +460,7 @@ Every value position in markup is **static** or **dynamic**. This classification
 | A string-literal attribute value, a shorthand attribute | **static** |
 | An element or fragment, as a child or attribute value | static in itself; its own positions are classified separately |
 | An expression child value (§3.2) | **dynamic child** |
+| A statement child value (§3.5) | **dynamic child**; the markup of its markup statements is classified separately |
 | An expression container as the value of an intrinsic attribute whose schema kind is not `event` | **dynamic attribute** |
 | An expression container as the value of an intrinsic attribute of schema kind `event` | **handler** |
 | An expression container as the value of a component prop | **prop** |

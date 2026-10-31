@@ -1,0 +1,20 @@
+import jasx.runtime.Element;
+
+Element Count(int count) {
+  return (
+    <p>
+      {if (count == 0) {
+        <b>none</b>
+      } else if (count == 1) {
+        <i>one</i>
+      } else {
+        String label = count + " items";
+        <span>{label}</span>
+      }}
+    </p>
+  );
+}
+
+Element Test() {
+  return <div><Count count={0} /><Count count={1} /><Count count={5} /></div>;
+}

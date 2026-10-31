@@ -178,6 +178,7 @@ When running Java directly on Windows, separate classpath entries with `;`, not 
 - `<style>` is a **style block** (raw CSS up to `</style>`, `grammar.md` §6.5, §7.3) in two places: where a statement or member starts (in a class body, a method body, or at the top level of a file class), and as a child in markup when its content doesn't start with `{`. `<style>{css}</style>` and `<style>` with attributes are ordinary elements. A file may have several style blocks; they form one style sheet.
 - `ScopedCss` is not a CSS parser: it only finds selectors. Keep it that way; the spec (`semantics.md` §10.4) defines exactly what it reads. The same goes for `ScopeMatch` (§10.5), which only reads type, class and ID selectors at the top level of a compound and must err towards "may match".
 - A cast directly on markup (`(Element) <div/>`) is not supported, by design.
+- A child `{...}` starting with `{`, `if`, `for`, `while` or `do` is a **statement container** (`grammar.md` §6.7). Inside it, `<` at the start of a statement (after `;` outside parentheses, `}`, a block `{`, or a previous markup statement) is a markup statement; everywhere else §4 applies as usual. Bodies with markup statements must be blocks (`if (c) { <p/> }`). It lowers to `switch (0) { default -> { ArrayList jasx$childrenN ...; yield ...; } }` (`semantics.md` §6.8), which is why `return` is rejected inside.
 - Character references are decoded in text only. Attribute strings use Java escapes, so `title="a&amp;b"` keeps `&amp;` literally.
 
 ## Environment

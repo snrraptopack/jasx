@@ -13,6 +13,8 @@ import jasx.parser.ast.Ast.JasxElement;
 import jasx.parser.ast.Ast.JasxEmptyExpression;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
+import jasx.parser.ast.Ast.JasxMarkupStatement;
+import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JasxStringLiteral;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JasxText;
@@ -97,6 +99,9 @@ class JasxParserTest {
             case JasxAttribute a when a.value() != null -> visitExpressions(source, a.value());
             case JasxExpressionContainer c when c.expression() instanceof JavaExpression e ->
                     assertCovers(source, e.start(), e.end(), e.segments());
+            case JasxStatementContainer c ->
+                    assertCovers(source, c.statement().start(), c.statement().end(), c.statement().segments());
+            case JasxMarkupStatement m -> visitExpressions(source, m.markup());
             default -> {}
         }
     }
@@ -632,6 +637,81 @@ class JasxParserTest {
         void unclosedStyleBlockInMarkup() {
             // Only the innermost construct reports the end of input, so the <div> stays quiet.
             assertEquals(List.of("JASX1012"), codes("x = <div><style>a {}"));
+        }
+    }
+
+    /** grammar.md §6.7. */
+    @Nested
+    class StatementContainers {
+        /** The segments of the statement container that is the first child of the first element. */
+        private List<Segment> statementOf(String source) {
+            Child first = firstElement(source).children().get(0);
+            return assertInstanceOf(JasxStatementContainer.class, first).statement().segments();
+        }
+
+        /** The source text of each markup statement among {@code segments}. */
+        private static List<String> markupStatements(String source, List<Segment> segments) {
+            return segments.stream()
+                    .filter(s -> s instanceof JasxMarkupStatement)
+                    .map(s -> source.substring(s.start(), s.end()))
+                    .toList();
+        }
+
+        @Test
+        void eachStarterKeywordMakesAStatementContainer() {
+            for (String statement : List.of("{ <b/> }", "if (c) { <b/> }", "for (A a : as) { <b/> }",
+                    "while (c) { <b/> }", "do { <b/> } while (c);")) {
+                String source = "x = <p>{" + statement + "}</p>;";
+                assertEquals(List.of("<b/>"), markupStatements(source, statementOf(source)), source);
+            }
+        }
+
+        @Test
+        void otherContainersAreExpressions() {
+            assertInstanceOf(JasxExpressionContainer.class, firstElement("x = <p>{items}</p>;").children().get(0));
+            String switchExpression = "x = <p>{switch (k) { case 1 -> <a/>; default -> <b/>; }}</p>;";
+            assertInstanceOf(JasxExpressionContainer.class, firstElement(switchExpression).children().get(0));
+        }
+
+        @Test
+        void aMarkupStatementIncludesItsSemicolon() {
+            String source = "x = <ul>{for (A a : as) { <li/>; <hr/> }}</ul>;";
+            assertEquals(List.of("<li/>;", "<hr/>"), markupStatements(source, statementOf(source)));
+        }
+
+        @Test
+        void markupAfterAnOperatorIsAnExpression() {
+            String source = "x = <ul>{for (A a : as) { Element e = <li/>; <hr/> }}</ul>;";
+            List<Segment> segments = statementOf(source);
+            assertEquals(List.of("<hr/>"), markupStatements(source, segments));
+            assertTrue(segments.stream().anyMatch(s -> s instanceof JasxElement), "<li/> is a markup expression");
+        }
+
+        @Test
+        void semicolonsInAForHeaderDontStartStatements() {
+            String source = "x = <ul>{for (int i = 0; i < n; i++) { <li/> }}</ul>;";
+            assertEquals(List.of("<li/>"), markupStatements(source, statementOf(source)));
+        }
+
+        @Test
+        void aStyleBlockAtTheStartOfAStatement() {
+            String source = "x = <div>{if (c) { <style>p { margin: 0 }</style> <p/> }}</div>;";
+            List<Segment> segments = statementOf(source);
+            assertTrue(segments.stream().anyMatch(s -> s instanceof JasxStyleBlock), segments.toString());
+            assertEquals(List.of("<p/>"), markupStatements(source, segments));
+        }
+
+        @Test
+        void markupInANestedExpressionContainerFollowsTheUsualRule() {
+            // Inside {f(c)}, '<' after '(' is a markup expression; no markup statement there.
+            String source = "x = <ul>{for (A a : as) { <li>{f(<b/>)}</li> }}</ul>;";
+            assertEquals(List.of("<li>{f(<b/>)}</li>"), markupStatements(source, statementOf(source)));
+        }
+
+        @Test
+        void anUnclosedStatementContainer() {
+            // Only the innermost construct reports the end of input.
+            assertEquals(List.of("JASX1003"), codes("x = <ul>{for (A a : as) {\n <li/>\n"));
         }
     }
 }

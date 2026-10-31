@@ -13,6 +13,8 @@ import jasx.parser.ast.Ast.JasxAttribute;
 import jasx.parser.ast.Ast.JasxElement;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
+import jasx.parser.ast.Ast.JasxMarkupStatement;
+import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JavaExpression;
 import jasx.parser.ast.Ast.Node;
@@ -161,6 +163,13 @@ final class StyleBlocks {
                     collect(segment, into);
                 }
             }
+            // Statement containers (grammar.md §6.7) may hold style blocks and markup statements.
+            case JasxStatementContainer container -> {
+                for (Segment segment : container.statement().segments()) {
+                    collect(segment, into);
+                }
+            }
+            case JasxMarkupStatement statement -> collect(statement.markup(), into);
             default -> {} // Java code, text, names, ...
         }
     }

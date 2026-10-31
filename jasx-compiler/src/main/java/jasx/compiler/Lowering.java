@@ -21,7 +21,9 @@ import jasx.parser.ast.Ast.JasxEmptyExpression;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxIdentifier;
+import jasx.parser.ast.Ast.JasxMarkupStatement;
 import jasx.parser.ast.Ast.JasxNamespacedName;
+import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JasxStringLiteral;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JasxText;
@@ -89,6 +91,19 @@ final class Lowering {
         }
     }
 
+    /** A {@code {for ...}}, {@code {if ...}}, ... child: a statement whose markup statements add children. */
+    private record StatementValue(JasxStatementContainer container) implements ChildValue {
+        @Override
+        public int start() {
+            return container.start();
+        }
+
+        @Override
+        public int end() {
+            return container.end();
+        }
+    }
+
     /** A nested element or fragment. */
     private record MarkupValue(Markup markup) implements ChildValue {
         @Override
@@ -119,6 +134,8 @@ final class Lowering {
     private StyleBlocks.Plan styles;
     /** The component tags resolved so far, for editor tooling (CompilationResult.uses). */
     private final List<CompilationResult.Use> uses = new ArrayList<>();
+    /** How many statement containers were lowered: each gets its own list variable (semantics.md §6.8). */
+    private int statementContainers;
 
     Lowering(SourceFile file, LineMap lines, Target target, Resolver resolver) {
         this.file = file;
@@ -583,6 +600,11 @@ final class Lowering {
                 expression(v.expression());
                 out.emit("))", v.end() - 1);
             }
+            case StatementValue s -> {
+                out.emit(factory + ".fragment(", s.start());
+                statementContainer(s.container());
+                out.emit(")", s.end() - 1);
+            }
         }
     }
 
@@ -621,7 +643,41 @@ final class Lowering {
                 expression(v.expression());
                 out.emit(")", v.end() - 1);
             }
+            case StatementValue s -> statementContainer(s.container());
         }
+    }
+
+    /**
+     * A statement container (semantics.md §6.8), as a switch expression whose block runs the statement and
+     * yields the list its markup statements filled:
+     *
+     * <pre>
+     *   {for (T t : ts) { &lt;li&gt;{t}&lt;/li&gt; }}
+     *   →  (java.lang.Object) switch (0) { default -&gt; { java.util.ArrayList&lt;java.lang.Object&gt; jasx$children0 =
+     *          new java.util.ArrayList&lt;&gt;(); for (T t : ts) { jasx$children0.add((java.lang.Object) (F.h("li", ...))); }
+     *          yield jasx$children0; } }
+     * </pre>
+     *
+     * <p>A switch expression rather than a lambda, so that the statement can assign local variables of the
+     * enclosing method. Each container of the file gets its own list name, so that nested ones don't clash.
+     */
+    private void statementContainer(JasxStatementContainer container) {
+        String list = "jasx$children" + statementContainers++;
+        out.emit(OBJECT_CAST + "switch (0) { default -> { java.util.ArrayList<java.lang.Object> " + list
+                + " = new java.util.ArrayList<>(); ", container.start());
+        for (Segment segment : container.statement().segments()) {
+            switch (segment) {
+                case JasxMarkupStatement statement -> {
+                    out.emit(list + ".add(" + OBJECT_CAST + "(", statement.start());
+                    markup(statement.markup());
+                    out.emit("));", statement.end() - 1);
+                }
+                case Markup markup -> markup(markup); // a markup expression, as anywhere in Java code
+                case JasxStyleBlock block -> {} // removed; its CSS is in the style sheet (§10.5)
+                default -> out.copy(segment.start(), segment.end());
+            }
+        }
+        out.emit(" yield " + list + "; } }", container.end() - 1);
     }
 
     /** {@code {expr}} as an attribute or prop value: {@code (expr)}. */
@@ -664,6 +720,7 @@ final class Lowering {
                         values.add(new ExpressionValue(container));
                     }
                 }
+                case JasxStatementContainer container -> values.add(new StatementValue(container));
                 case Markup markup -> values.add(new MarkupValue(markup));
                 case JasxStyleBlock block -> {} // not a child value: its CSS is in the style sheet (§3.3)
             }

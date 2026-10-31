@@ -20,15 +20,18 @@ import jasx.parser.ast.Ast.JasxEmptyExpression;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxIdentifier;
+import jasx.parser.ast.Ast.JasxMarkupStatement;
 import jasx.parser.ast.Ast.JasxNamespacedName;
 import jasx.parser.ast.Ast.JasxOpeningElement;
 import jasx.parser.ast.Ast.JasxOpeningFragment;
 import jasx.parser.ast.Ast.JasxQualifiedName;
+import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JasxStringLiteral;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JasxText;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
+import jasx.parser.ast.Ast.JavaStatement;
 import jasx.parser.ast.Ast.Markup;
 import jasx.parser.ast.Ast.Segment;
 
@@ -57,7 +60,7 @@ public final class JasxParser {
 
     public static ParseResult parse(String source, String sourceFile) {
         JasxParser parser = new JasxParser(source);
-        JavaScan scan = parser.scanJava(0, false);
+        JavaScan scan = parser.scanJava(0, JavaContext.TOP_LEVEL);
         JasxCompilationUnit unit = new JasxCompilationUnit(0, source.length(), sourceFile, scan.segments());
         return new ParseResult(unit, List.copyOf(parser.diagnostics));
     }
@@ -82,6 +85,17 @@ public final class JasxParser {
     private static final Tok LITERAL = Tok.of("0");
     /** A complete style block, which ends a member like a {@code ;} does. */
     private static final Tok STYLE_BLOCK = Tok.of("<style>");
+    /** A complete markup statement, which ends a statement like a {@code ;} does (grammar.md §6.7). */
+    private static final Tok MARKUP_STATEMENT = Tok.of("<jasx>;");
+
+    /**
+     * Where Java mode is being scanned: the top level of the file, the content of an expression container,
+     * or the content of a statement container, where markup can also start a statement (grammar.md §6.7).
+     */
+    private enum JavaContext { TOP_LEVEL, EXPRESSION, STATEMENT }
+
+    /** The tokens after which a child {@code {} holds a statement rather than an expression (grammar.md §6.5). */
+    private static final Set<String> STATEMENT_STARTERS = Set.of("{", "if", "for", "while", "do");
 
     private static final String STYLE_OPEN = "<style>";
     private static final String STYLE_CLOSE = "</style>";
@@ -107,10 +121,11 @@ public final class JasxParser {
     }
 
     /**
-     * Scans Java mode from {@code from}. At top level it runs to end of input; inside an expression
-     * container it stops before the '}' that closes the container.
+     * Scans Java mode from {@code from}. At top level it runs to end of input; inside a container it stops
+     * before the '}' that closes the container.
      */
-    private JavaScan scanJava(int from, boolean inContainer) {
+    private JavaScan scanJava(int from, JavaContext context) {
+        boolean inContainer = context != JavaContext.TOP_LEVEL;
         List<Segment> segments = new ArrayList<>();
         Deque<Bracket> brackets = new ArrayDeque<>();
         Tok prev = inContainer ? CONTAINER_OPEN : NO_TOKEN;
@@ -129,13 +144,22 @@ public final class JasxParser {
                 return new JavaScan(segments, pos, empty, true);
             }
             empty = false;
-            if (!inContainer && startsStyleBlock(prev, brackets)) {
+            boolean markupStatement = context == JavaContext.STATEMENT && src.charAt(pos) == '<'
+                    && atStatementStart(prev, brackets);
+            if (context == JavaContext.TOP_LEVEL && startsStyleBlock(prev, brackets)) {
                 addJavaCode(segments, chunk, pos);
                 JasxStyleBlock block = parseStyleBlock(pos);
                 segments.add(block);
                 pos = block.end();
                 chunk = pos;
                 prev = STYLE_BLOCK;
+            } else if (markupStatement) {
+                addJavaCode(segments, chunk, pos);
+                Segment statement = parseMarkupStatement(pos);
+                segments.add(statement);
+                pos = statement.end();
+                chunk = pos;
+                prev = statement instanceof JasxStyleBlock ? STYLE_BLOCK : MARKUP_STATEMENT;
             } else if (src.charAt(pos) == '<' && introducesMarkup(prev)) {
                 addJavaCode(segments, chunk, pos);
                 Markup markup = parseMarkup(pos);
@@ -183,6 +207,40 @@ public final class JasxParser {
             default -> {}
         }
         return Tok.of(text);
+    }
+
+    /**
+     * Whether a {@code <} preceded by {@code prev} is at the start of a statement in a statement container
+     * (grammar.md §6.7): after {@code ;} (not in a {@code for} header), {@code }}, a block {@code {}, or
+     * another markup statement or style block.
+     */
+    private static boolean atStatementStart(Tok prev, Deque<Bracket> brackets) {
+        if (prev == MARKUP_STATEMENT || prev == STYLE_BLOCK) {
+            return true;
+        }
+        return switch (prev.text()) {
+            case ";" -> brackets.isEmpty() || brackets.peek().kind() != '(';
+            case "}" -> true;
+            case "{" -> !prev.arrayInit();
+            default -> false;
+        };
+    }
+
+    /**
+     * Parses a markup statement whose {@code <} is at {@code lt}: the markup and the {@code ;} after it, if
+     * any (grammar.md §6.7). A {@code <style>} whose content isn't an expression is a style block instead.
+     */
+    private Segment parseMarkupStatement(int lt) {
+        if (startsStyleBlockChild()) {
+            return parseStyleBlock(lt);
+        }
+        Markup markup = parseMarkup(lt);
+        int end = markup.end();
+        int next = lexer.skipTrivia(end);
+        if (lexer.charAt(next) == ';') {
+            end = lexer.next(next); // the ';' may be written as a Unicode escape
+        }
+        return new JasxMarkupStatement(lt, end, markup);
     }
 
     /** Whether a 'yield' preceded by {@code prev} begins a statement (grammar.md §4.3). */
@@ -369,10 +427,12 @@ public final class JasxParser {
         }
     }
 
-    /** Parses one child at {@code pos}: an expression container, nested markup, or text. */
+    /** Parses one child at {@code pos}: a container, nested markup, a style block, or text. */
     private void parseChild(List<Child> children) {
         char c = src.charAt(pos);
-        if (c == '{') {
+        if (c == '{' && startsStatementContainer(pos)) {
+            children.add(parseStatementContainer(pos));
+        } else if (c == '{') {
             children.add(parseExpressionContainer(pos));
         } else if (startsStyleBlockChild()) {
             JasxStyleBlock block = parseStyleBlock(pos);
@@ -661,7 +721,7 @@ public final class JasxParser {
      * is a {@code JasxEmptyExpression}.
      */
     private JasxExpressionContainer parseExpressionContainer(int lbrace) {
-        JavaScan scan = scanJava(lbrace + 1, true);
+        JavaScan scan = scanJava(lbrace + 1, JavaContext.EXPRESSION);
 
         int end;
         if (scan.closed()) {
@@ -684,6 +744,40 @@ public final class JasxParser {
 
         pos = end;
         return new JasxExpressionContainer(lbrace, end, expression);
+    }
+
+    /**
+     * Whether the child container whose {@code {} is at {@code lbrace} holds a statement: its first
+     * significant token is {@code {}, {@code if}, {@code for}, {@code while} or {@code do} (grammar.md §6.5).
+     */
+    private boolean startsStatementContainer(int lbrace) {
+        int first = lexer.skipTrivia(lbrace + 1);
+        if (lexer.charAt(first) < 0) {
+            return false;
+        }
+        JavaLexer.Token token = lexer.lex(first);
+        boolean keywordOrBrace = token.kind() == JavaLexer.Kind.IDENTIFIER || token.kind() == JavaLexer.Kind.OPERATOR;
+        return keywordOrBrace && STATEMENT_STARTERS.contains(token.text());
+    }
+
+    /**
+     * Parses a statement container {@code {...}} whose {@code {} is at {@code lbrace} (grammar.md §6.7). Its
+     * content is scanned in Java mode, where markup at the start of a statement is a markup statement.
+     */
+    private JasxStatementContainer parseStatementContainer(int lbrace) {
+        JavaScan scan = scanJava(lbrace + 1, JavaContext.STATEMENT);
+
+        int end;
+        if (scan.closed()) {
+            end = lexer.next(scan.end()); // the closing '}' may be a Unicode escape, as for expressions
+        } else {
+            reportEof("JASX1003", "unclosed statement container", lbrace, lbrace + 1);
+            end = len;
+        }
+
+        JavaStatement statement = new JavaStatement(lbrace + 1, scan.end(), scan.segments());
+        pos = end;
+        return new JasxStatementContainer(lbrace, end, statement);
     }
 
     /**

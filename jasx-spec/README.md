@@ -50,6 +50,7 @@ Like JSX, JASX is a language, not a framework. The core specification defines th
 | **Intrinsic element** | An element whose name denotes a target-defined tag (e.g. `div`). |
 | **Component element** | An element whose name denotes a component method (e.g. `TodoItem`). |
 | **File class** | The class, named after the file, that holds the top-level fields and methods of a `.jasx` file (`semantics.md` §9). |
+| **Statement container** | A child `{...}` that holds a Java statement (`{for ...}`, `{if ...}`, `{{ ... }}`) whose **markup statements** add children (`grammar.md` §6.7, `semantics.md` §3.5). |
 | **Style block** | A `<style>...</style>` block of CSS in a `.jasx` file, scoped to the elements written in that file (`semantics.md` §10). |
 | **Component** | A static Java method that returns `jasx.runtime.Element` and is registered in the component index. |
 | **Target** | A library that gives markup its meaning: a descriptor, a factory class, attribute builders, a schema, and optionally a custom lowering (e.g. `html`). |

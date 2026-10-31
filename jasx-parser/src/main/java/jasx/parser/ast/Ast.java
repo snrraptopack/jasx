@@ -47,6 +47,21 @@ public final class Ast {
 
     public record JavaExpression(int start, int end, List<Segment> segments) implements Expression {}
 
+    /**
+     * The content of a statement container (grammar.md §6.7). Its segments are {@code JavaCode}, markup
+     * expressions, {@link JasxMarkupStatement}s and style blocks.
+     */
+    public record JavaStatement(int start, int end, List<Segment> segments) implements Node {}
+
+    /** A child {@code {...}} holding a Java statement instead of an expression (grammar.md §6.7). */
+    public record JasxStatementContainer(int start, int end, JavaStatement statement) implements Child {}
+
+    /**
+     * Markup at the start of a statement in a statement container, with the {@code ;} after it if there is one.
+     * Executing it adds the markup to the children (semantics.md §3.5).
+     */
+    public record JasxMarkupStatement(int start, int end, Markup markup) implements Segment {}
+
     public record JasxEmptyExpression(int start, int end, String source) implements Expression {}
 
     public record JasxElement(

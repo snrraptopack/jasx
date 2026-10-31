@@ -72,6 +72,15 @@
         { "$ref": "#/$defs/JasxFragment" }
       ]
     },
+    "StatementSegment": {
+      "oneOf": [
+        { "$ref": "#/$defs/JavaCode" },
+        { "$ref": "#/$defs/JasxElement" },
+        { "$ref": "#/$defs/JasxFragment" },
+        { "$ref": "#/$defs/JasxMarkupStatement" },
+        { "$ref": "#/$defs/JasxStyleBlock" }
+      ]
+    },
 
     "JavaCode": {
       "allOf": [{ "$ref": "#/$defs/NodeBase" }],
@@ -105,6 +114,18 @@
         "type": { "const": "JavaExpression" },
         "range": true, "loc": true,
         "segments": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Segment" } }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JavaStatement": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["segments"],
+      "properties": {
+        "type": { "const": "JavaStatement" },
+        "range": true, "loc": true,
+        "segments": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/StatementSegment" } }
       },
       "patternProperties": { "^_": true },
       "additionalProperties": false
@@ -284,8 +305,38 @@
         { "$ref": "#/$defs/JasxElement" },
         { "$ref": "#/$defs/JasxFragment" },
         { "$ref": "#/$defs/JasxExpressionContainer" },
+        { "$ref": "#/$defs/JasxStatementContainer" },
         { "$ref": "#/$defs/JasxStyleBlock" }
       ]
+    },
+    "JasxStatementContainer": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["statement"],
+      "properties": {
+        "type": { "const": "JasxStatementContainer" },
+        "range": true, "loc": true,
+        "statement": { "$ref": "#/$defs/JavaStatement" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxMarkupStatement": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["markup"],
+      "properties": {
+        "type": { "const": "JasxMarkupStatement" },
+        "range": true, "loc": true,
+        "markup": {
+          "oneOf": [
+            { "$ref": "#/$defs/JasxElement" },
+            { "$ref": "#/$defs/JasxFragment" }
+          ]
+        }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
     },
     "JasxText": {
       "allOf": [{ "$ref": "#/$defs/NodeBase" }],

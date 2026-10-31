@@ -136,6 +136,14 @@ test("markup nested in an expression inside markup", () => {
   assertScope(source, "li", "entity.name.tag.jasx", 2);
 });
 
+test("markup statements in a statement container (grammar.md §6.7)", () => {
+  const source = "x = <ul>{for (A a : as) { <li>{a}</li>; <hr/> }}</ul>;";
+  assertScope(source, "li", "entity.name.tag.jasx", 1);
+  assertScope(source, "hr", "entity.name.tag.jasx", 1);
+  // A generic method after ';' is still Java.
+  assertNoScope("int x; <T> void m(T t) {}", "T", "entity.name.tag.jasx");
+});
+
 test("markup as an attribute value", () => {
   assertScope("x = <Card icon=<Icon /> />;", "Icon", "support.class.component.jasx");
 });

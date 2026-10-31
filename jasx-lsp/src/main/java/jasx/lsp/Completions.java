@@ -18,7 +18,9 @@ import jasx.parser.ast.Ast.JasxAttribute;
 import jasx.parser.ast.Ast.JasxElement;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
+import jasx.parser.ast.Ast.JasxMarkupStatement;
 import jasx.parser.ast.Ast.JasxOpeningElement;
+import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JavaExpression;
 
 /**
@@ -106,8 +108,16 @@ final class Completions {
             case JasxElement element -> inElement(element, text);
             case JasxFragment fragment -> fragment.closingFragment() == null ? inLast(fragment.children(), text) : null;
             case JasxExpressionContainer container -> inContainer(container, text);
+            case JasxStatementContainer container -> inStatementContainer(container, text);
+            case JasxMarkupStatement statement -> inLast(List.of(statement.markup()), text);
             default -> null;
         };
+    }
+
+    /** In {@code {for ...}} that isn't closed yet: markup may be typed in the statement (grammar.md §6.7). */
+    private static Context inStatementContainer(JasxStatementContainer container, String text) {
+        boolean closed = text.charAt(container.end() - 1) == '}';
+        return closed ? null : inLast(container.statement().segments(), text);
     }
 
     private static Context inElement(JasxElement element, String text) {
