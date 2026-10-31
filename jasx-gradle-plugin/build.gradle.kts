@@ -29,13 +29,22 @@ val testTargetClasspath = configurations.create("testTargetClasspath") {
     isCanBeResolved = true
 }
 
+// The annotation processor and what it needs, for the multi-project test (a library that publishes its
+// components to another project).
+val testProcessorClasspath = configurations.create("testProcessorClasspath") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
     testTargetClasspath(project(":jasx-target-html"))
+    testProcessorClasspath(project(":jasx-processor"))
 }
 
 tasks.test {
-    inputs.files(testTargetClasspath)
+    inputs.files(testTargetClasspath, testProcessorClasspath)
     doFirst {
         systemProperty("jasx.test.targetClasspath", testTargetClasspath.asPath)
+        systemProperty("jasx.test.processorClasspath", testProcessorClasspath.asPath)
     }
 }

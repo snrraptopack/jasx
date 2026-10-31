@@ -30,7 +30,9 @@ import org.gradle.jvm.toolchain.JavaLanguageVersion;
  * classpaths to {@code build/jasx/editor/main.json} for the JASX language server ({@link JasxEditorInfo}).
  *
  * <p>The output directory is added to the source set's Java sources, so {@code compileJava} depends on
- * {@code compileJasx} and compiles the generated files along with the hand-written ones.
+ * {@code compileJasx} and compiles the generated files along with the hand-written ones. Afterwards, the
+ * classes compiled from generated files are made to name their {@code .jasx} source
+ * ({@link PointClassesAtJasxSources}), so stack traces say {@code Pages.jasx:12}.
  */
 public final class JasxPlugin implements Plugin<Project> {
 
@@ -99,7 +101,12 @@ public final class JasxPlugin implements Plugin<Project> {
                 });
 
         // Adding the task's output as a source directory also makes compileJava depend on the task.
-        sourceSet.getJava().srcDir(compileJasx.flatMap(JasxCompile::getOutputDirectory));
+        Provider<Directory> generatedSources = compileJasx.flatMap(JasxCompile::getOutputDirectory);
+        sourceSet.getJava().srcDir(generatedSources);
+
+        // Classes compiled from generated files name their .jasx source, for stack traces and debuggers.
+        project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class).configure(task ->
+                task.doLast("pointClassesAtJasxSources", new PointClassesAtJasxSources(generatedSources)));
     }
 
     /**

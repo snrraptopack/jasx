@@ -88,6 +88,8 @@ dependencies {
 
 Put `.jasx` files next to your `.java` files (`src/main/java`) or in `src/main/jasx`. The `compileJasx` task turns them into Java before `compileJava` runs. JASX errors, and javac errors in code that came from markup, are reported once, with their `.jasx` file, line and column. To do that, `compileJasx` type-checks the generated Java with javac before `compileJava` runs (with the same classpath, annotation processors and Java release). This compiles the source set a second time; if that is too slow, `jasx { typeCheck.set(false) }` turns it off, and javac's errors then point at the generated files, on the same line numbers.
 
+Compiled classes name their `.jasx` file, so stack traces read `at app.Pages.Home(Pages.jasx:12)`, with the line number of the `.jasx` source. The plugin works with Gradle's configuration cache and in multi-project builds.
+
 The artifacts are not in a public repository yet. Run `./gradlew publishToMavenLocal` in this repository, and add `mavenLocal()` to your project's `repositories` and to `pluginManagement.repositories` in its settings.
 
 For libraries, add `jasx-processor` as an annotation processor. It writes `META-INF/jasx/components.json` into your jar, so other projects can use your components from markup.

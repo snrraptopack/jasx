@@ -66,6 +66,13 @@ class JasxPluginFunctionalTest {
         Files.writeString(file, content, StandardCharsets.UTF_8);
     }
 
+    /** The jars of a classpath passed in by the build, as Kotlin string literals: "C:/.../a.jar", ... */
+    private static String kotlinFiles(String property) {
+        return Arrays.stream(System.getProperty(property).split(File.pathSeparator))
+                .map(path -> "\"" + path.replace('\\', '/') + "\"")
+                .collect(Collectors.joining(", "));
+    }
+
     private GradleRunner gradle(String... arguments) {
         return GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath().withArguments(arguments);
     }
@@ -251,6 +258,122 @@ class JasxPluginFunctionalTest {
         assertTrue(info.contains("jasx-target-html"), info);
         assertTrue(info.contains("\"compileClasspath\""), info);
         assertTrue(info.contains("\"processorPath\""), info);
+    }
+
+    @Test
+    void stackTracesNameTheJasxFile() throws IOException {
+        write("src/main/java/app/Pages.jasx", """
+                package app;
+
+                public class Pages {
+                    public static jasx.runtime.Element Home() {
+                        return <p>{Integer.parseInt("not a number")}</p>;
+                    }
+                }
+                """);
+        write("src/main/java/app/Main.java", """
+                package app;
+
+                public class Main {
+                    public static void main(String[] args) {
+                        try {
+                            Pages.Home();
+                        } catch (NumberFormatException e) {
+                            for (StackTraceElement frame : e.getStackTrace()) {
+                                if (frame.getClassName().equals("app.Pages")) {
+                                    System.out.println("frame: " + frame);
+                                }
+                            }
+                        }
+                    }
+                }
+                """);
+
+        BuildResult result = gradle("run", "-q").build();
+
+        // Line 5 of Pages.jasx, where the markup is.
+        assertTrue(result.getOutput().contains("frame: app.Pages.Home(Pages.jasx:5)"), result.getOutput());
+    }
+
+    @Test
+    void worksWithTheConfigurationCache() throws IOException {
+        write("src/main/java/app/Pages.jasx", """
+                package app;
+                public class Pages {
+                    public static jasx.runtime.Element Home() { return <p>cached</p>; }
+                }
+                """);
+
+        BuildResult first = gradle("run", "--configuration-cache").build();
+        BuildResult second = gradle("run", "--configuration-cache").build();
+
+        assertTrue(first.getOutput().contains("<p>cached</p>"), first.getOutput());
+        assertTrue(second.getOutput().contains("Configuration cache entry reused"), second.getOutput());
+        assertTrue(second.getOutput().contains("<p>cached</p>"), second.getOutput());
+    }
+
+    @Test
+    void usesTheComponentsOfAnotherProject() throws IOException {
+        // A library whose .jasx components the processor publishes, and an application that uses them.
+        write("settings.gradle.kts", "rootProject.name = \"multi\"\ninclude(\"lib\", \"app\")\n");
+        write("build.gradle.kts", "");
+        write("lib/build.gradle.kts", """
+                plugins {
+                    `java-library`
+                    id("dev.jasx")
+                }
+
+                dependencies {
+                    api(files(%s))
+                    annotationProcessor(files(%s))
+                }
+                """.formatted(kotlinFiles("jasx.test.targetClasspath"), kotlinFiles("jasx.test.processorClasspath")));
+        write("lib/src/main/java/lib/Ui.jasx", """
+                package lib;
+
+                import jasx.runtime.Element;
+
+                public Element Badge(String text) {
+                  return <b>{text}</b>;
+                }
+                """);
+        write("app/build.gradle.kts", """
+                plugins {
+                    application
+                    id("dev.jasx")
+                }
+
+                dependencies {
+                    implementation(project(":lib"))
+                }
+
+                application {
+                    mainClass.set("app.Main")
+                }
+                """);
+        write("app/src/main/java/app/Pages.jasx", """
+                package app;
+
+                import jasx.runtime.Element;
+                import lib.Ui;
+
+                public Element Home() {
+                  return <p><Ui.Badge text="from lib" /></p>;
+                }
+                """);
+        write("app/src/main/java/app/Main.java", """
+                package app;
+
+                public class Main {
+                    public static void main(String[] args) {
+                        System.out.println(jasx.html.Html.render(Pages.Home()));
+                    }
+                }
+                """);
+
+        BuildResult result = gradle(":app:run", "-q").build();
+
+        assertTrue(result.getOutput().contains("<p><b>from lib</b></p>"), result.getOutput());
     }
 
     @Test
