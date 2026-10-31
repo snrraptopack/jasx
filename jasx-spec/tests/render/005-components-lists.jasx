@@ -1,0 +1,17 @@
+import jasx.runtime.Element;
+import java.util.List;
+
+class T {
+  static Element Item(String label, boolean done) {
+    return <li class={done ? "done" : "todo"}>{label}</li>;
+  }
+
+  static Element Test() {
+    var items = List.of("a", "b");
+    return (
+      <ul>
+        {items.stream().map(s -> <Item done={s.equals("b")} label={s} />).toList()}
+      </ul>
+    );
+  }
+}

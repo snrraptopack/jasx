@@ -1,0 +1,17 @@
+import jasx.runtime.Element;
+import java.util.List;
+
+class T {
+  static Element Card(String title, List<Element> children) {
+    return <section><h2>{title}</h2>{children}</section>;
+  }
+
+  static Element Test() {
+    return (
+      <Card title="T">
+        <p>one</p>
+        <p>two</p>
+      </Card>
+    );
+  }
+}

@@ -1,0 +1,9 @@
+import jasx.runtime.Element;
+import java.util.List;
+import java.util.Optional;
+
+class T {
+  static Element Test() {
+    return <p>{null}{Optional.empty()}{Optional.of("x")}{true}{List.of(1, 2)}</p>;
+  }
+}

@@ -1,0 +1,4 @@
+# Conformance fixtures are byte-exact (AST ranges): never convert line endings.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.jar binary

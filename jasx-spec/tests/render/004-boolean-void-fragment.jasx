@@ -1,0 +1,7 @@
+import jasx.runtime.Element;
+
+class T {
+  static Element Test() {
+    return <><input type="checkbox" checked disabled={false} /><br /></>;
+  }
+}

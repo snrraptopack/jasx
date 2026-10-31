@@ -1,0 +1,1 @@
+Element e = <ul>{items.stream().map(i -> <li>{i}</li>).toList()}</ul>;

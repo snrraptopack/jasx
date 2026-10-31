@@ -1,0 +1,187 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    192
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 10,
+      "column": 0
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "009-yield.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        141
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 5,
+          "column": 20
+        }
+      },
+      "source": "class A {\n  static boolean small(int yield) { return yield < 2; }\n  static Element view(int k) {\n    return switch (k) {\n      case 0: yield "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        141,
+        145
+      ],
+      "loc": {
+        "start": {
+          "line": 5,
+          "column": 20
+        },
+        "end": {
+          "line": 5,
+          "column": 24
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          141,
+          145
+        ],
+        "loc": {
+          "start": {
+            "line": 5,
+            "column": 20
+          },
+          "end": {
+            "line": 5,
+            "column": 24
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            142,
+            143
+          ],
+          "loc": {
+            "start": {
+              "line": 5,
+              "column": 21
+            },
+            "end": {
+              "line": 5,
+              "column": 22
+            }
+          },
+          "name": "p"
+        },
+        "attributes": [],
+        "selfClosing": true
+      },
+      "children": [],
+      "closingElement": null
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        145,
+        170
+      ],
+      "loc": {
+        "start": {
+          "line": 5,
+          "column": 24
+        },
+        "end": {
+          "line": 6,
+          "column": 23
+        }
+      },
+      "source": ";\n      default: { yield "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        170,
+        175
+      ],
+      "loc": {
+        "start": {
+          "line": 6,
+          "column": 23
+        },
+        "end": {
+          "line": 6,
+          "column": 28
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          170,
+          175
+        ],
+        "loc": {
+          "start": {
+            "line": 6,
+            "column": 23
+          },
+          "end": {
+            "line": 6,
+            "column": 28
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            171,
+            173
+          ],
+          "loc": {
+            "start": {
+              "line": 6,
+              "column": 24
+            },
+            "end": {
+              "line": 6,
+              "column": 26
+            }
+          },
+          "name": "br"
+        },
+        "attributes": [],
+        "selfClosing": true
+      },
+      "children": [],
+      "closingElement": null
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        175,
+        192
+      ],
+      "loc": {
+        "start": {
+          "line": 6,
+          "column": 28
+        },
+        "end": {
+          "line": 10,
+          "column": 0
+        }
+      },
+      "source": "; }\n    };\n  }\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,365 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    70
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 1,
+      "column": 70
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "003-nested-markup-in-expression.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        12
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 1,
+          "column": 12
+        }
+      },
+      "source": "Element e = "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        12,
+        69
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 12
+        },
+        "end": {
+          "line": 1,
+          "column": 69
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          12,
+          16
+        ],
+        "loc": {
+          "start": {
+            "line": 1,
+            "column": 12
+          },
+          "end": {
+            "line": 1,
+            "column": 16
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            13,
+            15
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 13
+            },
+            "end": {
+              "line": 1,
+              "column": 15
+            }
+          },
+          "name": "ul"
+        },
+        "attributes": [],
+        "selfClosing": false
+      },
+      "children": [
+        {
+          "type": "JasxExpressionContainer",
+          "range": [
+            16,
+            64
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 16
+            },
+            "end": {
+              "line": 1,
+              "column": 64
+            }
+          },
+          "expression": {
+            "type": "JavaExpression",
+            "range": [
+              17,
+              63
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 17
+              },
+              "end": {
+                "line": 1,
+                "column": 63
+              }
+            },
+            "segments": [
+              {
+                "type": "JavaCode",
+                "range": [
+                  17,
+                  41
+                ],
+                "loc": {
+                  "start": {
+                    "line": 1,
+                    "column": 17
+                  },
+                  "end": {
+                    "line": 1,
+                    "column": 41
+                  }
+                },
+                "source": "items.stream().map(i -> "
+              },
+              {
+                "type": "JasxElement",
+                "range": [
+                  41,
+                  53
+                ],
+                "loc": {
+                  "start": {
+                    "line": 1,
+                    "column": 41
+                  },
+                  "end": {
+                    "line": 1,
+                    "column": 53
+                  }
+                },
+                "openingElement": {
+                  "type": "JasxOpeningElement",
+                  "range": [
+                    41,
+                    45
+                  ],
+                  "loc": {
+                    "start": {
+                      "line": 1,
+                      "column": 41
+                    },
+                    "end": {
+                      "line": 1,
+                      "column": 45
+                    }
+                  },
+                  "name": {
+                    "type": "JasxIdentifier",
+                    "range": [
+                      42,
+                      44
+                    ],
+                    "loc": {
+                      "start": {
+                        "line": 1,
+                        "column": 42
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 44
+                      }
+                    },
+                    "name": "li"
+                  },
+                  "attributes": [],
+                  "selfClosing": false
+                },
+                "children": [
+                  {
+                    "type": "JasxExpressionContainer",
+                    "range": [
+                      45,
+                      48
+                    ],
+                    "loc": {
+                      "start": {
+                        "line": 1,
+                        "column": 45
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 48
+                      }
+                    },
+                    "expression": {
+                      "type": "JavaExpression",
+                      "range": [
+                        46,
+                        47
+                      ],
+                      "loc": {
+                        "start": {
+                          "line": 1,
+                          "column": 46
+                        },
+                        "end": {
+                          "line": 1,
+                          "column": 47
+                        }
+                      },
+                      "segments": [
+                        {
+                          "type": "JavaCode",
+                          "range": [
+                            46,
+                            47
+                          ],
+                          "loc": {
+                            "start": {
+                              "line": 1,
+                              "column": 46
+                            },
+                            "end": {
+                              "line": 1,
+                              "column": 47
+                            }
+                          },
+                          "source": "i"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "closingElement": {
+                  "type": "JasxClosingElement",
+                  "range": [
+                    48,
+                    53
+                  ],
+                  "loc": {
+                    "start": {
+                      "line": 1,
+                      "column": 48
+                    },
+                    "end": {
+                      "line": 1,
+                      "column": 53
+                    }
+                  },
+                  "name": {
+                    "type": "JasxIdentifier",
+                    "range": [
+                      50,
+                      52
+                    ],
+                    "loc": {
+                      "start": {
+                        "line": 1,
+                        "column": 50
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 52
+                      }
+                    },
+                    "name": "li"
+                  }
+                }
+              },
+              {
+                "type": "JavaCode",
+                "range": [
+                  53,
+                  63
+                ],
+                "loc": {
+                  "start": {
+                    "line": 1,
+                    "column": 53
+                  },
+                  "end": {
+                    "line": 1,
+                    "column": 63
+                  }
+                },
+                "source": ").toList()"
+              }
+            ]
+          }
+        }
+      ],
+      "closingElement": {
+        "type": "JasxClosingElement",
+        "range": [
+          64,
+          69
+        ],
+        "loc": {
+          "start": {
+            "line": 1,
+            "column": 64
+          },
+          "end": {
+            "line": 1,
+            "column": 69
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            66,
+            68
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 66
+            },
+            "end": {
+              "line": 1,
+              "column": 68
+            }
+          },
+          "name": "ul"
+        }
+      }
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        69,
+        70
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 69
+        },
+        "end": {
+          "line": 1,
+          "column": 70
+        }
+      },
+      "source": ";"
+    }
+  ]
+}

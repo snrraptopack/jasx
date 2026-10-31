@@ -1,0 +1,21 @@
+import jasx.runtime.Element;
+
+class T {
+  static Element Test() {
+    String a = "A", b = "B";
+    return (
+      <div>
+        <p>
+          Hello,
+          world
+        </p>
+        <p>Count: {a}</p>
+        <p>
+          {a}
+          {b}
+        </p>
+        <p>{a}{" "}{b}</p>
+      </div>
+    );
+  }
+}

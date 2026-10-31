@@ -1,0 +1,202 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    40
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 2,
+      "column": 0
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "006-braces-in-strings.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        12
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 1,
+          "column": 12
+        }
+      },
+      "source": "Element e = "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        12,
+        38
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 12
+        },
+        "end": {
+          "line": 1,
+          "column": 38
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          12,
+          15
+        ],
+        "loc": {
+          "start": {
+            "line": 1,
+            "column": 12
+          },
+          "end": {
+            "line": 1,
+            "column": 15
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            13,
+            14
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 13
+            },
+            "end": {
+              "line": 1,
+              "column": 14
+            }
+          },
+          "name": "p"
+        },
+        "attributes": [],
+        "selfClosing": false
+      },
+      "children": [
+        {
+          "type": "JasxExpressionContainer",
+          "range": [
+            15,
+            34
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 15
+            },
+            "end": {
+              "line": 1,
+              "column": 34
+            }
+          },
+          "expression": {
+            "type": "JavaExpression",
+            "range": [
+              16,
+              33
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 16
+              },
+              "end": {
+                "line": 1,
+                "column": 33
+              }
+            },
+            "segments": [
+              {
+                "type": "JavaCode",
+                "range": [
+                  16,
+                  33
+                ],
+                "loc": {
+                  "start": {
+                    "line": 1,
+                    "column": 16
+                  },
+                  "end": {
+                    "line": 1,
+                    "column": 33
+                  }
+                },
+                "source": "format(\"{}\", \"}\")"
+              }
+            ]
+          }
+        }
+      ],
+      "closingElement": {
+        "type": "JasxClosingElement",
+        "range": [
+          34,
+          38
+        ],
+        "loc": {
+          "start": {
+            "line": 1,
+            "column": 34
+          },
+          "end": {
+            "line": 1,
+            "column": 38
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            36,
+            37
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 36
+            },
+            "end": {
+              "line": 1,
+              "column": 37
+            }
+          },
+          "name": "p"
+        }
+      }
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        38,
+        40
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 38
+        },
+        "end": {
+          "line": 2,
+          "column": 0
+        }
+      },
+      "source": ";\n"
+    }
+  ]
+}

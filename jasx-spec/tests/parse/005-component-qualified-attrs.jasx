@@ -1,0 +1,3 @@
+Element e = <Ui.Card title="Hi" onClose={() -> close()} icon=<Icon name="x" /> xlink:href="#a">
+  Body &amp; more
+</Ui.Card>;

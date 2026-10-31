@@ -1,0 +1,9 @@
+class A {
+  static boolean small(int yield) { return yield < 2; }
+  static Element view(int k) {
+    return switch (k) {
+      case 0: yield <p/>;
+      default: { yield <br/>; }
+    };
+  }
+}

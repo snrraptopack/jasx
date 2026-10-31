@@ -1,0 +1,9 @@
+class A {
+  static Element view(List<String> xs, int a, int b) {
+    if (a < b) return <p>less</p>;
+    return a > b ? <p>more</p> : <>
+      <p>equal</p>
+      {/* nothing else */}
+    </>;
+  }
+}

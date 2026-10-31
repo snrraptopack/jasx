@@ -1,0 +1,7 @@
+import jasx.runtime.Element;
+
+class T {
+  static Element Test() {
+    return <p title={"a \"q\" & b"}>{"<script>"} &amp; done</p>;
+  }
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "code": "JASX1007",
+    "severity": "error",
+    "range": [
+      17,
+      27
+    ],
+    "loc": {
+      "start": {
+        "line": 1,
+        "column": 17
+      },
+      "end": {
+        "line": 1,
+        "column": 27
+      }
+    }
+  }
+]

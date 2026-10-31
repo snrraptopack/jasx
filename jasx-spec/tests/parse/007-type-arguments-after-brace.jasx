@@ -1,0 +1,5 @@
+class A {
+  <T> A(T t) {}
+  A() { <String>this("x"); }
+  static class B { <T> void m(T t) {} }
+}

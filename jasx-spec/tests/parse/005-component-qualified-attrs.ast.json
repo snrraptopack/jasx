@@ -1,0 +1,616 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    126
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 4,
+      "column": 0
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "005-component-qualified-attrs.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        12
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 1,
+          "column": 12
+        }
+      },
+      "source": "Element e = "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        12,
+        124
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 12
+        },
+        "end": {
+          "line": 3,
+          "column": 10
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          12,
+          95
+        ],
+        "loc": {
+          "start": {
+            "line": 1,
+            "column": 12
+          },
+          "end": {
+            "line": 1,
+            "column": 95
+          }
+        },
+        "name": {
+          "type": "JasxQualifiedName",
+          "range": [
+            13,
+            20
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 13
+            },
+            "end": {
+              "line": 1,
+              "column": 20
+            }
+          },
+          "qualifier": {
+            "type": "JasxIdentifier",
+            "range": [
+              13,
+              15
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 13
+              },
+              "end": {
+                "line": 1,
+                "column": 15
+              }
+            },
+            "name": "Ui"
+          },
+          "name": {
+            "type": "JasxIdentifier",
+            "range": [
+              16,
+              20
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 16
+              },
+              "end": {
+                "line": 1,
+                "column": 20
+              }
+            },
+            "name": "Card"
+          }
+        },
+        "attributes": [
+          {
+            "type": "JasxAttribute",
+            "range": [
+              21,
+              31
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 21
+              },
+              "end": {
+                "line": 1,
+                "column": 31
+              }
+            },
+            "name": {
+              "type": "JasxIdentifier",
+              "range": [
+                21,
+                26
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 21
+                },
+                "end": {
+                  "line": 1,
+                  "column": 26
+                }
+              },
+              "name": "title"
+            },
+            "value": {
+              "type": "JasxStringLiteral",
+              "range": [
+                27,
+                31
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 27
+                },
+                "end": {
+                  "line": 1,
+                  "column": 31
+                }
+              },
+              "value": "Hi",
+              "raw": "\"Hi\""
+            }
+          },
+          {
+            "type": "JasxAttribute",
+            "range": [
+              32,
+              55
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 32
+              },
+              "end": {
+                "line": 1,
+                "column": 55
+              }
+            },
+            "name": {
+              "type": "JasxIdentifier",
+              "range": [
+                32,
+                39
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 32
+                },
+                "end": {
+                  "line": 1,
+                  "column": 39
+                }
+              },
+              "name": "onClose"
+            },
+            "value": {
+              "type": "JasxExpressionContainer",
+              "range": [
+                40,
+                55
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 40
+                },
+                "end": {
+                  "line": 1,
+                  "column": 55
+                }
+              },
+              "expression": {
+                "type": "JavaExpression",
+                "range": [
+                  41,
+                  54
+                ],
+                "loc": {
+                  "start": {
+                    "line": 1,
+                    "column": 41
+                  },
+                  "end": {
+                    "line": 1,
+                    "column": 54
+                  }
+                },
+                "segments": [
+                  {
+                    "type": "JavaCode",
+                    "range": [
+                      41,
+                      54
+                    ],
+                    "loc": {
+                      "start": {
+                        "line": 1,
+                        "column": 41
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 54
+                      }
+                    },
+                    "source": "() -> close()"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "JasxAttribute",
+            "range": [
+              56,
+              78
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 56
+              },
+              "end": {
+                "line": 1,
+                "column": 78
+              }
+            },
+            "name": {
+              "type": "JasxIdentifier",
+              "range": [
+                56,
+                60
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 56
+                },
+                "end": {
+                  "line": 1,
+                  "column": 60
+                }
+              },
+              "name": "icon"
+            },
+            "value": {
+              "type": "JasxElement",
+              "range": [
+                61,
+                78
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 61
+                },
+                "end": {
+                  "line": 1,
+                  "column": 78
+                }
+              },
+              "openingElement": {
+                "type": "JasxOpeningElement",
+                "range": [
+                  61,
+                  78
+                ],
+                "loc": {
+                  "start": {
+                    "line": 1,
+                    "column": 61
+                  },
+                  "end": {
+                    "line": 1,
+                    "column": 78
+                  }
+                },
+                "name": {
+                  "type": "JasxIdentifier",
+                  "range": [
+                    62,
+                    66
+                  ],
+                  "loc": {
+                    "start": {
+                      "line": 1,
+                      "column": 62
+                    },
+                    "end": {
+                      "line": 1,
+                      "column": 66
+                    }
+                  },
+                  "name": "Icon"
+                },
+                "attributes": [
+                  {
+                    "type": "JasxAttribute",
+                    "range": [
+                      67,
+                      75
+                    ],
+                    "loc": {
+                      "start": {
+                        "line": 1,
+                        "column": 67
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 75
+                      }
+                    },
+                    "name": {
+                      "type": "JasxIdentifier",
+                      "range": [
+                        67,
+                        71
+                      ],
+                      "loc": {
+                        "start": {
+                          "line": 1,
+                          "column": 67
+                        },
+                        "end": {
+                          "line": 1,
+                          "column": 71
+                        }
+                      },
+                      "name": "name"
+                    },
+                    "value": {
+                      "type": "JasxStringLiteral",
+                      "range": [
+                        72,
+                        75
+                      ],
+                      "loc": {
+                        "start": {
+                          "line": 1,
+                          "column": 72
+                        },
+                        "end": {
+                          "line": 1,
+                          "column": 75
+                        }
+                      },
+                      "value": "x",
+                      "raw": "\"x\""
+                    }
+                  }
+                ],
+                "selfClosing": true
+              },
+              "children": [],
+              "closingElement": null
+            }
+          },
+          {
+            "type": "JasxAttribute",
+            "range": [
+              79,
+              94
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 79
+              },
+              "end": {
+                "line": 1,
+                "column": 94
+              }
+            },
+            "name": {
+              "type": "JasxNamespacedName",
+              "range": [
+                79,
+                89
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 79
+                },
+                "end": {
+                  "line": 1,
+                  "column": 89
+                }
+              },
+              "namespace": {
+                "type": "JasxIdentifier",
+                "range": [
+                  79,
+                  84
+                ],
+                "loc": {
+                  "start": {
+                    "line": 1,
+                    "column": 79
+                  },
+                  "end": {
+                    "line": 1,
+                    "column": 84
+                  }
+                },
+                "name": "xlink"
+              },
+              "name": {
+                "type": "JasxIdentifier",
+                "range": [
+                  85,
+                  89
+                ],
+                "loc": {
+                  "start": {
+                    "line": 1,
+                    "column": 85
+                  },
+                  "end": {
+                    "line": 1,
+                    "column": 89
+                  }
+                },
+                "name": "href"
+              }
+            },
+            "value": {
+              "type": "JasxStringLiteral",
+              "range": [
+                90,
+                94
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 90
+                },
+                "end": {
+                  "line": 1,
+                  "column": 94
+                }
+              },
+              "value": "#a",
+              "raw": "\"#a\""
+            }
+          }
+        ],
+        "selfClosing": false
+      },
+      "children": [
+        {
+          "type": "JasxText",
+          "range": [
+            95,
+            114
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 95
+            },
+            "end": {
+              "line": 3,
+              "column": 0
+            }
+          },
+          "value": "\n  Body & more\n",
+          "raw": "\n  Body &amp; more\n"
+        }
+      ],
+      "closingElement": {
+        "type": "JasxClosingElement",
+        "range": [
+          114,
+          124
+        ],
+        "loc": {
+          "start": {
+            "line": 3,
+            "column": 0
+          },
+          "end": {
+            "line": 3,
+            "column": 10
+          }
+        },
+        "name": {
+          "type": "JasxQualifiedName",
+          "range": [
+            116,
+            123
+          ],
+          "loc": {
+            "start": {
+              "line": 3,
+              "column": 2
+            },
+            "end": {
+              "line": 3,
+              "column": 9
+            }
+          },
+          "qualifier": {
+            "type": "JasxIdentifier",
+            "range": [
+              116,
+              118
+            ],
+            "loc": {
+              "start": {
+                "line": 3,
+                "column": 2
+              },
+              "end": {
+                "line": 3,
+                "column": 4
+              }
+            },
+            "name": "Ui"
+          },
+          "name": {
+            "type": "JasxIdentifier",
+            "range": [
+              119,
+              123
+            ],
+            "loc": {
+              "start": {
+                "line": 3,
+                "column": 5
+              },
+              "end": {
+                "line": 3,
+                "column": 9
+              }
+            },
+            "name": "Card"
+          }
+        }
+      }
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        124,
+        126
+      ],
+      "loc": {
+        "start": {
+          "line": 3,
+          "column": 10
+        },
+        "end": {
+          "line": 4,
+          "column": 0
+        }
+      },
+      "source": ";\n"
+    }
+  ]
+}

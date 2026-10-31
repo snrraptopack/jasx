@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jasx.dev/spec/1.0/ast.schema.json",
+  "title": "JASX AST 1.0",
+  "description": "Serialized AST of a JASX compilation unit. See ast.md.",
+  "$ref": "#/$defs/JasxCompilationUnit",
+  "$defs": {
+    "Position": {
+      "type": "object",
+      "required": ["line", "column"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "SourceLocation": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/$defs/Position" },
+        "end": { "$ref": "#/$defs/Position" }
+      },
+      "additionalProperties": false
+    },
+    "Range": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "integer", "minimum": 0 }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "NodeBase": {
+      "type": "object",
+      "required": ["type", "range", "loc"],
+      "properties": {
+        "type": { "type": "string" },
+        "range": { "$ref": "#/$defs/Range" },
+        "loc": { "$ref": "#/$defs/SourceLocation" }
+      },
+      "patternProperties": { "^_": true }
+    },
+
+    "JasxCompilationUnit": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["specVersion", "sourceFile", "segments"],
+      "properties": {
+        "type": { "const": "JasxCompilationUnit" },
+        "range": true, "loc": true,
+        "specVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+        "sourceFile": { "type": ["string", "null"] },
+        "segments": { "type": "array", "items": { "$ref": "#/$defs/Segment" } }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "Segment": {
+      "oneOf": [
+        { "$ref": "#/$defs/JavaCode" },
+        { "$ref": "#/$defs/JasxElement" },
+        { "$ref": "#/$defs/JasxFragment" }
+      ]
+    },
+
+    "JavaCode": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "type": { "const": "JavaCode" },
+        "range": true, "loc": true,
+        "source": { "type": "string" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JavaExpression": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["segments"],
+      "properties": {
+        "type": { "const": "JavaExpression" },
+        "range": true, "loc": true,
+        "segments": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Segment" } }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+
+    "JasxIdentifier": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "type": { "const": "JasxIdentifier" },
+        "range": true, "loc": true,
+        "name": { "type": "string", "minLength": 1 }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxQualifiedName": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["qualifier", "name"],
+      "properties": {
+        "type": { "const": "JasxQualifiedName" },
+        "range": true, "loc": true,
+        "qualifier": {
+          "oneOf": [
+            { "$ref": "#/$defs/JasxIdentifier" },
+            { "$ref": "#/$defs/JasxQualifiedName" }
+          ]
+        },
+        "name": { "$ref": "#/$defs/JasxIdentifier" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxNamespacedName": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["namespace", "name"],
+      "properties": {
+        "type": { "const": "JasxNamespacedName" },
+        "range": true, "loc": true,
+        "namespace": { "$ref": "#/$defs/JasxIdentifier" },
+        "name": { "$ref": "#/$defs/JasxIdentifier" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "ElementName": {
+      "oneOf": [
+        { "$ref": "#/$defs/JasxIdentifier" },
+        { "$ref": "#/$defs/JasxQualifiedName" }
+      ]
+    },
+
+    "JasxElement": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["openingElement", "children", "closingElement"],
+      "properties": {
+        "type": { "const": "JasxElement" },
+        "range": true, "loc": true,
+        "openingElement": { "$ref": "#/$defs/JasxOpeningElement" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/JasxChild" } },
+        "closingElement": {
+          "oneOf": [{ "$ref": "#/$defs/JasxClosingElement" }, { "type": "null" }]
+        }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxOpeningElement": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["name", "attributes", "selfClosing"],
+      "properties": {
+        "type": { "const": "JasxOpeningElement" },
+        "range": true, "loc": true,
+        "name": { "$ref": "#/$defs/ElementName" },
+        "attributes": { "type": "array", "items": { "$ref": "#/$defs/JasxAttribute" } },
+        "selfClosing": { "type": "boolean" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxClosingElement": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "type": { "const": "JasxClosingElement" },
+        "range": true, "loc": true,
+        "name": { "$ref": "#/$defs/ElementName" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+
+    "JasxFragment": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["openingFragment", "children", "closingFragment"],
+      "properties": {
+        "type": { "const": "JasxFragment" },
+        "range": true, "loc": true,
+        "openingFragment": { "$ref": "#/$defs/JasxOpeningFragment" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/JasxChild" } },
+        "closingFragment": { "$ref": "#/$defs/JasxClosingFragment" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxOpeningFragment": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "JasxOpeningFragment" },
+        "range": true, "loc": true
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxClosingFragment": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "JasxClosingFragment" },
+        "range": true, "loc": true
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+
+    "JasxAttribute": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["name", "value"],
+      "properties": {
+        "type": { "const": "JasxAttribute" },
+        "range": true, "loc": true,
+        "name": {
+          "oneOf": [
+            { "$ref": "#/$defs/JasxIdentifier" },
+            { "$ref": "#/$defs/JasxNamespacedName" }
+          ]
+        },
+        "value": {
+          "oneOf": [
+            { "$ref": "#/$defs/JasxStringLiteral" },
+            { "$ref": "#/$defs/JasxExpressionContainer" },
+            { "$ref": "#/$defs/JasxElement" },
+            { "$ref": "#/$defs/JasxFragment" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxStringLiteral": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["value", "raw"],
+      "properties": {
+        "type": { "const": "JasxStringLiteral" },
+        "range": true, "loc": true,
+        "value": { "type": "string" },
+        "raw": { "type": "string", "pattern": "^\".*\"$" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+
+    "JasxChild": {
+      "oneOf": [
+        { "$ref": "#/$defs/JasxText" },
+        { "$ref": "#/$defs/JasxElement" },
+        { "$ref": "#/$defs/JasxFragment" },
+        { "$ref": "#/$defs/JasxExpressionContainer" }
+      ]
+    },
+    "JasxText": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["value", "raw"],
+      "properties": {
+        "type": { "const": "JasxText" },
+        "range": true, "loc": true,
+        "value": { "type": "string" },
+        "raw": { "type": "string", "minLength": 1 }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxExpressionContainer": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["expression"],
+      "properties": {
+        "type": { "const": "JasxExpressionContainer" },
+        "range": true, "loc": true,
+        "expression": {
+          "oneOf": [
+            { "$ref": "#/$defs/JavaExpression" },
+            { "$ref": "#/$defs/JasxEmptyExpression" }
+          ]
+        }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxEmptyExpression": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "type": { "const": "JasxEmptyExpression" },
+        "range": true, "loc": true,
+        "source": { "type": "string" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    }
+  }
+}
