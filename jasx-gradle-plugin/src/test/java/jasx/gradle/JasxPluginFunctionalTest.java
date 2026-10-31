@@ -236,6 +236,24 @@ class JasxPluginFunctionalTest {
     }
 
     @Test
+    void writesTheClasspathsForTheLanguageServer() throws IOException {
+        write("src/main/java/app/Pages.jasx", """
+                package app;
+                public class Pages {
+                    public static jasx.runtime.Element Home() { return <p>x</p>; }
+                }
+                """);
+
+        gradle("compileJasx").build();
+
+        String info = Files.readString(project.resolve("build/jasx/editor/main.json"));
+        assertTrue(info.contains("\"target\": \"html\""), info);
+        assertTrue(info.contains("jasx-target-html"), info);
+        assertTrue(info.contains("\"compileClasspath\""), info);
+        assertTrue(info.contains("\"processorPath\""), info);
+    }
+
+    @Test
     void isUpToDateWhenNothingChanged() throws IOException {
         write("src/main/java/app/Pages.jasx", """
                 package app;

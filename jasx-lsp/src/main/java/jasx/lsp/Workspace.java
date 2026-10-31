@@ -17,7 +17,9 @@ import java.util.stream.Stream;
 import jasx.compiler.CompilationResult;
 import jasx.compiler.CompilerDiagnostic;
 import jasx.compiler.ComponentIndex;
+import jasx.compiler.GeneratedFile;
 import jasx.compiler.JasxCompiler;
+import jasx.compiler.JavacRunner;
 import jasx.compiler.SourceFile;
 import jasx.compiler.Target;
 import jasx.parser.Diagnostic;
@@ -34,9 +36,16 @@ import jasx.parser.LineMap;
  * <p><b>Text.</b> An open document is analysed with the text the editor has, which may not be saved yet;
  * every other file with its text on disk.
  *
- * <p><b>Limits.</b> Only JASX's own checks run: syntax, components, the target schema and style blocks.
- * Java type errors need the project's classpath and are left to the build. Components of the project's
- * dependencies (jars) are not known, so using one reports it as unknown.
+ * <p><b>The build.</b> For a source directory of a project built with the JASX Gradle plugin, the plugin's
+ * {@link BuildInfo} file gives the project's target, the components of its jars, and how to run javac. The
+ * file is read again when a build rewrites it. Without it (a project not built yet, or a file outside a
+ * source directory), the target bundled with the server is used, and no component of a jar is known.
+ *
+ * <p><b>Checks.</b> JASX's own checks (syntax, components, the target schema, style blocks) run on every
+ * change. With build information, javac also type-checks the group ({@link #javacCheck}) when the server
+ * asks for it (on open and save), in the background. Its errors are shown in {@code .jasx} files only,
+ * because an editor's Java support already reports {@code .java} files, and only while the file's text is
+ * still the one that was checked: after an edit they would point at the wrong place.
  */
 final class Workspace {
 
@@ -48,7 +57,12 @@ final class Workspace {
             /** Each analysed file by its path relative to {@code base}, as the compiler knows it. */
             Map<String, Path> files,
             /** The text each file was analysed with, by relative path. */
-            Map<String, String> texts) {
+            Map<String, String> texts,
+            /** The target and dependencies used: the build's, or the server's defaults. */
+            Target target,
+            ComponentIndex dependencies,
+            /** What the build says about this group, or null. */
+            BuildInfo build) {
 
         /** The relative path of {@code file} in this group, or null if it isn't in it. */
         String relativePath(Path file) {
@@ -64,8 +78,21 @@ final class Workspace {
     /** One diagnostic, located in a file by LSP positions (0-based line and UTF-16 column). */
     record FileDiagnostic(Diagnostic diagnostic, int startLine, int startColumn, int endLine, int endColumn) {}
 
-    private final Target target;
-    private final ComponentIndex dependencies;
+    /** The javac errors in {@code .jasx} files of a group, and the text of each file when it was checked. */
+    private record JavacResult(Map<String, String> texts, List<CompilerDiagnostic> diagnostics) {}
+
+    /** Used when a group has no build information. */
+    private final Target defaultTarget;
+    private final ComponentIndex defaultDependencies;
+
+    /** The build information read so far, by the path of its file. */
+    private final Map<Path, BuildInfo> buildInfos = new HashMap<>();
+    /** The latest javac result of each group, by base directory. */
+    private final Map<Path, JavacResult> javacResults = new HashMap<>();
+    /** How many javac checks were started for each group: only the latest one's result is kept. */
+    private final Map<Path, Integer> javacGenerations = new HashMap<>();
+    /** Where annotation processors write during javac checks; created when first needed. */
+    private Path javacWorkRoot;
 
     /** The text of each open document, as the editor has it. */
     private final Map<Path, String> openDocuments = new HashMap<>();
@@ -76,9 +103,13 @@ final class Workspace {
     /** The files of each group that were last given diagnostics, so that they can be cleared. */
     private final Map<Path, Set<Path>> filesWithDiagnostics = new HashMap<>();
 
-    Workspace(Target target, ComponentIndex dependencies) {
-        this.target = target;
-        this.dependencies = dependencies;
+    /**
+     * @param defaultTarget       the target for groups without build information
+     * @param defaultDependencies the components of dependencies for groups without build information
+     */
+    Workspace(Target defaultTarget, ComponentIndex defaultDependencies) {
+        this.defaultTarget = defaultTarget;
+        this.defaultDependencies = defaultDependencies;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -136,27 +167,57 @@ final class Workspace {
             sources.add(new SourceFile(relative, text));
         }
 
+        BuildInfo build = sourceDirectory(file) != null ? buildInfoFor(base) : null;
+        Target target = build != null ? build.target() : defaultTarget;
+        ComponentIndex dependencies = build != null ? build.dependencies() : defaultDependencies;
         CompilationResult result = new JasxCompiler(target, dependencies).compile(sources);
-        Analysis analysis = new Analysis(base, result, files, texts);
+        Analysis analysis = new Analysis(base, result, files, texts, target, dependencies, build);
         analyses.put(base, analysis);
         return diagnosticsToPublish(analysis, file);
     }
 
     /**
-     * Groups the analysis's diagnostics by file. The file that was analysed always gets a list, even an
-     * empty one, and so does every file that had diagnostics before: an empty list clears them.
+     * The build information for a source directory, read again if a build rewrote it, or null if the
+     * project has none (or it can't be read: the server then works as without it).
+     */
+    private BuildInfo buildInfoFor(Path sourceDirectory) {
+        Path file = BuildInfo.fileFor(sourceDirectory);
+        BuildInfo known = buildInfos.get(file);
+        if (known != null && !known.isStale()) {
+            return known;
+        }
+        buildInfos.remove(file);
+        if (!Files.isRegularFile(file)) {
+            return null;
+        }
+        try {
+            BuildInfo read = BuildInfo.read(file);
+            buildInfos.put(file, read);
+            return read;
+        } catch (RuntimeException e) {
+            return null; // a broken or half-written file: the next build rewrites it
+        }
+    }
+
+    /**
+     * Groups the analysis's diagnostics by file: JASX's, and javac's from the last check of the files that
+     * haven't changed since. The file that was analysed (if not null) always gets a list, even an empty one,
+     * and so does every file that had diagnostics before: an empty list clears them.
      */
     private Map<String, List<FileDiagnostic>> diagnosticsToPublish(Analysis analysis, Path analysed) {
         Map<Path, List<FileDiagnostic>> byFile = new LinkedHashMap<>();
         for (CompilerDiagnostic d : analysis.result().diagnostics()) {
-            Path file = analysis.files().get(d.path());
-            if (file == null) {
-                continue;
+            add(byFile, analysis, d);
+        }
+        JavacResult javac = javacResults.get(analysis.base());
+        if (javac != null) {
+            for (CompilerDiagnostic d : javac.diagnostics()) {
+                String checkedText = javac.texts().get(d.path());
+                boolean unchangedSinceChecked = checkedText != null && checkedText.equals(analysis.texts().get(d.path()));
+                if (unchangedSinceChecked) {
+                    add(byFile, analysis, d);
+                }
             }
-            LineMap.Position start = d.lines().position(d.diagnostic().start());
-            LineMap.Position end = d.lines().position(d.diagnostic().end());
-            byFile.computeIfAbsent(file, f -> new ArrayList<>()).add(new FileDiagnostic(
-                    d.diagnostic(), start.line() - 1, start.column(), end.line() - 1, end.column()));
         }
 
         Set<Path> withDiagnostics = new HashSet<>(byFile.keySet());
@@ -164,12 +225,102 @@ final class Workspace {
         for (Path file : previously) {
             byFile.putIfAbsent(file, List.of()); // clean now: clear its old diagnostics
         }
-        byFile.putIfAbsent(analysed, List.of());
+        if (analysed != null) {
+            byFile.putIfAbsent(analysed, List.of());
+        }
         filesWithDiagnostics.put(analysis.base(), withDiagnostics);
 
         Map<String, List<FileDiagnostic>> byUri = new LinkedHashMap<>();
         byFile.forEach((file, list) -> byUri.put(uriOf(file), list));
         return byUri;
+    }
+
+    /** Adds {@code d} to the list of its file, in LSP positions; diagnostics outside the group are dropped. */
+    private static void add(Map<Path, List<FileDiagnostic>> byFile, Analysis analysis, CompilerDiagnostic d) {
+        Path file = analysis.files().get(d.path());
+        if (file == null) {
+            return;
+        }
+        LineMap.Position start = d.lines().position(d.diagnostic().start());
+        LineMap.Position end = d.lines().position(d.diagnostic().end());
+        byFile.computeIfAbsent(file, f -> new ArrayList<>()).add(new FileDiagnostic(
+                d.diagnostic(), start.line() - 1, start.column(), end.line() - 1, end.column()));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // javac
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * A javac check of a group, prepared from its last analysis. {@link #run} uses no workspace state, so the
+     * server runs it in the background, and hands its result to {@link #javacFinished}.
+     */
+    record JavacCheck(Path base, int generation, List<GeneratedFile> generated, List<SourceFile> java,
+            Map<String, String> texts, JavacRunner.BuildOptions options) {
+
+        List<CompilerDiagnostic> run() throws IOException {
+            return JavacRunner.typeCheck(generated, java, options);
+        }
+    }
+
+    /**
+     * The javac check for the group of the file at {@code uri}, or null if it can't run: the group has no
+     * build information, or it has JASX errors (then some files have no generated code, and javac's errors
+     * would only repeat them).
+     */
+    JavacCheck javacCheck(String uri) {
+        Analysis analysis = analysisOf(toPath(uri));
+        if (analysis == null || analysis.build() == null || analysis.result().hasErrors()) {
+            return null;
+        }
+        List<SourceFile> java = new ArrayList<>();
+        analysis.texts().forEach((relative, text) -> {
+            if (relative.endsWith(".java")) {
+                java.add(new SourceFile(relative, text));
+            }
+        });
+        int generation = javacGenerations.merge(analysis.base(), 1, Integer::sum);
+        JavacRunner.BuildOptions options = analysis.build().javacOptions(javacWorkDirectory(analysis.base()));
+        return new JavacCheck(analysis.base(), generation, analysis.result().files(), java,
+                Map.copyOf(analysis.texts()), options);
+    }
+
+    /**
+     * Keeps the result of a javac check, unless a newer check of the group was started meanwhile, and returns
+     * the diagnostics to publish (none if the result was dropped).
+     */
+    Map<String, List<FileDiagnostic>> javacFinished(JavacCheck check, List<CompilerDiagnostic> diagnostics) {
+        boolean isLatest = javacGenerations.getOrDefault(check.base(), 0) == check.generation();
+        Analysis analysis = analyses.get(check.base());
+        if (!isLatest || analysis == null) {
+            return Map.of();
+        }
+        // .java files are left to the editor's Java support (see the class comment).
+        List<CompilerDiagnostic> inJasxFiles = diagnostics.stream().filter(d -> d.path().endsWith(".jasx")).toList();
+        javacResults.put(check.base(), new JavacResult(check.texts(), inJasxFiles));
+        return diagnosticsToPublish(analysis, null);
+    }
+
+    /** A directory of its own for each group's javac checks, under one temporary directory. */
+    private Path javacWorkDirectory(Path base) {
+        try {
+            if (javacWorkRoot == null) {
+                javacWorkRoot = Files.createTempDirectory("jasx-lsp");
+            }
+            return javacWorkRoot.resolve(Integer.toHexString(base.hashCode()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** The last analysis of a group that contains {@code file}, or null. */
+    private Analysis analysisOf(Path file) {
+        for (Analysis analysis : analyses.values()) {
+            if (analysis.relativePath(file) != null) {
+                return analysis;
+            }
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -222,8 +373,9 @@ final class Workspace {
             String text = analysis.texts().get(relative);
             int offset = offsetOf(text, line, column);
             // The group's own components, and those of dependencies they don't hide.
-            ComponentIndex index = analysis.result().index().withFallback(dependencies);
-            Completions.Result result = Completions.at(new SourceFile(relative, text), offset, index, target.schema());
+            ComponentIndex index = analysis.result().index().withFallback(analysis.dependencies());
+            Completions.Result result =
+                    Completions.at(new SourceFile(relative, text), offset, index, analysis.target().schema());
             LineMap.Position from = new LineMap(text).position(result.replaceFrom());
             return new CompletionAt(result.items(), from.line() - 1, from.column());
         }

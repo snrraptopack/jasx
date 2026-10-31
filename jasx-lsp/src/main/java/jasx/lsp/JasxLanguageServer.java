@@ -1,10 +1,13 @@
 package jasx.lsp;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
+import jasx.compiler.CompilerDiagnostic;
 import jasx.compiler.ComponentIndex;
 import jasx.compiler.Target;
 import jasx.parser.Diagnostic;
@@ -19,13 +22,17 @@ import jasx.parser.Diagnostic;
  *   <li>lifecycle: {@code initialize}, {@code initialized}, {@code shutdown}, {@code exit};
  *   <li>documents: {@code didOpen}, {@code didChange} (whole text), {@code didSave}, {@code didClose},
  *       and {@code workspace/didChangeWatchedFiles}. Each of them re-analyses the file's group and
- *       publishes its diagnostics ({@code textDocument/publishDiagnostics});
+ *       publishes its diagnostics ({@code textDocument/publishDiagnostics}). {@code didOpen} and
+ *       {@code didSave} also start a javac check of the group, if the build describes it
+ *       ({@link Workspace#javacCheck}); its errors are published when it finishes;
  *   <li>{@code textDocument/definition} and {@code textDocument/hover} on component tags;
  *   <li>{@code textDocument/completion} of tag and attribute names in markup ({@link Completions}).
  * </ul>
  *
- * <p>Messages are handled one at a time, in order. The protocol class is separate from {@link Main}, which
- * owns the streams, so that tests can drive it with plain JSON strings.
+ * <p>Messages are handled one at a time, in order. javac checks run on the {@code background} executor;
+ * handling a message and taking a finished check's result both lock the server, so they never interleave.
+ * The protocol class is separate from {@link Main}, which owns the streams, so that tests can drive it with
+ * plain JSON strings.
  */
 final class JasxLanguageServer {
     /** JSON-RPC error codes. */
@@ -33,15 +40,20 @@ final class JasxLanguageServer {
     private static final int INTERNAL_ERROR = -32603;
 
     private final Consumer<String> send;
+    private final Executor background;
     private Workspace workspace;
     /** Whether the client accepts snippets ({@code $1}) in completions; if not, plain text is sent. */
     private boolean snippetSupport;
     private boolean shutdownRequested;
     private boolean exitRequested;
 
-    /** @param send writes one message (a JSON string) to the client */
-    JasxLanguageServer(Consumer<String> send) {
+    /**
+     * @param send       writes one message (a JSON string) to the client
+     * @param background runs javac checks; tests pass one that runs them at once
+     */
+    JasxLanguageServer(Consumer<String> send, Executor background) {
         this.send = send;
+        this.background = background;
     }
 
     /** True once the client sent {@code exit}: the server should stop. */
@@ -55,7 +67,7 @@ final class JasxLanguageServer {
     }
 
     /** Handles one message from the client. */
-    void handle(String json) {
+    synchronized void handle(String json) {
         Map<String, Object> message = Json.object(Json.parse(json));
         String method = Json.string(message.get("method"));
         Object id = message.get("id");
@@ -101,6 +113,7 @@ final class JasxLanguageServer {
                 String uri = Json.string(document.get("uri"));
                 workspace().open(uri, Json.string(document.get("text")));
                 publish(workspace().analyze(uri));
+                startJavacCheck(uri);
                 return null;
             }
             case "textDocument/didChange": {
@@ -112,9 +125,12 @@ final class JasxLanguageServer {
                 publish(workspace().analyze(uri));
                 return null;
             }
-            case "textDocument/didSave":
-                publish(workspace().analyze(documentUri(params)));
+            case "textDocument/didSave": {
+                String uri = documentUri(params);
+                publish(workspace().analyze(uri));
+                startJavacCheck(uri);
                 return null;
+            }
             case "textDocument/didClose": {
                 String uri = documentUri(params);
                 workspace().close(uri);
@@ -241,6 +257,32 @@ final class JasxLanguageServer {
         list.put("isIncomplete", false);
         list.put("items", items);
         return list;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // javac checks
+    // ---------------------------------------------------------------------------------------------
+
+    /** Starts a javac check of the group of {@code uri} in the background, if it can run. */
+    private void startJavacCheck(String uri) {
+        Workspace.JavacCheck check = workspace().javacCheck(uri);
+        if (check == null) {
+            return;
+        }
+        background.execute(() -> {
+            try {
+                List<CompilerDiagnostic> diagnostics = check.run();
+                javacFinished(check, diagnostics);
+            } catch (IOException | RuntimeException e) {
+                synchronized (this) {
+                    log("JASX: the javac check failed: " + e);
+                }
+            }
+        });
+    }
+
+    private synchronized void javacFinished(Workspace.JavacCheck check, List<CompilerDiagnostic> diagnostics) {
+        publish(workspace().javacFinished(check, diagnostics));
     }
 
     // ---------------------------------------------------------------------------------------------

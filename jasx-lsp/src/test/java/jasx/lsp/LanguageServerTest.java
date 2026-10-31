@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,6 +15,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import jasx.compiler.ComponentIndex;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -106,7 +108,8 @@ class LanguageServerTest {
             Path sources = Files.createDirectories(project.resolve("src/main/java/app"));
             ui = Files.writeString(sources.resolve("Ui.jasx"), UI);
             page = Files.writeString(sources.resolve("Page.jasx"), PAGE);
-            server = new JasxLanguageServer(json -> sent.add(Json.object(Json.parse(json))));
+            // Runnable::run: javac checks finish before the message that started them is handled.
+            server = new JasxLanguageServer(json -> sent.add(Json.object(Json.parse(json))), Runnable::run);
             request("initialize", Map.of("rootUri", project.toUri().toString()));
             notification("initialized", Map.of());
         }
@@ -335,6 +338,66 @@ class LanguageServerTest {
             assertEquals(List.of(), labels(completeAt(page, pageWith("1 < le|"))));
             assertEquals(List.of(), labels(completeAt(page, pageWith("<a href=\"x|"))));
             assertEquals(List.of(), labels(completeAt(page, pageWith("<p>some te|"))));
+        }
+
+        // --- What the build says ----------------------------------------------------------------
+
+        /**
+         * Writes the file the Gradle plugin writes ({@code build/jasx/editor/main.json}): the test's own
+         * classpath (which has the html target and the runtime), plus {@code extraJasxClasspath}.
+         */
+        private void writeBuildInfo(List<String> extraJasxClasspath) throws IOException {
+            List<String> classpath = List.of(System.getProperty("java.class.path").split(File.pathSeparator));
+            List<String> jasxClasspath = new ArrayList<>(classpath);
+            jasxClasspath.addAll(extraJasxClasspath);
+            Map<String, Object> info = new LinkedHashMap<>();
+            info.put("target", "html");
+            info.put("jasxClasspath", jasxClasspath);
+            info.put("compileClasspath", classpath);
+            info.put("processorPath", List.of());
+            info.put("release", null);
+            Path file = project.resolve("build/jasx/editor/main.json");
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, Json.write(info));
+        }
+
+        @Test
+        void componentsOfTheBuildsDependenciesAreKnown() throws IOException {
+            String text = pageWith("<lib.Lib.Badge text=\"x\" />;");
+            open(page, text);
+            assertTrue(diagnosticsOf(page).get(0).startsWith("JASX2001@"), diagnosticsOf(page).toString());
+
+            // A dependency of the build: a directory with a component index, as a jar would have.
+            ComponentIndex index = new ComponentIndex();
+            index.add(new ComponentIndex.Component("lib.Lib", "Badge",
+                    List.of(new ComponentIndex.Prop("text", "String", ComponentIndex.PropKind.REQUIRED, null)),
+                    ComponentIndex.Children.NONE));
+            Path library = project.resolve("library");
+            Files.createDirectories(library.resolve("META-INF/jasx"));
+            Files.writeString(library.resolve(ComponentIndex.RESOURCE), index.toJson());
+            writeBuildInfo(List.of(library.toString()));
+
+            change(page, text);
+            assertEquals(List.of(), diagnosticsOf(page));
+        }
+
+        @Test
+        void javacErrorsInJasxFilesAreShownUntilTheFileChanges() throws IOException {
+            writeBuildInfo(List.of());
+            String text = pageWith("<p>{undefinedName}</p>;");
+
+            open(page, text); // opening starts a javac check
+            // Line 6 is "    return <p>{undefinedName}": the name is at column 15.
+            assertEquals(List.of("javac@6:15"), diagnosticsOf(page));
+
+            change(page, text + "\n"); // the error may have moved: it is no longer shown
+            assertEquals(List.of(), diagnosticsOf(page));
+        }
+
+        @Test
+        void withoutBuildInformationJavacDoesNotRun() {
+            open(page, pageWith("<p>{undefinedName}</p>;"));
+            assertEquals(List.of(), diagnosticsOf(page));
         }
 
         @Test

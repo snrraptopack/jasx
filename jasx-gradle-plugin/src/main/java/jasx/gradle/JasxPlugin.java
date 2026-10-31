@@ -26,6 +26,9 @@ import org.gradle.jvm.toolchain.JavaLanguageVersion;
  * {@code build/generated/sources/jasx/main}. It also reads the {@code .java} files there, so that
  * {@code @jasx.Component} methods in plain Java can be used from markup.
  *
+ * <p>Before it, {@code writeJasxEditorInfo} ({@code writeTestJasxEditorInfo}, ...) writes the source set's
+ * classpaths to {@code build/jasx/editor/main.json} for the JASX language server ({@link JasxEditorInfo}).
+ *
  * <p>The output directory is added to the source set's Java sources, so {@code compileJava} depends on
  * {@code compileJasx} and compiles the generated files along with the hand-written ones.
  */
@@ -62,6 +65,21 @@ public final class JasxPlugin implements Plugin<Project> {
 
         Provider<Directory> outputDirectory = project.getLayout().getBuildDirectory()
                 .dir("generated/sources/jasx/" + sourceSet.getName());
+        Provider<Integer> release = javaRelease(project, sourceSet);
+
+        // What the language server needs to know about this build (JasxEditorInfo). Every compileJasx
+        // runs it first, so the file stays up to date.
+        TaskProvider<JasxEditorInfo> editorInfo = project.getTasks().register(
+                sourceSet.getTaskName("write", "JasxEditorInfo"), JasxEditorInfo.class, task -> {
+                    task.setDescription("Writes the " + sourceSet.getName() + " classpaths for the JASX language server.");
+                    task.getTarget().set(extension.getTarget());
+                    task.getJasxClasspath().from(jasxClasspath);
+                    task.getCompileClasspath().from(sourceSet.getCompileClasspath());
+                    task.getProcessorPath().from(sourceSet.getAnnotationProcessorPath());
+                    task.getRelease().set(release);
+                    task.getOutputFile().set(project.getLayout().getBuildDirectory()
+                            .file("jasx/editor/" + sourceSet.getName() + ".json"));
+                });
 
         TaskProvider<JasxCompile> compileJasx = project.getTasks().register(
                 sourceSet.getTaskName("compile", "Jasx"), JasxCompile.class, task -> {
@@ -75,8 +93,9 @@ public final class JasxPlugin implements Plugin<Project> {
                     task.getTypeCheck().set(extension.getTypeCheck());
                     task.getCompileClasspath().from(sourceSet.getCompileClasspath());
                     task.getProcessorPath().from(sourceSet.getAnnotationProcessorPath());
-                    task.getRelease().set(javaRelease(project, sourceSet));
+                    task.getRelease().set(release);
                     task.getOutputDirectory().set(outputDirectory);
+                    task.dependsOn(editorInfo);
                 });
 
         // Adding the task's output as a source directory also makes compileJava depend on the task.

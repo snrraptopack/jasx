@@ -15,7 +15,13 @@ Support for `.jasx` files (Java with JSX-style markup): highlighting, and errors
 - **Go to Definition** (F12, or Ctrl+click) on a component tag opens the component's method.
 - **Hover** on a component tag shows its signature and how each prop is passed.
 
-The server checks JASX only. Java type errors (`javac`) still come from the build, because they need the project's classpath. Components from the project's dependencies (jars) are not known to the server yet, so a tag that uses one is reported as unknown.
+**After a build** with the JASX Gradle plugin, the server also uses what the build knows (the plugin writes it to `build/jasx/editor/<sourceSet>.json` on every build):
+
+- the components of the project's dependencies (jars) are known;
+- the project's own target is used;
+- **Java type errors** (`javac: ...`) in `.jasx` files appear when you open or save a file. javac runs in the background, as the build would (same classpath, annotation processors and Java release). Errors in `.java` files are left to VS Code's Java support. A file's javac errors disappear when you edit it, and are checked again on save.
+
+Before the first build, the server uses the `html` target bundled with it, a tag using a component from a jar is reported as unknown, and javac doesn't run.
 
 Files are analysed in the groups a build compiles together: a file in a Gradle-style source directory (`src/main/java`, `src/test/jasx`, ...) with every `.jasx` and `.java` file of that directory, and any other file on its own.
 
@@ -25,7 +31,7 @@ Files are analysed in the groups a build compiles together: a file in a Gradle-s
 |---|---|---|
 | `jasx.languageServer.enabled` | `true` | Run the language server. |
 | `jasx.languageServer.java` | empty | The java executable. Empty: `JAVA_HOME`, then the Java extension's `java.jdt.ls.java.home`, then `java` on the PATH. |
-| `jasx.target` | `html` | The target whose schema markup is checked against. Only `html` is bundled. |
+| `jasx.target` | `html` | The target to use for files the build hasn't described yet. Only `html` is bundled; after a build, the project's own target is used. |
 
 ## Install
 
@@ -36,7 +42,7 @@ From the root of the repository, build the language server into this folder, the
 cd editors/vscode
 npm install
 npx @vscode/vsce@3 package --skip-license
-code --install-extension jasx-0.3.0.vsix --force
+code --install-extension jasx-0.4.0.vsix --force
 ```
 
 Then reload VS Code (Command Palette: **Developer: Reload Window**) and open a `.jasx` file. Its language, shown at the right of the status bar, should be **JASX**. The server's messages are in the Output panel, under **JASX Language Server**. Repeat these steps after changing the grammar, the extension or the server.

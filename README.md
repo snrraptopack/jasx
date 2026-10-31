@@ -61,7 +61,7 @@ Early development. The specification is a draft.
 - [`jasx-spec/`](jasx-spec/README.md): the language specification and its conformance tests.
 - Parser, compiler and `html` target: implemented, and passing the whole conformance suite.
 - Gradle plugin, annotation processor, VS Code highlighting and a language server (errors while typing, completion, go-to-definition and hover): implemented.
-- Not yet: artifacts in a public repository; Java type errors in the editor (they come from the build).
+- Not yet: artifacts in a public repository.
 
 ## Try the example
 
@@ -94,7 +94,7 @@ For libraries, add `jasx-processor` as an annotation processor. It writes `META-
 
 ## Editor support
 
-[`editors/vscode`](editors/vscode/README.md) is a VS Code extension: it highlights `.jasx` files (CSS in style blocks too), and runs the JASX language server ([`jasx-lsp`](jasx-lsp)), which shows JASX errors while you type, completes tag names and props, and offers go-to-definition and hover on components.
+[`editors/vscode`](editors/vscode/README.md) is a VS Code extension: it highlights `.jasx` files (CSS in style blocks too), and runs the JASX language server ([`jasx-lsp`](jasx-lsp)), which shows JASX errors while you type, completes tag names and props, and offers go-to-definition and hover on components. Once the project has been built with the Gradle plugin, it also knows the components of your dependencies and shows javac's errors in `.jasx` files when you save.
 
 ## Building
 

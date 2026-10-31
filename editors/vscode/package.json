@@ -2,7 +2,7 @@
   "name": "jasx",
   "displayName": "JASX",
   "description": "JASX (Java with JSX-style markup): syntax highlighting, and errors, completion, go-to-definition and hover from the JASX language server.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "jasx",
   "license": "MIT",
   "repository": {
@@ -57,7 +57,7 @@
         "jasx.target": {
           "type": "string",
           "default": "html",
-          "description": "The JASX target whose schema markup is checked against."
+          "description": "The JASX target for files the build hasn't described yet (after a build with the JASX Gradle plugin, the project's own target is used)."
         }
       }
     }
