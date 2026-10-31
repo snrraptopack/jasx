@@ -1,0 +1,202 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    229
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 12,
+      "column": 0
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "011-comments-and-text-blocks.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        199
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 9,
+          "column": 11
+        }
+      },
+      "source": "class A {\n  // a comment with <markup> and } braces\n  static Element view() {\n    String t = \"\"\"\n        { \"quoted\" } \\\"\"\" still text\n        \"\"\";\n    char c = '}';\n    /* return <p/>; */\n    return "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        199,
+        221
+      ],
+      "loc": {
+        "start": {
+          "line": 9,
+          "column": 11
+        },
+        "end": {
+          "line": 9,
+          "column": 33
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          199,
+          202
+        ],
+        "loc": {
+          "start": {
+            "line": 9,
+            "column": 11
+          },
+          "end": {
+            "line": 9,
+            "column": 14
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            200,
+            201
+          ],
+          "loc": {
+            "start": {
+              "line": 9,
+              "column": 12
+            },
+            "end": {
+              "line": 9,
+              "column": 13
+            }
+          },
+          "name": "p"
+        },
+        "attributes": [],
+        "selfClosing": false
+      },
+      "children": [
+        {
+          "type": "JasxExpressionContainer",
+          "range": [
+            202,
+            217
+          ],
+          "loc": {
+            "start": {
+              "line": 9,
+              "column": 14
+            },
+            "end": {
+              "line": 9,
+              "column": 29
+            }
+          },
+          "expression": {
+            "type": "JavaExpression",
+            "range": [
+              203,
+              216
+            ],
+            "loc": {
+              "start": {
+                "line": 9,
+                "column": 15
+              },
+              "end": {
+                "line": 9,
+                "column": 28
+              }
+            },
+            "segments": [
+              {
+                "type": "JavaCode",
+                "range": [
+                  203,
+                  216
+                ],
+                "loc": {
+                  "start": {
+                    "line": 9,
+                    "column": 15
+                  },
+                  "end": {
+                    "line": 9,
+                    "column": 28
+                  }
+                },
+                "source": "t /* } */ + c"
+              }
+            ]
+          }
+        }
+      ],
+      "closingElement": {
+        "type": "JasxClosingElement",
+        "range": [
+          217,
+          221
+        ],
+        "loc": {
+          "start": {
+            "line": 9,
+            "column": 29
+          },
+          "end": {
+            "line": 9,
+            "column": 33
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            219,
+            220
+          ],
+          "loc": {
+            "start": {
+              "line": 9,
+              "column": 31
+            },
+            "end": {
+              "line": 9,
+              "column": 32
+            }
+          },
+          "name": "p"
+        }
+      }
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        221,
+        229
+      ],
+      "loc": {
+        "start": {
+          "line": 9,
+          "column": 33
+        },
+        "end": {
+          "line": 12,
+          "column": 0
+        }
+      },
+      "source": ";\n  }\n}\n"
+    }
+  ]
+}

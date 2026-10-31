@@ -1,0 +1,1 @@
+Element e = <p title="a&amp;b">x &amp; y &lt;3 &#65;&#x42; & z &copy</p>;

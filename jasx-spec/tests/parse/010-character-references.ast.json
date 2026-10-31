@@ -1,0 +1,222 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    74
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 2,
+      "column": 0
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "010-character-references.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        12
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 1,
+          "column": 12
+        }
+      },
+      "source": "Element e = "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        12,
+        72
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 12
+        },
+        "end": {
+          "line": 1,
+          "column": 72
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          12,
+          31
+        ],
+        "loc": {
+          "start": {
+            "line": 1,
+            "column": 12
+          },
+          "end": {
+            "line": 1,
+            "column": 31
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            13,
+            14
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 13
+            },
+            "end": {
+              "line": 1,
+              "column": 14
+            }
+          },
+          "name": "p"
+        },
+        "attributes": [
+          {
+            "type": "JasxAttribute",
+            "range": [
+              15,
+              30
+            ],
+            "loc": {
+              "start": {
+                "line": 1,
+                "column": 15
+              },
+              "end": {
+                "line": 1,
+                "column": 30
+              }
+            },
+            "name": {
+              "type": "JasxIdentifier",
+              "range": [
+                15,
+                20
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 15
+                },
+                "end": {
+                  "line": 1,
+                  "column": 20
+                }
+              },
+              "name": "title"
+            },
+            "value": {
+              "type": "JasxStringLiteral",
+              "range": [
+                21,
+                30
+              ],
+              "loc": {
+                "start": {
+                  "line": 1,
+                  "column": 21
+                },
+                "end": {
+                  "line": 1,
+                  "column": 30
+                }
+              },
+              "value": "a&amp;b",
+              "raw": "\"a&amp;b\""
+            }
+          }
+        ],
+        "selfClosing": false
+      },
+      "children": [
+        {
+          "type": "JasxText",
+          "range": [
+            31,
+            68
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 31
+            },
+            "end": {
+              "line": 1,
+              "column": 68
+            }
+          },
+          "value": "x & y <3 AB & z &copy",
+          "raw": "x &amp; y &lt;3 &#65;&#x42; & z &copy"
+        }
+      ],
+      "closingElement": {
+        "type": "JasxClosingElement",
+        "range": [
+          68,
+          72
+        ],
+        "loc": {
+          "start": {
+            "line": 1,
+            "column": 68
+          },
+          "end": {
+            "line": 1,
+            "column": 72
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            70,
+            71
+          ],
+          "loc": {
+            "start": {
+              "line": 1,
+              "column": 70
+            },
+            "end": {
+              "line": 1,
+              "column": 71
+            }
+          },
+          "name": "p"
+        }
+      }
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        72,
+        74
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 72
+        },
+        "end": {
+          "line": 2,
+          "column": 0
+        }
+      },
+      "source": ";\n"
+    }
+  ]
+}

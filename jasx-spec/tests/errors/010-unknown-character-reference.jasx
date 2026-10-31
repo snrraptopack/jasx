@@ -1,0 +1,1 @@
+Element e = <p>&nosuchentity;</p>;

@@ -1,0 +1,11 @@
+class A {
+  // a comment with <markup> and } braces
+  static Element view() {
+    String t = """
+        { "quoted" } \""" still text
+        """;
+    char c = '}';
+    /* return <p/>; */
+    return <p>{t /* } */ + c}</p>;
+  }
+}

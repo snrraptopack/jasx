@@ -1,0 +1,11 @@
+class A {
+  static Element view(List<String> xs, int k) {
+    Function<String, Element> row = s -> { return <li>{s}</li>; };
+    Element first = switch (k) {
+      case 0 -> <p>zero</p>;
+      default -> <>{xs.stream().map(row).toList()}</>;
+    };
+    var of = List::<String>of;
+    return first;
+  }
+}
