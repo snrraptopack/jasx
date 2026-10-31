@@ -1,0 +1,22 @@
+import jasx.runtime.Element;
+import jasx.html.Html;
+
+<style>
+  .note { color: gray; }
+  li { margin: 0; }
+  #main { padding: 0; }
+</style>
+
+Element Test() {
+  String kind = "note";
+  return (
+    <main id="main">
+      {Html.styles()}
+      <p class="note big">a</p>
+      <p class="other">b</p>
+      <p class={kind}>c</p>
+      <ul><li>d</li></ul>
+      <span>e</span>
+    </main>
+  );
+}

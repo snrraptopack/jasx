@@ -83,13 +83,15 @@ The renderer adds no whitespace and no line breaks, except inside the `<style>` 
 
 ### 3.5 Style sheets
 
-The factory functions of `semantics.md` §10.5 are `jasx.html.Html.styleSheet(String scope, String css)`, which returns a `jasx.html.StyleSheet` (with the methods `scope()` and `css()`), and `jasx.html.Html.scoped(Object sheet, Element element)`.
+The factory functions of `semantics.md` §10.5 are `jasx.html.Html.styleSheet(String scope, String css)`, which returns a `jasx.html.StyleSheet` (with the methods `scope()` and `css()`), `jasx.html.Html.scoped(Object sheet, Element element)` and `jasx.html.Html.unscoped(Object sheet, Element element)`.
 
 **Scoped elements.** A scoped element is rendered as its element, with the scope name of its style sheet added to its `class` attribute:
 
 - if the element has a `class` attribute whose value is not `null`, `false` or `true`, a space and the scope name are appended to the value: `class="card jx-1a2b3c4d"`;
 - otherwise, `class="jx-1a2b3c4d"` is written after its other attributes, in place of any `class` attribute it has.
 
-**Delivering the CSS.** `jasx.html.Html.styles()` returns an element that renders as the style sheets used in the same `Html.render` call: a `<style>` element containing the scoped CSS of every style sheet of a scoped element rendered in that call, in the order in which each was first used, separated by LF. If no scoped element is rendered, it renders as nothing. It may appear before the elements whose style sheets it contains (typically in `<head>`), because the renderer fills it in at the end of the call. If a call renders several `styles()` elements, only the first receives the style sheets; the others render as nothing.
+**Unscoped elements.** An unscoped element is rendered as its element, unchanged.
+
+**Delivering the CSS.** `jasx.html.Html.styles()` returns an element that renders as the style sheets used in the same `Html.render` call: a `<style>` element containing the scoped CSS of every style sheet of a scoped or unscoped element rendered in that call, in the order in which each was first used, separated by LF. If no such element is rendered, it renders as nothing. It may appear before the elements whose style sheets it contains (typically in `<head>`), because the renderer fills it in at the end of the call. If a call renders several `styles()` elements, only the first receives the style sheets; the others render as nothing.
 
 An application that serves CSS as a file can read `StyleSheet.css()` instead.

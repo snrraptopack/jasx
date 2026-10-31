@@ -115,7 +115,7 @@ final class Lowering {
     private final Resolver resolver;
     private final Emitter out;
     private final List<Diagnostic> diagnostics = new ArrayList<>();
-    /** The file's style block, or null. If set, every intrinsic element is scoped (semantics.md §10.5). */
+    /** The file's style sheet, or null. If set, every intrinsic element is wrapped (semantics.md §10.5). */
     private StyleBlocks.Plan styles;
     /** The component tags resolved so far, for editor tooling (CompilationResult.uses). */
     private final List<CompilationResult.Use> uses = new ArrayList<>();
@@ -326,10 +326,12 @@ final class Lowering {
             error("JASX2102", "<" + tag + "> is a void element and cannot have children", first.start(), first.end());
         }
 
-        // In a file with a style block, the element is scoped: F.scoped(C.jasx$styles, F.h(...)) (§10.5).
-        boolean scoped = styles != null;
-        if (scoped) {
-            out.emit(factory + ".scoped(" + styles.fieldReference() + ", ", element.start());
+        // In a file with a style sheet, the element is wrapped (§10.5): F.scoped(C.jasx$styles, F.h(...)) if
+        // a scoped compound may match it, so that it gets the scope class, otherwise F.unscoped(...).
+        boolean wrapped = styles != null;
+        if (wrapped) {
+            String function = mayBeStyled(tag, attributes) ? ".scoped(" : ".unscoped(";
+            out.emit(factory + function + styles.fieldReference() + ", ", element.start());
         }
 
         // F.h("tag", attributes, children...)
@@ -339,7 +341,24 @@ final class Lowering {
             out.emit(", ", child.start());
             child(child);
         }
-        out.emit(scoped ? "))" : ")", closingAnchor(element));
+        out.emit(wrapped ? "))" : ")", closingAnchor(element));
+    }
+
+    /** Whether one of the file's scoped compounds may match this element (semantics.md §10.5). */
+    private boolean mayBeStyled(String tag, List<JasxAttribute> attributes) {
+        return styles.match().mayMatch(tag, attributeValue(attributes, "class"), attributeValue(attributes, "id"));
+    }
+
+    /** What the source says about the attribute {@code name}: absent, a string literal, or any value. */
+    private static ScopeMatch.AttributeValue attributeValue(List<JasxAttribute> attributes, String name) {
+        for (JasxAttribute attribute : attributes) {
+            if (JasxParser.attributeNameText(attribute.name()).equals(name)) {
+                return attribute.value() instanceof JasxStringLiteral literal
+                        ? ScopeMatch.AttributeValue.literal(literal.value())
+                        : ScopeMatch.AttributeValue.ANY; // an expression, or no value
+            }
+        }
+        return ScopeMatch.AttributeValue.ABSENT;
     }
 
     /**

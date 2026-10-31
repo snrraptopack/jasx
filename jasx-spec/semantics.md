@@ -277,7 +277,7 @@ A target's **factory class** `F` provides these static functions:
 | `Element F.keyed(Object key, Element element)` | Attach a key (§6.4). |
 | `Element F.text(String value)` | Create a text element (used where a child must be an `Element`). |
 
-A target that supports style blocks also provides `styleSheet` and `scoped` (§10.5).
+A target that supports style blocks also provides `styleSheet`, `scoped` and `unscoped` (§10.5).
 
 Each child passed to `h` or `fragment` is a child value (§3). Text child values are passed as Java string literals, and expression child values as their Java expression. All of them **MUST** be interpreted by the child value contract (§3.4).
 
@@ -565,7 +565,7 @@ Each item in the block of a style rule is a declaration, which ends at a `;` or 
 - If it is `:global(` *S* `)`, it is replaced by *S*, unscoped.
 - Otherwise, its **last compound selector** is the text after the last **combinator** (whitespace, `>`, `+` or `~`) that is not inside parentheses, brackets or strings. A `.` followed by the scope name is inserted into that compound: before its first pseudo-element (`::` followed by a name, or one of `:before`, `:after`, `:first-line`, `:first-letter`), or at its end if it has none.
 
-The parts are then joined with `, `.
+The parts are then joined with `, `. The text of each compound selector the scope name was inserted into, from its start to the insertion point, is a **scoped compound** of the file (for `ul > li:hover`, it is `li:hover`; for `.title::before`, `.title`).
 
 | Selector | Scoped (with scope name `jx-1`) |
 |---|---|
@@ -593,14 +593,32 @@ A target that supports style blocks provides two more factory functions (§6.2):
 | Function | Purpose |
 |---|---|
 | `Object F.styleSheet(String scope, String css)` | Create a file's style sheet from its scope name and scoped CSS. |
-| `Element F.scoped(Object sheet, Element element)` | Mark an intrinsic element as written in a file with the style sheet `sheet`. |
+| `Element F.scoped(Object sheet, Element element)` | Mark an intrinsic element as written in a file with the style sheet `sheet`, and as one its scoped CSS may apply to. |
+| `Element F.unscoped(Object sheet, Element element)` | Mark an intrinsic element as written in a file with the style sheet `sheet`, but as one its scoped CSS cannot apply to. |
 
 - The file's style sheet is the field `static final java.lang.Object jasx$styles = F.styleSheet("scope", "css");`, where `css` is the scoped CSS of the file as a Java string literal. It is declared in the **style class**: the file class, if the file has one, or otherwise the top-level class that contains the first style block. It is inserted at the start of the style class's body, on the same line: directly after the file class header (§9.4), or directly after the `{` that opens the class body.
 - Every style block is removed from the generated code. The lines it spans remain, empty (§6.5).
-- Every intrinsic element of the file lowers to `F.scoped(C.jasx$styles, e)`, where `e` is its lowering by §6.3 and `C` is the fully qualified name of the style class. A `key` is applied outside: `F.keyed(k, F.scoped(C.jasx$styles, e))`. Fragments and component calls are not wrapped.
+- Every intrinsic element of the file that a scoped compound **may match** (below) lowers to `F.scoped(C.jasx$styles, e)`, and every other intrinsic element of the file to `F.unscoped(C.jasx$styles, e)`, where `e` is its lowering by §6.3 and `C` is the fully qualified name of the style class. A `key` is applied outside: `F.keyed(k, F.scoped(C.jasx$styles, e))`. Fragments and component calls are not wrapped.
+
+A scoped compound **may match** an element unless its text shows that it cannot. Only the text outside parentheses, brackets and strings counts, so `:not(.x)` requires nothing. In that text, a **name** is a run of ASCII letters, ASCII digits, `-`, `_` and non-ASCII characters. The compound cannot match the element if:
+
+1. it starts with a name (a **type selector**) that differs from the element's tag name, compared ASCII case-insensitively; or
+2. it contains `.` followed by a name *c* (a **class selector**), and the element has no `class` attribute, or its `class` attribute is a string literal whose value, split at ASCII whitespace, does not contain *c*; or
+3. it contains `#` followed by a name *i* (an **ID selector**), and the element has no `id` attribute, or its `id` attribute is a string literal whose value is not *i*.
+
+A compound that contains `\`, `&` or `|` may match every element. A `class` or `id` attribute whose value is an expression, or that has no value, may have any value.
+
+| Scoped compounds | Element | Lowers to |
+|---|---|---|
+| `li` | `<li>`, `<ul>` | `F.scoped(...)`, `F.unscoped(...)` |
+| `.card` | `<div class="card big">`, `<div class="other">`, `<div>`, `<div class={c}>` | scoped, unscoped, unscoped, scoped |
+| `a:hover`, `#main` | `<a>`, `<main id="main">`, `<p>` | scoped, scoped, unscoped |
+| `:not(.x)` | any element | scoped |
+
+Both functions mark the element as using the style sheet; only `F.scoped` elements need the scope name (§10.6). A file whose style sheet has only `:global(...)` rules has no scoped compounds, so all its elements lower to `F.unscoped`, and its style sheet is still used.
 
 ### 10.6 Target support
 
 A target supports style blocks if its descriptor has `"styles": "css"` (§7.2). A style block in a file compiled for any other target is an error (JASX2106).
 
-What a style sheet and a scoped element mean, and how the scoped CSS is delivered, is target-defined. A target **SHOULD** give each scoped element the scope name of its style sheet as a CSS class, so that the scoped CSS applies to it, and **SHOULD** make the scoped CSS of the elements it renders available to the application.
+What a style sheet, a scoped element and an unscoped element mean, and how the scoped CSS is delivered, is target-defined. A target **SHOULD** give each scoped element, and no unscoped element, the scope name of its style sheet as a CSS class, so that the scoped CSS applies to it, and **SHOULD** make the scoped CSS of the scoped and unscoped elements it renders available to the application.

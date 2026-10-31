@@ -14,7 +14,7 @@ import jasx.runtime.Element;
  * The factory class of the html reference target (semantics.md §6.2, targets/html.md).
  *
  * <p>Lowered markup calls {@link #h}, {@link #fragment}, {@link #keyed} and {@link #text}, and in files with a
- * style block {@link #styleSheet} and {@link #scoped}. Applications call {@link #render} to turn the result
+ * style block {@link #styleSheet}, {@link #scoped} and {@link #unscoped}. Applications call {@link #render} to turn the result
  * into an HTML string, {@link #rawHtml} to insert trusted HTML without escaping, and {@link #styles} to place
  * the CSS of the style blocks used on a page.
  */
@@ -62,6 +62,14 @@ public final class Html {
     /** An element written in a file whose style sheet is {@code sheet}; it gets the sheet's scope class. */
     public static Element scoped(Object sheet, Element element) {
         return new HtmlElement.Scoped((StyleSheet) sheet, element);
+    }
+
+    /**
+     * An element written in a file whose style sheet is {@code sheet}, that none of the sheet's CSS can apply
+     * to: it gets no scope class, but the sheet is still delivered by {@link #styles()}.
+     */
+    public static Element unscoped(Object sheet, Element element) {
+        return new HtmlElement.Unscoped((StyleSheet) sheet, element);
     }
 
     /**
@@ -140,6 +148,10 @@ public final class Html {
                 case HtmlElement.Text text -> text(text.value());
                 case HtmlElement.Raw raw -> out.append(raw.html());
                 case HtmlElement.Scoped scoped -> scoped(scoped);
+                case HtmlElement.Unscoped unscoped -> {
+                    sheets.add(unscoped.sheet()); // no scope class, but the sheet is used (§3.5)
+                    child(unscoped.element());
+                }
                 case HtmlElement.Styles styles -> {
                     if (stylesAt < 0) {
                         stylesAt = out.length(); // filled in by insertStyles(), once everything is rendered

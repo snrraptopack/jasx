@@ -4,6 +4,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -38,8 +39,11 @@ final class ScopedCss {
     /** A problem in the CSS, with its range as offsets in the original style block content. */
     record Problem(String message, int start, int end) {}
 
-    /** The scoped CSS, and the problems found. The CSS is meaningless if there are problems. */
-    record Result(String css, List<Problem> problems) {}
+    /**
+     * The scoped CSS, the problems found, and the scoped compounds: the compound selectors that got the
+     * scope name, without what follows it (semantics.md §10.4). The CSS is meaningless if there are problems.
+     */
+    record Result(String css, List<Problem> problems, List<String> scopedCompounds) {}
 
     /** At-rules whose block holds rules, which are scoped too. Others' blocks are copied unchanged. */
     private static final Set<String> GROUPING_AT_RULES = Set.of(
@@ -58,6 +62,8 @@ final class ScopedCss {
     private final StringBuilder out = new StringBuilder();
     /** Keyed by offset and message, so that text scanned twice doesn't report a problem twice. */
     private final Map<String, Problem> problems = new LinkedHashMap<>();
+    /** The scoped compounds, each once, in the order they were found. */
+    private final Set<String> scopedCompounds = new LinkedHashSet<>();
 
     private ScopedCss(String original, String scope) {
         this.original = original;
@@ -70,7 +76,8 @@ final class ScopedCss {
         scoper.checkNoClosingStyleTag();
         scoper.removeComments();
         scoper.ruleList(0, -1);
-        return new Result(tidy(scoper.out.toString()), List.copyOf(scoper.problems.values()));
+        return new Result(tidy(scoper.out.toString()), List.copyOf(scoper.problems.values()),
+                List.copyOf(scoper.scopedCompounds));
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -135,7 +142,7 @@ final class ScopedCss {
      * The offset of the quote that closes the string starting at {@code quote}, or of the line terminator
      * or end of text where it stops unclosed.
      */
-    private static int stringEnd(String s, int quote) {
+    static int stringEnd(String s, int quote) {
         char q = s.charAt(quote);
         int j = quote + 1;
         while (j < s.length()) {
@@ -324,6 +331,7 @@ final class ScopedCss {
 
         int compoundStart = lastCompoundStart(selector);
         int insertAt = pseudoElementStart(selector, compoundStart);
+        scopedCompounds.add(selector.substring(compoundStart, insertAt));
         return selector.substring(0, insertAt) + "." + scope + selector.substring(insertAt);
     }
 

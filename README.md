@@ -50,7 +50,7 @@ public Element Card(String title) {
 }
 ```
 
-The compiler adds a file-specific class to every selector and to every element of the file, so `.card` here can't affect another file's `.card`. All style blocks of a file form one style sheet, and a style block inside markup renders nothing where it is written, so the CSS is sent once per page however often a component is used. Mistakes in the CSS are compile errors. With the `html` target, put `{Html.styles()}` in your page's `<head>`: it outputs the CSS of every style sheet used on the page. (`<style>{css}</style>`, with an expression, is still an ordinary `<style>` element.)
+The compiler adds a file-specific class to every selector, and to the elements of the file that a selector may match, so `.card` here can't affect another file's `.card`. All style blocks of a file form one style sheet, and a style block inside markup renders nothing where it is written, so the CSS is sent once per page however often a component is used. Mistakes in the CSS are compile errors. With the `html` target, put `{Html.styles()}` in your page's `<head>`: it outputs the CSS of every style sheet used on the page. (`<style>{css}</style>`, with an expression, is still an ordinary `<style>` element.)
 
 Like JSX, JASX is **a language, not a framework**. What markup turns into is decided by a **target** library. The current focus is the core language. It ships with one small reference target, `html`, which renders markup to an HTML string. Other targets are not decided yet.
 

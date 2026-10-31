@@ -46,8 +46,9 @@ final class StyleBlocks {
      * @param scope the scope name, such as {@code jx-1a2b3c4d} (semantics.md §10.3)
      * @param css the scoped CSS of the file (semantics.md §10.4)
      * @param fieldOffset where the field declaration is inserted: the start of the style class's body
+     * @param match which intrinsic elements get the scope class (semantics.md §10.5)
      */
-    record Plan(String styleClass, String scope, String css, int fieldOffset) {
+    record Plan(String styleClass, String scope, String css, int fieldOffset, ScopeMatch match) {
         /** The name of the generated field (semantics.md §10.5). */
         static final String FIELD = "jasx$styles";
 
@@ -101,6 +102,7 @@ final class StyleBlocks {
         // semantics.md §10.4: scope the CSS of each block. Problems are located in the .jasx file.
         String scope = scopeName(file, structure);
         List<String> css = new ArrayList<>();
+        List<String> scopedCompounds = new ArrayList<>();
         for (JasxStyleBlock block : allBlocks) {
             ScopedCss.Result scoped = ScopedCss.scope(block.css(), scope);
             int contentStart = block.start() + OPEN_TAG_LENGTH;
@@ -111,6 +113,7 @@ final class StyleBlocks {
             if (!scoped.css().isEmpty()) {
                 css.add(scoped.css());
             }
+            scopedCompounds.addAll(scoped.scopedCompounds());
         }
 
         if (!errors.isEmpty()) {
@@ -128,7 +131,9 @@ final class StyleBlocks {
             }
             fieldOffset = styleClass.bodyStart + 1; // right after the '{' of the class body
         }
-        return new Result(new Plan(styleClass.qualifiedName, scope, String.join("\n", css), fieldOffset), errors);
+        Plan plan = new Plan(styleClass.qualifiedName, scope, String.join("\n", css), fieldOffset,
+                ScopeMatch.of(scopedCompounds));
+        return new Result(plan, errors);
     }
 
     /** Adds the style blocks in {@code node} to {@code into}: in markup children, at any depth. */

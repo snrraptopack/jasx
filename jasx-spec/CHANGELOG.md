@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0-draft, revision 10
+
+### Changed
+
+- **The scope class only on elements the scoped CSS may match** (`semantics.md` §10.4, §10.5). An intrinsic element of a file with a style sheet lowers to `F.scoped(sheet, e)` only if one of the file's scoped compounds may match it, judged from its tag name and its literal `class` and `id` attributes; otherwise it lowers to the new factory function `F.unscoped(sheet, e)`, which still uses the style sheet but adds no scope class. Before, every intrinsic element was scoped, so elements such as `<meta>` or `<title>` carried a scope class no rule could use.
+- Expected output of render conformance test `011-style-block-in-class`: its `<ul>` no longer has the scope class, because the only scoped compound is `li`.
+- `targets/html.md` §3.5: `Html.unscoped`, and `Html.styles()` also delivers the style sheets of unscoped elements.
+
+### Added
+
+- Render conformance tests `014-scope-class-where-it-may-match` and `015-unscoped-elements-use-the-style-sheet`.
+
 ## 1.0-draft, revision 9
 
 ### Changed

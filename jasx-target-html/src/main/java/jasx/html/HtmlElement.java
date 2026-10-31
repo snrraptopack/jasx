@@ -48,6 +48,17 @@ public sealed interface HtmlElement extends Element {
         }
     }
 
+    /**
+     * An element written in a file with a style sheet, that none of the sheet's scoped CSS can apply to: it is
+     * rendered unchanged, but its style sheet still counts as used (§3.5).
+     */
+    record Unscoped(StyleSheet sheet, Element element) implements HtmlElement {
+        @Override
+        public String toString() {
+            return Html.render(this);
+        }
+    }
+
     /** Where {@link Html#styles()} puts the style sheets used in a render (§3.5). */
     record Styles() implements HtmlElement {
         @Override

@@ -915,7 +915,7 @@ class JasxCompilerTest {
 
         @Test
         void aStyleBlockInsideMarkupRendersNothingWhereItIs() {
-            assertEquals("<style>h2.jx-e632b709 { margin: 0; }</style><div class=\"jx-e632b709\">"
+            assertEquals("<style>h2.jx-e632b709 { margin: 0; }</style><div>"
                             + "<h2 class=\"jx-e632b709\">T</h2></div>",
                     render("""
                     static Element Test() {
@@ -936,7 +936,7 @@ class JasxCompilerTest {
 
         @Test
         void aStyleBlockIsNotPassedToAComponentAsAChild() {
-            assertEquals("<section class=\"jx-e632b709\"><p class=\"jx-e632b709\">only child</p></section>", render("""
+            assertEquals("<section><p class=\"jx-e632b709\">only child</p></section>", render("""
                     static Element Box(Element children) { return <section>{children}</section>; }
                     static Element Test() {
                       return <Box><style>p { }</style><p>only child</p></Box>;

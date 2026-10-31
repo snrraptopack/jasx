@@ -1,0 +1,10 @@
+import jasx.runtime.Element;
+import jasx.html.Html;
+
+<style>
+  :global(body) { margin: 0; }
+</style>
+
+Element Test() {
+  return <div>{Html.styles()}<p>x</p></div>;
+}

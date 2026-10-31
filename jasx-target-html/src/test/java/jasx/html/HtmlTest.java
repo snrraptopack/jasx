@@ -8,6 +8,7 @@ import static jasx.html.Html.render;
 import static jasx.html.Html.scoped;
 import static jasx.html.Html.styles;
 import static jasx.html.Html.text;
+import static jasx.html.Html.unscoped;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import jasx.html.attrs.A;
@@ -132,6 +133,12 @@ class HtmlTest {
                 scoped(PAGE, h("p", null)));
         assertEquals("<head><style>p.jx-2 { }\n.card.jx-1 { }</style></head>"
                 + "<p class=\"jx-2\"></p><div class=\"jx-1\"></div><p class=\"jx-2\"></p>", render(page));
+    }
+
+    @Test
+    void unscopedElementsAreUnchangedButUseTheirSheet() {
+        Object page = fragment(styles(), unscoped(CARD, h("p", A.create().className("x"))));
+        assertEquals("<style>.card.jx-1 { }</style><p class=\"x\"></p>", render(page));
     }
 
     @Test
