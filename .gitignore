@@ -10,6 +10,9 @@ build/
 out/
 bin/
 
+# Node (editors/vscode tests)
+node_modules/
+
 # OS
 .DS_Store
 Thumbs.db

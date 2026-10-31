@@ -1,0 +1,45 @@
+{
+  "name": "jasx",
+  "displayName": "JASX",
+  "description": "Syntax highlighting for JASX: Java with JSX-style markup.",
+  "version": "0.1.0",
+  "publisher": "jasx",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/snrraptopack/jasx"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "jasx",
+        "aliases": ["JASX", "jasx"],
+        "extensions": [".jasx"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "jasx",
+        "scopeName": "source.jasx",
+        "path": "./syntaxes/jasx.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.expression.jasx": "java"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node test/grammar.test.mjs"
+  },
+  "devDependencies": {
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.2.0"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "comment": "A tiny stand-in for VS Code's built-in Java grammar, used only by the tests. Its brace rule includes only Java patterns, like the real grammar's class and method bodies, so markup inside it is found only through the JASX injection.",
+  "scopeName": "source.java",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "match": "\\b(class|static|return|public|import|package|var|new|if|boolean)\\b", "name": "keyword.java" },
+    {
+      "begin": "\\{",
+      "end": "\\}",
+      "name": "meta.block.java",
+      "patterns": [{ "include": "$self" }]
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "begin": "/\\*", "end": "\\*/", "name": "comment.block.java" },
+        { "match": "//.*$", "name": "comment.line.double-slash.java" }
+      ]
+    },
+    "strings": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.java",
+      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.java" }]
+    }
+  }
+}

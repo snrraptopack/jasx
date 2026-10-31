@@ -1,0 +1,181 @@
+{
+  "name": "JASX",
+  "scopeName": "source.jasx",
+  "fileTypes": ["jasx"],
+  "comment": "Java (VS Code's built-in source.java grammar) with JSX-style markup. In Java code, '<' starts markup only after a token that can precede an expression, as in jasx-spec/grammar.md §4; a regular expression can only approximate that rule, so 'markup-in-java' looks at the previous non-space character or keyword on the same line, or at the start of a line. The injection makes markup work inside every Java construct (class bodies, method bodies, lambdas), not only at the top level.",
+  "patterns": [
+    { "include": "#markup-in-java" },
+    { "include": "source.java" }
+  ],
+  "injections": {
+    "L:source.jasx -comment -string": {
+      "patterns": [
+        { "include": "#markup-in-java" }
+      ]
+    }
+  },
+  "repository": {
+    "markup-in-java": {
+      "comment": "Markup that starts in Java code: '<' after ( [ , = ? : { -> && || return yield, or at the start of a line.",
+      "patterns": [
+        {
+          "name": "meta.tag.jasx",
+          "begin": "(?<=^|[(\\[,=?:{]|->|&&|\\|\\||\\breturn|\\byield)\\s*(<)\\s*(>)",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.jasx" },
+            "2": { "name": "punctuation.definition.tag.end.jasx" }
+          },
+          "end": "(</)\\s*(>)",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.jasx" },
+            "2": { "name": "punctuation.definition.tag.end.jasx" }
+          },
+          "patterns": [{ "include": "#children" }]
+        },
+        {
+          "name": "meta.tag.jasx",
+          "begin": "(?<=^|[(\\[,=?:{]|->|&&|\\|\\||\\breturn|\\byield)\\s*(<)\\s*([A-Za-z_$][\\w$.:-]*)(?=[\\s/>{]|$)",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.jasx" },
+            "2": { "patterns": [{ "include": "#tag-name" }] }
+          },
+          "end": "(/>)|(?:(</)\\s*(\\2)\\s*(>))",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.tag.end.jasx" },
+            "2": { "name": "punctuation.definition.tag.begin.jasx" },
+            "3": { "patterns": [{ "include": "#tag-name" }] },
+            "4": { "name": "punctuation.definition.tag.end.jasx" }
+          },
+          "patterns": [{ "include": "#element-body" }]
+        }
+      ]
+    },
+
+    "element": {
+      "comment": "Markup inside markup (children and attribute values), where every '<' starts a tag.",
+      "patterns": [
+        {
+          "name": "meta.tag.jasx",
+          "begin": "(<)\\s*(>)",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.jasx" },
+            "2": { "name": "punctuation.definition.tag.end.jasx" }
+          },
+          "end": "(</)\\s*(>)",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.jasx" },
+            "2": { "name": "punctuation.definition.tag.end.jasx" }
+          },
+          "patterns": [{ "include": "#children" }]
+        },
+        {
+          "name": "meta.tag.jasx",
+          "begin": "(<)\\s*([A-Za-z_$][\\w$.:-]*)(?=[\\s/>{]|$)",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.tag.begin.jasx" },
+            "2": { "patterns": [{ "include": "#tag-name" }] }
+          },
+          "end": "(/>)|(?:(</)\\s*(\\2)\\s*(>))",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.tag.end.jasx" },
+            "2": { "name": "punctuation.definition.tag.begin.jasx" },
+            "3": { "patterns": [{ "include": "#tag-name" }] },
+            "4": { "name": "punctuation.definition.tag.end.jasx" }
+          },
+          "patterns": [{ "include": "#element-body" }]
+        }
+      ]
+    },
+
+    "element-body": {
+      "comment": "Attributes up to '>', then the children up to the closing tag (matched by the element's end).",
+      "patterns": [
+        { "include": "#attribute" },
+        {
+          "begin": "(>)",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.tag.end.jasx" }
+          },
+          "end": "(?=</)",
+          "contentName": "meta.children.jasx",
+          "patterns": [{ "include": "#children" }]
+        }
+      ]
+    },
+
+    "tag-name": {
+      "comment": "Capitalized or qualified names are components (semantics.md §2); the others are intrinsic elements.",
+      "patterns": [
+        {
+          "match": "(?<![\\w$.:-])(?:[A-Z][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*|[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)+)(?![\\w$.:-])",
+          "name": "support.class.component.jasx"
+        },
+        {
+          "match": "(?<![\\w$.:-])[\\w$.:-]+",
+          "name": "entity.name.tag.jasx"
+        }
+      ]
+    },
+
+    "attribute": {
+      "patterns": [
+        {
+          "match": "([A-Za-z_$][\\w$-]*(?::[A-Za-z_$][\\w$-]*)?)\\s*(=)?",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.jasx" },
+            "2": { "name": "keyword.operator.assignment.jasx" }
+          }
+        },
+        { "include": "#string" },
+        { "include": "#expression" },
+        { "include": "#element" }
+      ]
+    },
+
+    "children": {
+      "patterns": [
+        { "include": "#element" },
+        { "include": "#expression" },
+        { "include": "#entity" }
+      ]
+    },
+
+    "expression": {
+      "comment": "An expression container: Java, which may contain markup again.",
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.embedded.begin.jasx" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.embedded.end.jasx" }
+      },
+      "contentName": "meta.embedded.expression.jasx",
+      "patterns": [
+        { "include": "#markup-in-java" },
+        { "include": "source.java" }
+      ]
+    },
+
+    "string": {
+      "comment": "Attribute strings use Java escape sequences (grammar.md §5).",
+      "name": "string.quoted.double.jasx",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.jasx" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.jasx" }
+      },
+      "patterns": [
+        { "match": "\\\\.", "name": "constant.character.escape.jasx" }
+      ]
+    },
+
+    "entity": {
+      "match": "&(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#[xX][0-9A-Fa-f]+);",
+      "name": "constant.character.entity.jasx"
+    }
+  }
+}
