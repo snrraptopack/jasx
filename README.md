@@ -26,7 +26,7 @@ A `.jasx` file is ordinary Java plus markup expressions. The JASX compiler rewri
 
 Methods and fields can be written at the top level of a `.jasx` file, as above. They become static members of a class named after the file (`app.Todos`), so other files use them with `import static app.Todos.*;`, or as `<Todos.Item ... />`. Without an access modifier they have package access, as in Java; declare them `public` to use them from other packages. Files with an ordinary `class` work too.
 
-A `.jasx` file can also hold a **style block** of plain CSS, scoped to the elements written in that file:
+A `.jasx` file can also hold **style blocks** of plain CSS, scoped to the elements written in that file. Write them at the top, or inside markup next to the elements they style:
 
 ```java
 <style>
@@ -34,11 +34,18 @@ A `.jasx` file can also hold a **style block** of plain CSS, scoped to the eleme
 </style>
 
 public Element Card(String title) {
-  return <div class="card"><h2>{title}</h2></div>;
+  return (
+    <div class="card">
+      <style>
+        h2 { margin: 0; }
+      </style>
+      <h2>{title}</h2>
+    </div>
+  );
 }
 ```
 
-The compiler adds a file-specific class to every selector and to every element of the file, so `.card` here can't affect another file's `.card`. Mistakes in the CSS are compile errors. With the `html` target, put `{Html.styles()}` in your page's `<head>`: it outputs the CSS of every style block used on the page.
+The compiler adds a file-specific class to every selector and to every element of the file, so `.card` here can't affect another file's `.card`. All style blocks of a file form one style sheet, and a style block inside markup renders nothing where it is written, so the CSS is sent once per page however often a component is used. Mistakes in the CSS are compile errors. With the `html` target, put `{Html.styles()}` in your page's `<head>`: it outputs the CSS of every style sheet used on the page. (`<style>{css}</style>`, with an expression, is still an ordinary `<style>` element.)
 
 Like JSX, JASX is **a language, not a framework**. What markup turns into is decided by a **target** library. The current focus is the core language. It ships with one small reference target, `html`, which renders markup to an HTML string. Other targets are not decided yet.
 

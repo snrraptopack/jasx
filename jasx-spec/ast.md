@@ -201,7 +201,7 @@ interface JasxStringLiteral <: Node {
 ### 6.5 Children
 
 ```
-type JasxChild = JasxText | JasxElement | JasxFragment | JasxExpressionContainer;
+type JasxChild = JasxText | JasxElement | JasxFragment | JasxExpressionContainer | JasxStyleBlock;
 
 interface JasxText <: Node {
   type: "JasxText";
@@ -237,7 +237,7 @@ interface JasxStyleBlock <: Node {
 }
 ```
 
-A style block (`grammar.md` §7.3) appears only in `JasxCompilationUnit.segments`. Its `range` runs from the `<` of `<style>` to the end of `</style>`. Its `css` is not processed in any way: comments, whitespace and line terminators are kept. If the block is not closed (JASX1012), its range and its `css` run to the end of the file.
+A style block (`grammar.md` §7.3) appears in `JasxCompilationUnit.segments`, or in `children` when it is written inside markup. Its `range` runs from the `<` of `<style>` to the end of `</style>`. Its `css` is not processed in any way: comments, whitespace and line terminators are kept. If the block is not closed (JASX1012), its range and its `css` run to the end of the file.
 
 ---
 
@@ -262,7 +262,7 @@ A style block (`grammar.md` §7.3) appears only in `JasxCompilationUnit.segments
 | `JasxText` | `children` |
 | `JasxExpressionContainer` | `children`, `JasxAttribute.value` |
 | `JasxEmptyExpression` | `JasxExpressionContainer.expression` |
-| `JasxStyleBlock` | `JasxCompilationUnit.segments` |
+| `JasxStyleBlock` | `JasxCompilationUnit.segments`, `children` |
 
 ---
 

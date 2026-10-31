@@ -283,7 +283,8 @@
         { "$ref": "#/$defs/JasxText" },
         { "$ref": "#/$defs/JasxElement" },
         { "$ref": "#/$defs/JasxFragment" },
-        { "$ref": "#/$defs/JasxExpressionContainer" }
+        { "$ref": "#/$defs/JasxExpressionContainer" },
+        { "$ref": "#/$defs/JasxStyleBlock" }
       ]
     },
     "JasxText": {

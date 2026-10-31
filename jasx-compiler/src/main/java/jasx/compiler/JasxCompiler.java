@@ -27,7 +27,7 @@ import jasx.parser.ast.Ast.Segment;
  * declared in another file.
  *
  * <p>A {@code .jasx} file with fields or methods at its top level is also wrapped in its <em>file class</em>,
- * named after the file (semantics.md §9, {@link FileClass}). A style block's CSS is scoped to the file and
+ * named after the file (semantics.md §9, {@link FileClass}). The CSS of its style blocks is scoped to the file and
  * attached to its elements (semantics.md §10, {@link StyleBlocks}).
  *
  * <p>{@code .java} files are only scanned (for {@code @jasx.Component} methods). They are never rewritten;
@@ -64,7 +64,7 @@ public final class JasxCompiler {
             JavaStructure structure,
             /** Text to insert into the Java code: {@code @jasx.Component}, and the file class (§5.1, §9.4). */
             List<Lowering.Insertion> insertions,
-            /** How to lower the file's style block, or null if it has none (semantics.md §10). */
+            /** The file's style sheet, or null if it has no style block (semantics.md §10). */
             StyleBlocks.Plan styles,
             /** True if the file can't be lowered because of an error found while scanning it. */
             boolean unlowerable) {}
@@ -140,13 +140,16 @@ public final class JasxCompiler {
             }
         }
 
-        // The style block, if any: checked and scoped now, so that its errors come with the scan's.
+        // The style blocks, if any: checked and scoped now, so that their errors come with the scan's.
         StyleBlocks.Result styles = parsed != null ? StyleBlocks.check(file, parsed, structure, target) : null;
         List<Diagnostic> styleErrors = styles != null ? styles.errors() : List.of();
         report(diagnostics, file, lines, styleErrors);
 
         boolean unlowerable = !fileClassErrors.isEmpty() || !styleErrors.isEmpty();
         StyleBlocks.Plan plan = styles != null ? styles.plan() : null;
+        if (plan != null) {
+            insertions.add(plan.fieldDeclaration(target.factory())); // the style sheet field (semantics.md §10.5)
+        }
         return new ScannedFile(file, lines, parsed, structure, insertions, plan, unlowerable);
     }
 

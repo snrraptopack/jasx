@@ -596,4 +596,42 @@ class JasxParserTest {
             assertEquals("\n  a {}\n}\n", block.css());
         }
     }
+
+    /** grammar.md §6.5: a {@code <style>} child with CSS content is a style block. */
+    @Nested
+    class StyleBlocksInMarkup {
+        private List<Child> childrenOf(String source) {
+            return firstElement(source).children();
+        }
+
+        @Test
+        void cssContentMakesAStyleBlock() {
+            List<Child> children = childrenOf("x = <div><style>\n  p { margin: 0 }\n</style><p/></div>;");
+            JasxStyleBlock block = assertInstanceOf(JasxStyleBlock.class, children.get(0));
+            assertEquals("\n  p { margin: 0 }\n", block.css());
+            assertInstanceOf(JasxElement.class, children.get(1));
+        }
+
+        @Test
+        void anExpressionContentKeepsAnOrdinaryElement() {
+            assertInstanceOf(JasxElement.class, childrenOf("x = <head><style>{css}</style></head>;").get(0));
+            assertInstanceOf(JasxElement.class, childrenOf("x = <head><style>\n  {css}\n</style></head>;").get(0));
+        }
+
+        @Test
+        void attributesKeepAnOrdinaryElement() {
+            assertInstanceOf(JasxElement.class, childrenOf("x = <head><style media=\"print\">{css}</style></head>;").get(0));
+        }
+
+        @Test
+        void anEmptyStyleBlock() {
+            assertEquals("", ((JasxStyleBlock) childrenOf("x = <div><style></style></div>;").get(0)).css());
+        }
+
+        @Test
+        void unclosedStyleBlockInMarkup() {
+            // Only the innermost construct reports the end of input, so the <div> stays quiet.
+            assertEquals(List.of("JASX1012"), codes("x = <div><style>a {}"));
+        }
+    }
 }

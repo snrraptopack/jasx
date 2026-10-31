@@ -8,11 +8,11 @@ import static hello.ui.Layout.*;
 // The pages of the example. A .jasx file is Java plus markup expressions; these components are declared at
 // the top level, so they are static methods of the file class `hello.Pages`.
 
-// Styles for the elements of this file only. `.badge` from Layout.jasx doesn't leak in, and this `span`
-// rule doesn't affect the spans of Layout's badges.
+// Styles for the elements of this file only: `.badge` from Layout.jasx doesn't leak in here, and the
+// `span` rule below doesn't affect the spans of Layout's badges. A style block can be written at the top,
+// like this one, or inside markup, like the one in TodoItem. Both go into the same style sheet, which is
+// sent once per page however many items are rendered.
 <style>
-    .todo { display: flex; gap: .5rem; align-items: center; padding: .25rem 0; }
-    .todo.done span { text-decoration: line-through; opacity: .6; }
     footer { margin-top: 1.5rem; color: #6b7280; }
 </style>
 
@@ -20,6 +20,10 @@ import static hello.ui.Layout.*;
 Element TodoItem(Todo todo) {
     return (
         <li class={todo.done() ? "todo done" : "todo"}>
+            <style>
+                .todo { display: flex; gap: .5rem; align-items: center; padding: .25rem 0; }
+                .todo.done span { text-decoration: line-through; opacity: .6; }
+            </style>
             <input type="checkbox" checked={todo.done()} disabled />
             <span>{todo.title()}</span>
         </li>

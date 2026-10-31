@@ -78,6 +78,8 @@ Consequences:
 
 Nested `JasxElement` and `JasxFragment` children become **element child values**.
 
+A `JasxStyleBlock` child (§10) is removed: its CSS belongs to the file's style sheet, not to the element it is written in.
+
 ### 3.4 Child value contract
 
 Every target **MUST** interpret an expression child value according to its runtime type as follows:
@@ -503,14 +505,22 @@ The compiler turns the file into its file class by inserting text into the `Java
 
 A style block (`grammar.md` §7.3) holds CSS for the markup of its file. The CSS is **scoped**: its rules apply only to the intrinsic elements written in the same file, so two files can both style `.title` without affecting each other. The CSS is plain CSS; JASX adds nothing to it except `:global(...)` (§10.4).
 
+A style block can be written at the level of declarations, or inside markup, next to the elements it styles. Either way it contributes to the **style sheet of the file**: all style blocks of a file share one scope name, and their rules apply to every intrinsic element of the file.
+
 ```java
 <style>
   .card  { padding: 1rem; }
-  .title { font-weight: 600; }
 </style>
 
 public Element Card(String title) {
-  return <div class="card"><h2 class="title">{title}</h2></div>;
+  return (
+    <div class="card">
+      <style>
+        .title { font-weight: 600; }
+      </style>
+      <h2 class="title">{title}</h2>
+    </div>
+  );
 }
 ```
 
@@ -518,8 +528,9 @@ The core defines where a style block may appear, which elements it applies to, h
 
 ### 10.1 Placement
 
-- A style block **MUST** appear where a field declaration could: directly in the body of a class, interface, enum or record, or at the top level of a file that has a file class (§9). Anywhere else (in a method body, or at the top level of a file without a file class) it is an error (JASX2015).
-- A file **MUST NOT** contain more than one style block (JASX2016).
+- A style block at the level of declarations **MUST** appear where a field declaration could: directly in the body of a class, interface, enum or record, or at the top level of a file that has a file class (§9). Anywhere else (in a method body, or at the top level of a file without a file class) it is an error (JASX2015).
+- A style block inside markup may be any child of an element or fragment. It is not a child value (§3.3), so it renders nothing where it is written, and it is not passed to a component as part of its children.
+- A file may contain any number of style blocks.
 
 ### 10.2 What a style block applies to
 
@@ -531,7 +542,7 @@ Each file with a style block has a **scope name**: `jx-` followed by the first 8
 
 ### 10.4 Scoped CSS
 
-The content of the style block is transformed into its **scoped CSS** as follows. The transformation reads CSS only as far as needed to find selectors; it never interprets properties or values.
+The content of each style block is transformed into its **scoped CSS** as follows, and the **scoped CSS of the file** is the scoped CSS of its style blocks, in source order, joined with LF. The transformation reads CSS only as far as needed to find selectors; it never interprets properties or values.
 
 **Reading.** The content is read as CSS text in which:
 
@@ -584,8 +595,9 @@ A target that supports style blocks provides two more factory functions (§6.2):
 | `Object F.styleSheet(String scope, String css)` | Create a file's style sheet from its scope name and scoped CSS. |
 | `Element F.scoped(Object sheet, Element element)` | Mark an intrinsic element as written in a file with the style sheet `sheet`. |
 
-- The style block is replaced, starting at its position, by the field declaration `static final java.lang.Object jasx$styles = F.styleSheet("scope", "css");`, where `css` is the scoped CSS as a Java string literal. The field is a member of the class in whose body the style block appears, or of the file class. The lines of the style block after its first become empty lines (§6.5).
-- Every intrinsic element of the file lowers to `F.scoped(C.jasx$styles, e)`, where `e` is its lowering by §6.3 and `C` is the fully qualified name of the class that declares the field. A `key` is applied outside: `F.keyed(k, F.scoped(C.jasx$styles, e))`. Fragments and component calls are not wrapped.
+- The file's style sheet is the field `static final java.lang.Object jasx$styles = F.styleSheet("scope", "css");`, where `css` is the scoped CSS of the file as a Java string literal. It is declared in the **style class**: the file class, if the file has one, or otherwise the top-level class that contains the first style block. It is inserted at the start of the style class's body, on the same line: directly after the file class header (§9.4), or directly after the `{` that opens the class body.
+- Every style block is removed from the generated code. The lines it spans remain, empty (§6.5).
+- Every intrinsic element of the file lowers to `F.scoped(C.jasx$styles, e)`, where `e` is its lowering by §6.3 and `C` is the fully qualified name of the style class. A `key` is applied outside: `F.keyed(k, F.scoped(C.jasx$styles, e))`. Fragments and component calls are not wrapped.
 
 ### 10.6 Target support
 

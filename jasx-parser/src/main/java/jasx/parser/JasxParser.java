@@ -219,6 +219,24 @@ public final class JasxParser {
     }
 
     /**
+     * Whether a style block starts at {@code pos} among the children of an element (grammar.md §6.5): the
+     * text is exactly {@code <style>}, and its content doesn't start with {@code {}. So
+     * {@code <style>{css}</style>} stays an ordinary element whose child is an expression.
+     */
+    private boolean startsStyleBlockChild() {
+        if (!src.startsWith(STYLE_OPEN, pos)) {
+            return false;
+        }
+        int contentStart = pos + STYLE_OPEN.length();
+        int firstNonSpace = contentStart;
+        while (firstNonSpace < len && Character.isWhitespace(src.charAt(firstNonSpace))) {
+            firstNonSpace++;
+        }
+        boolean contentIsExpression = firstNonSpace < len && src.charAt(firstNonSpace) == '{';
+        return !contentIsExpression;
+    }
+
+    /**
      * Parses the style block whose {@code <style>} starts at {@code lt}. Its content is raw text up to the
      * first {@code </style>}; nothing inside is tokenized. Without {@code </style>}, the block runs to the
      * end of the file (JASX1012).
@@ -227,7 +245,7 @@ public final class JasxParser {
         int contentStart = lt + STYLE_OPEN.length();
         int close = src.indexOf(STYLE_CLOSE, contentStart);
         if (close < 0) {
-            error("JASX1012", "the style block is not closed: </style> is missing", lt, contentStart);
+            reportEof("JASX1012", "the style block is not closed: </style> is missing", lt, contentStart);
             return new JasxStyleBlock(lt, len, src.substring(contentStart));
         }
         return new JasxStyleBlock(lt, close + STYLE_CLOSE.length(), src.substring(contentStart, close));
@@ -356,6 +374,10 @@ public final class JasxParser {
         char c = src.charAt(pos);
         if (c == '{') {
             children.add(parseExpressionContainer(pos));
+        } else if (startsStyleBlockChild()) {
+            JasxStyleBlock block = parseStyleBlock(pos);
+            pos = block.end();
+            children.add(block);
         } else if (c == '<') {
             Markup markup = parseMarkup(pos);
             pos = markup.end();

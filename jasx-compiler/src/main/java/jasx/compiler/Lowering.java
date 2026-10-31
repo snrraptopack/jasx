@@ -138,21 +138,24 @@ final class Lowering {
 
     /**
      * Text inserted into the Java code at a source offset: {@code @jasx.Component} before a component
-     * (semantics.md §5.1), and the parts of a file class (§9.4). Insertions at the same offset are written
-     * in the order of their {@code order}, so that, for example, the file class header comes before the
-     * first member's {@code @jasx.Component}, which comes before its {@code static}.
+     * (semantics.md §5.1), the parts of a file class (§9.4), and the style sheet field (§10.5). Insertions at
+     * the same offset are written in the order of their {@code order}, so that, for example, the file class
+     * header comes before the style sheet, which comes before the first member's {@code @jasx.Component},
+     * which comes before its {@code static}.
      */
     record Insertion(int offset, int order, String text) {
         static final int CLASS_HEADER = 0;
-        static final int ANNOTATION = 1;
-        static final int MODIFIER = 2;
-        static final int CLASS_END = 3;
+        static final int STYLE_SHEET = 1;
+        static final int ANNOTATION = 2;
+        static final int MODIFIER = 3;
+        static final int CLASS_END = 4;
     }
 
     /**
      * Lowers the whole file, adding {@code insertions} to its Java code.
      *
-     * @param styles how to lower the file's style block, or null if it has none
+     * @param styles the file's style sheet, or null if it has no style block; its field is one of the
+     *     insertions, and if it is set every intrinsic element is scoped
      */
     GeneratedFile lower(JasxCompilationUnit unit, List<Insertion> insertions, StyleBlocks.Plan styles) {
         this.styles = styles;
@@ -161,13 +164,20 @@ final class Lowering {
         int next = 0;
 
         for (Segment segment : unit.segments()) {
+            // Insertions where markup or a style block starts (such as the style sheet field right after
+            // "class T {" in "class T {<style>...") belong before it.
+            boolean isJava = segment instanceof JavaCode;
+            while (!isJava && next < pending.size() && pending.get(next).offset() <= segment.start()) {
+                out.emit(pending.get(next).text(), pending.get(next).offset());
+                next++;
+            }
+
             if (segment instanceof Markup markup) {
                 markup(markup);
                 continue;
             }
-            if (segment instanceof JasxStyleBlock block) {
-                styleBlock(block);
-                continue;
+            if (segment instanceof JasxStyleBlock) {
+                continue; // removed; its CSS is in the style sheet field (semantics.md §10.5)
             }
 
             // A Java segment: copy it, writing each insertion that falls inside it at its place.
@@ -191,25 +201,6 @@ final class Lowering {
         }
 
         return new GeneratedFile(file, file.javaPath(), out.text(), out.spans());
-    }
-
-    // ---------------------------------------------------------------------------------------------
-    // The style block (semantics.md §10.5)
-    // ---------------------------------------------------------------------------------------------
-
-    /**
-     * {@code <style>.a {}</style>}  →
-     * {@code static final java.lang.Object jasx$styles = F.styleSheet("jx-1a2b3c4d", ".a.jx-1a2b3c4d {}");}
-     *
-     * <p>The declaration is written on the style block's first line; its other lines stay empty.
-     */
-    private void styleBlock(JasxStyleBlock block) {
-        if (styles == null) {
-            return; // a style block with errors: JasxCompiler doesn't lower such a file
-        }
-        String declaration = "static final java.lang.Object " + StyleBlocks.Plan.FIELD + " = " + factory
-                + ".styleSheet(" + javaString(styles.scope()) + ", " + javaString(styles.css()) + ");";
-        out.emit(declaration, block.start());
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -638,6 +629,7 @@ final class Lowering {
                     }
                 }
                 case Markup markup -> values.add(new MarkupValue(markup));
+                case JasxStyleBlock block -> {} // not a child value: its CSS is in the style sheet (§3.3)
             }
         }
         return values;

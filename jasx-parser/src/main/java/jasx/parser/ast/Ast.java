@@ -39,10 +39,11 @@ public final class Ast {
     public record JavaCode(int start, int end, String source) implements Segment {}
 
     /**
-     * A style block, {@code <style>css</style>} (grammar.md §7.3). Appears only in
-     * {@code JasxCompilationUnit.segments}. {@code css} is the text between the tags, exactly as written.
+     * A style block, {@code <style>css</style>} (grammar.md §7.3). Appears in
+     * {@code JasxCompilationUnit.segments}, or in {@code children} when written inside markup. {@code css}
+     * is the text between the tags, exactly as written.
      */
-    public record JasxStyleBlock(int start, int end, String css) implements Segment {}
+    public record JasxStyleBlock(int start, int end, String css) implements Segment, Child {}
 
     public record JavaExpression(int start, int end, List<Segment> segments) implements Expression {}
 

@@ -1,0 +1,311 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    96
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 6,
+      "column": 0
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "015-style-block-in-markup.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        23
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 2,
+          "column": 13
+        }
+      },
+      "source": "class A {\n  Object x = "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        23,
+        92
+      ],
+      "loc": {
+        "start": {
+          "line": 2,
+          "column": 13
+        },
+        "end": {
+          "line": 4,
+          "column": 36
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          23,
+          28
+        ],
+        "loc": {
+          "start": {
+            "line": 2,
+            "column": 13
+          },
+          "end": {
+            "line": 2,
+            "column": 18
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            24,
+            27
+          ],
+          "loc": {
+            "start": {
+              "line": 2,
+              "column": 14
+            },
+            "end": {
+              "line": 2,
+              "column": 17
+            }
+          },
+          "name": "div"
+        },
+        "attributes": [],
+        "selfClosing": false
+      },
+      "children": [
+        {
+          "type": "JasxStyleBlock",
+          "range": [
+            28,
+            66
+          ],
+          "loc": {
+            "start": {
+              "line": 2,
+              "column": 18
+            },
+            "end": {
+              "line": 4,
+              "column": 10
+            }
+          },
+          "css": "\n    p { margin: 0 }\n  "
+        },
+        {
+          "type": "JasxElement",
+          "range": [
+            66,
+            86
+          ],
+          "loc": {
+            "start": {
+              "line": 4,
+              "column": 10
+            },
+            "end": {
+              "line": 4,
+              "column": 30
+            }
+          },
+          "openingElement": {
+            "type": "JasxOpeningElement",
+            "range": [
+              66,
+              73
+            ],
+            "loc": {
+              "start": {
+                "line": 4,
+                "column": 10
+              },
+              "end": {
+                "line": 4,
+                "column": 17
+              }
+            },
+            "name": {
+              "type": "JasxIdentifier",
+              "range": [
+                67,
+                72
+              ],
+              "loc": {
+                "start": {
+                  "line": 4,
+                  "column": 11
+                },
+                "end": {
+                  "line": 4,
+                  "column": 16
+                }
+              },
+              "name": "style"
+            },
+            "attributes": [],
+            "selfClosing": false
+          },
+          "children": [
+            {
+              "type": "JasxExpressionContainer",
+              "range": [
+                73,
+                78
+              ],
+              "loc": {
+                "start": {
+                  "line": 4,
+                  "column": 17
+                },
+                "end": {
+                  "line": 4,
+                  "column": 22
+                }
+              },
+              "expression": {
+                "type": "JavaExpression",
+                "range": [
+                  74,
+                  77
+                ],
+                "loc": {
+                  "start": {
+                    "line": 4,
+                    "column": 18
+                  },
+                  "end": {
+                    "line": 4,
+                    "column": 21
+                  }
+                },
+                "segments": [
+                  {
+                    "type": "JavaCode",
+                    "range": [
+                      74,
+                      77
+                    ],
+                    "loc": {
+                      "start": {
+                        "line": 4,
+                        "column": 18
+                      },
+                      "end": {
+                        "line": 4,
+                        "column": 21
+                      }
+                    },
+                    "source": "css"
+                  }
+                ]
+              }
+            }
+          ],
+          "closingElement": {
+            "type": "JasxClosingElement",
+            "range": [
+              78,
+              86
+            ],
+            "loc": {
+              "start": {
+                "line": 4,
+                "column": 22
+              },
+              "end": {
+                "line": 4,
+                "column": 30
+              }
+            },
+            "name": {
+              "type": "JasxIdentifier",
+              "range": [
+                80,
+                85
+              ],
+              "loc": {
+                "start": {
+                  "line": 4,
+                  "column": 24
+                },
+                "end": {
+                  "line": 4,
+                  "column": 29
+                }
+              },
+              "name": "style"
+            }
+          }
+        }
+      ],
+      "closingElement": {
+        "type": "JasxClosingElement",
+        "range": [
+          86,
+          92
+        ],
+        "loc": {
+          "start": {
+            "line": 4,
+            "column": 30
+          },
+          "end": {
+            "line": 4,
+            "column": 36
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            88,
+            91
+          ],
+          "loc": {
+            "start": {
+              "line": 4,
+              "column": 32
+            },
+            "end": {
+              "line": 4,
+              "column": 35
+            }
+          },
+          "name": "div"
+        }
+      }
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        92,
+        96
+      ],
+      "loc": {
+        "start": {
+          "line": 4,
+          "column": 36
+        },
+        "end": {
+          "line": 6,
+          "column": 0
+        }
+      },
+      "source": ";\n}\n"
+    }
+  ]
+}

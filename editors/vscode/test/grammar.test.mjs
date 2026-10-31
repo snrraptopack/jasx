@@ -179,7 +179,14 @@ test("a style block in a class body (through the injection)", () => {
   assertScope(source, ".a", "entity.other.attribute-name.class.css");
 });
 
-test("a <style> element inside markup is not a style block", () => {
+test("a style block inside markup is CSS", () => {
+  const source = ["return (", "  <div class=\"card\">", "    <style>", "      .card { padding: 1rem; }", "    </style>", "    <h2>x</h2>", "  </div>", ");"].join("\n");
+  assertScope(source, ".card", "entity.other.attribute-name.class.css");
+  assertScope(source, "h2", "entity.name.tag.jasx");
+  assertNoScope(source, "h2", "meta.embedded.block.css");
+});
+
+test("a <style> element with an expression inside markup is not a style block", () => {
   const source = ["return (", "  <head>", "    <style>{CSS}</style>", "  </head>", ");"].join("\n");
   assertNoScope(source, "CSS", "meta.embedded.block.css");
   assertScope(source, "style", "entity.name.tag.jasx", 1);

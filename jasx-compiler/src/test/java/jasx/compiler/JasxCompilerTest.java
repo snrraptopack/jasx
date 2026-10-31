@@ -797,8 +797,10 @@ class JasxCompilerTest {
                       return <p>{missing}</p>;
                     }
                     """));
+            // The field goes right after the file class header, on the first line; the block's lines stay empty.
             String[] javaLines = r.files().get(0).content().split("\n");
-            assertTrue(javaLines[1].contains("jasx$styles = jasx.html.Html.styleSheet("), javaLines[1]);
+            assertTrue(javaLines[0].contains("private T() {} static final java.lang.Object jasx$styles = "), javaLines[0]);
+            assertEquals("", javaLines[1]);
             assertEquals("", javaLines[2]);
             JavacRunner.Result compiled = JavacRunner.compile(r.files(), List.of(), CLASSPATH);
             assertEquals("T.jasx:6:14: error: javac: cannot find symbol",
@@ -838,15 +840,64 @@ class JasxCompilerTest {
                       static Element A() { return <a/>; }
                     }
                     """));
+            // The style sheet is declared in the top-level class, right after its '{' (semantics.md §10.5).
+            String java = r.files().get(0).content();
             assertEquals(List.of(), r.diagnostics());
-            assertTrue(r.files().get(0).content().contains("jasx.html.Html.scoped(T.Inner.jasx$styles, "),
-                    r.files().get(0).content());
+            assertTrue(java.contains("class T {static final java.lang.Object jasx$styles = "), java);
+            assertTrue(java.contains("jasx.html.Html.scoped(T.jasx$styles, "), java);
         }
 
         @Test
-        void onlyOneStyleBlockPerFile() {
-            CompilationResult r = compile(file("<style>a{}</style>\n<style>b{}</style>"));
-            assertEquals(List.of("T.jasx:6:1: error: a file can have only one style block [JASX2016]"),
+        void severalStyleBlocksMakeOneStyleSheet() {
+            assertEquals("<style>a.jx-e632b709 { }\nb.jx-e632b709 { }</style><b class=\"jx-e632b709\"></b>", render("""
+                    <style>a { }</style>
+                    <style>b { }</style>
+                    static Element Test() { return <>{jasx.html.Html.styles()}<b/></>; }
+                    """));
+        }
+
+        @Test
+        void aStyleBlockInsideMarkupRendersNothingWhereItIs() {
+            assertEquals("<style>h2.jx-e632b709 { margin: 0; }</style><div class=\"jx-e632b709\">"
+                            + "<h2 class=\"jx-e632b709\">T</h2></div>",
+                    render("""
+                    static Element Test() {
+                      return (
+                        <>
+                          {jasx.html.Html.styles()}
+                          <div>
+                            <style>
+                              h2 { margin: 0; }
+                            </style>
+                            <h2>T</h2>
+                          </div>
+                        </>
+                      );
+                    }
+                    """));
+        }
+
+        @Test
+        void aStyleBlockIsNotPassedToAComponentAsAChild() {
+            assertEquals("<section class=\"jx-e632b709\"><p class=\"jx-e632b709\">only child</p></section>", render("""
+                    static Element Box(Element children) { return <section>{children}</section>; }
+                    static Element Test() {
+                      return <Box><style>p { }</style><p>only child</p></Box>;
+                    }
+                    """));
+        }
+
+        @Test
+        void aStyleElementWithAnExpressionIsStillAnElement() {
+            assertEquals("<style>a > b {}</style>", render("""
+                    static Element Test() { String css = "a > b {}"; return <style>{css}</style>; }
+                    """));
+        }
+
+        @Test
+        void cssErrorsInsideMarkupAreReportedInTheJasxFile() {
+            CompilationResult r = compile(file("static Element A() { return <div><style>a {</style></div>; }"));
+            assertEquals(List.of("T.jasx:5:43: error: this block is not closed [JASX2014]"),
                     r.diagnostics().stream().map(CompilerDiagnostic::format).toList());
         }
 

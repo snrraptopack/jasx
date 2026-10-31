@@ -13,7 +13,7 @@ A JASX source file is a Java compilation unit in which **markup** may appear whe
 JASX extends the Java grammar in two places:
 
 - **Markup expressions** (below, §4–§6), the main extension.
-- **The compilation unit** (§7): a `.jasx` file may declare fields and methods at the top level, outside any class (§7.2), and may contain a **style block** of CSS where a field could be declared (§7.3).
+- **The compilation unit** (§7): a `.jasx` file may declare fields and methods at the top level, outside any class (§7.2), and may contain **style blocks** of CSS, where a field could be declared or inside markup (§7.3).
 
 Markup is added as a new kind of primary expression:
 
@@ -260,7 +260,10 @@ JasxChild:
     JasxElement
     JasxFragment
     JasxExpressionContainer
+    JasxStyleBlock
 ```
+
+A child that starts with `<style>` is a `JasxStyleBlock` (§7.3) unless the first character after `<style>` that is not whitespace is `{`. So `<style>{css}</style>`, whose content is an expression, remains an ordinary element, and so does `<style media="print">`, which has attributes.
 
 ### 6.6 Expression containers
 
@@ -316,12 +319,23 @@ Markup detection (§4) is unchanged at the top level. `;` and `}` are not in **S
 
 ### 7.3 Style blocks
 
-A style block holds CSS for the markup of its file (`semantics.md` §10):
+A style block holds CSS for the markup of its file (`semantics.md` §10). It can be written in two places: where a declaration or statement starts (in Java mode, detected as below), and as a child of an element or fragment (in markup mode, §6.5).
 
 ```java
 <style>
   .card { padding: 1rem; }
 </style>
+
+Element Card(String title) {
+  return (
+    <div class="card">
+      <style>
+        h2 { margin: 0; }
+      </style>
+      <h2>{title}</h2>
+    </div>
+  );
+}
 ```
 
 ```
@@ -332,7 +346,7 @@ JasxStyleText:
     any sequence of characters that does not contain </style>
 ```
 
-**Detection.** In Java mode, outside expression containers, a `<` begins a style block if and only if:
+**Detection in Java mode.** In Java mode, outside expression containers, a `<` begins a style block if and only if:
 
 - the seven characters `<style>` start at it (no whitespace or attributes inside the tag), and
 - the previous significant token is a `;`, a `}`, a `{` that does not open an array initializer, or there is none, and
@@ -342,7 +356,7 @@ These are the positions where a statement or a member declaration begins. Markup
 
 **Content.** The text of a style block runs from after `<style>` up to the first `</style>`. It is not tokenized: braces, quotes, `<` and `&` have no meaning to the parser, and Unicode escapes are not processed. The content is CSS, and its meaning is defined in `semantics.md` §10.
 
-End of input before `</style>` is an error (JASX1012).
+End of input before `</style>` is an error (JASX1012). The same applies to a style block in markup.
 
 ---
 

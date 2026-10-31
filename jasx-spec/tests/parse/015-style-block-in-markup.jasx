@@ -1,0 +1,5 @@
+class A {
+  Object x = <div><style>
+    p { margin: 0 }
+  </style><style>{css}</style></div>;
+}

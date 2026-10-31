@@ -40,6 +40,25 @@
       "patterns": [{ "include": "source.css" }]
     },
 
+    "style-block-in-markup": {
+      "comment": "A style block among the children of an element (jasx-spec/grammar.md §6.5): '<style>' whose content doesn't start with '{' on the same line. '<style>{css}</style>' stays an ordinary element.",
+      "name": "meta.style-block.jasx",
+      "begin": "(<)(style)(>)(?!\\s*\\{)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.jasx" },
+        "2": { "name": "entity.name.tag.jasx" },
+        "3": { "name": "punctuation.definition.tag.end.jasx" }
+      },
+      "end": "(</)(style)(>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.jasx" },
+        "2": { "name": "entity.name.tag.jasx" },
+        "3": { "name": "punctuation.definition.tag.end.jasx" }
+      },
+      "contentName": "meta.embedded.block.css",
+      "patterns": [{ "include": "source.css" }]
+    },
+
     "markup-in-java": {
       "comment": "Markup that starts in Java code: '<' after ( [ , = ? : { -> && || return yield, or at the start of a line. A '<' followed by what looks like a generic method header ('<T> Element ListOf(') is Java, not markup: top-level methods (jasx-spec/semantics.md §9) often start a line that way. '<style>' at the start of a line or after '{' is left to 'style-block'.",
       "patterns": [
@@ -159,6 +178,7 @@
 
     "children": {
       "patterns": [
+        { "include": "#style-block-in-markup" },
         { "include": "#element" },
         { "include": "#expression" },
         { "include": "#entity" }

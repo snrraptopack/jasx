@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0-draft, revision 8
+
+### Added
+
+- **Style blocks inside markup** (`grammar.md` §6.5, §7.3, `semantics.md` §10). A `<style>` child of an element or fragment whose content does not start with `{` is a style block, so CSS can be written next to the elements it styles. Like every style block, it belongs to the file's style sheet and renders nothing where it is written. `<style>{css}</style>` remains an ordinary element.
+- Conformance tests `parse/015-style-block-in-markup` and `render/012-style-block-in-markup`.
+
+### Changed
+
+- **A file may contain several style blocks.** Their scoped CSS is joined, in source order, into the one style sheet of the file. JASX2016 is retired.
+- **Where the style sheet field is declared** (`semantics.md` §10.5): at the start of the file class, or of the top-level class containing the first style block, instead of in place of the style block. The rendered output is unchanged.
+
 ## 1.0-draft, revision 7
 
 ### Added
