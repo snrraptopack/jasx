@@ -8,13 +8,18 @@ Syntax highlighting for `.jasx` files: Java with JSX-style markup.
 
 This extension only highlights syntax. It doesn't report errors or offer completion; those need a language server, which is planned.
 
-## Install from this folder
+## Install
 
-1. In VS Code, open the Command Palette and run **Developer: Install Extension from Location...**.
-2. Choose this folder (`editors/vscode`).
-3. Open any `.jasx` file.
+Package the extension and install the package, from this folder (`editors/vscode`):
 
-On older VS Code versions, copy or link this folder into `~/.vscode/extensions/jasx` instead, then restart VS Code.
+```
+npx @vscode/vsce@3 package --skip-license
+code --install-extension jasx-0.1.0.vsix --force
+```
+
+Then reload VS Code (Command Palette: **Developer: Reload Window**) and open a `.jasx` file. Its language, shown at the right of the status bar, should be **JASX**. Run the two commands again after changing the grammar.
+
+Alternatively, in VS Code, run **Developer: Install Extension from Location...** from the Command Palette and choose this folder.
 
 ## How markup is recognized
 
