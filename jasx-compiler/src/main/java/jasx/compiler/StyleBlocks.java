@@ -21,13 +21,14 @@ import jasx.parser.ast.Ast.Segment;
 /**
  * Checks the style blocks of a {@code .jasx} file and prepares its style sheet (semantics.md §10).
  *
- * <p>A file may have several style blocks: at the level of declarations, and inside markup. They all go
- * into one style sheet with one scope name. This class:
+ * <p>A file may have several style blocks: in Java code (in a class body, in a method before or between
+ * statements, or at the top level of a file class), and inside markup. They all go into one style sheet
+ * with one scope name. This class:
  *
  * <ul>
  *   <li>finds every style block in the AST;
- *   <li>checks that the target supports them (JASX2106) and that each block at the level of declarations
- *       is where a field could be (JASX2015, using the places {@link JavaStructure} found);
+ *   <li>checks that the target supports them (JASX2106) and that each block in Java code is inside a class
+ *       (JASX2015, using the places {@link JavaStructure} found);
  *   <li>scopes the CSS of each block with {@link ScopedCss} (JASX2014) and joins the results;
  *   <li>decides the <em>style class</em> that declares the style sheet field, and where the field goes.
  * </ul>
@@ -67,11 +68,11 @@ final class StyleBlocks {
     record Result(Plan plan, List<Diagnostic> errors) {}
 
     static Result check(SourceFile file, ParseResult parsed, JavaStructure structure, Target target) {
-        List<JasxStyleBlock> declarationBlocks = new ArrayList<>(); // in segments, in source order
+        List<JasxStyleBlock> javaBlocks = new ArrayList<>();        // in Java code (segments), in source order
         List<JasxStyleBlock> allBlocks = new ArrayList<>();         // every block, in source order
         for (Segment segment : parsed.unit().segments()) {
             if (segment instanceof JasxStyleBlock block) {
-                declarationBlocks.add(block);
+                javaBlocks.add(block);
             }
             collect(segment, allBlocks);
         }
@@ -87,13 +88,13 @@ final class StyleBlocks {
             errors.add(error(first, "JASX2106", "target '" + target.id() + "' does not support style blocks"));
         }
 
-        // semantics.md §10.1: a block at the level of declarations must be where a field could be. The
-        // structure found those blocks, in the same order.
-        for (int i = 0; i < declarationBlocks.size(); i++) {
+        // semantics.md §10.1: a block outside markup must be inside a class: in a class body or a method, or
+        // at the top level of a file class. The structure found those blocks, in the same order.
+        for (int i = 0; i < javaBlocks.size(); i++) {
             if (structure.styleBlocks.get(i).owner() == null) {
-                errors.add(error(declarationBlocks.get(i), "JASX2015", "a style block must be where a field could"
-                        + " be declared (in the body of a class, or at the top level of a file that declares"
-                        + " fields or methods there), or inside markup"));
+                errors.add(error(javaBlocks.get(i), "JASX2015", "a style block must be inside a class;"
+                        + " at the top level, it needs a file class, so the file must declare a field or method"
+                        + " at the top level too"));
             }
         }
 

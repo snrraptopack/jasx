@@ -505,7 +505,7 @@ The compiler turns the file into its file class by inserting text into the `Java
 
 A style block (`grammar.md` §7.3) holds CSS for the markup of its file. The CSS is **scoped**: its rules apply only to the intrinsic elements written in the same file, so two files can both style `.title` without affecting each other. The CSS is plain CSS; JASX adds nothing to it except `:global(...)` (§10.4).
 
-A style block can be written at the level of declarations, or inside markup, next to the elements it styles. Either way it contributes to the **style sheet of the file**: all style blocks of a file share one scope name, and their rules apply to every intrinsic element of the file.
+A style block can be written among declarations, in a method before or between its statements (typically just before the `return`), or inside markup, next to the elements it styles. Either way it contributes to the **style sheet of the file**: all style blocks of a file share one scope name, and their rules apply to every intrinsic element of the file.
 
 ```java
 <style>
@@ -528,7 +528,7 @@ The core defines where a style block may appear, which elements it applies to, h
 
 ### 10.1 Placement
 
-- A style block at the level of declarations **MUST** appear where a field declaration could: directly in the body of a class, interface, enum or record, or at the top level of a file that has a file class (§9). Anywhere else (in a method body, or at the top level of a file without a file class) it is an error (JASX2015).
+- A style block in Java code (`grammar.md` §7.3 detects it where a declaration or statement starts) **MUST** be inside a class: in the body of a class, interface, enum or record, in a method, constructor or initializer body, or at the top level of a file that has a file class (§9). At the top level of a file without a file class it is an error (JASX2015). In a body, it is not a statement: it is removed (§10.5), and it may be written before, between or after statements.
 - A style block inside markup may be any child of an element or fragment. It is not a child value (§3.3), so it renders nothing where it is written, and it is not passed to a component as part of its children.
 - A file may contain any number of style blocks.
 

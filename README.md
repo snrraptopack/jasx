@@ -26,7 +26,7 @@ A `.jasx` file is ordinary Java plus markup expressions. The JASX compiler rewri
 
 Methods and fields can be written at the top level of a `.jasx` file, as above. They become static members of a class named after the file (`app.Todos`), so other files use them with `import static app.Todos.*;`, or as `<Todos.Item ... />`. Without an access modifier they have package access, as in Java; declare them `public` to use them from other packages. Files with an ordinary `class` work too.
 
-A `.jasx` file can also hold **style blocks** of plain CSS, scoped to the elements written in that file. Write them at the top, or inside markup next to the elements they style:
+A `.jasx` file can also hold **style blocks** of plain CSS, scoped to the elements written in that file. Write them at the top, in a component before its `return`, or inside markup next to the elements they style:
 
 ```java
 <style>
@@ -34,12 +34,17 @@ A `.jasx` file can also hold **style blocks** of plain CSS, scoped to the elemen
 </style>
 
 public Element Card(String title) {
+  <style>
+    h2 { margin: 0; }
+  </style>
+
   return (
     <div class="card">
       <style>
-        h2 { margin: 0; }
+        p { color: gray; }
       </style>
       <h2>{title}</h2>
+      <p>A card.</p>
     </div>
   );
 }

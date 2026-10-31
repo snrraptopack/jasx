@@ -822,11 +822,37 @@ class JasxCompilerTest {
         }
 
         @Test
-        void aStyleBlockMustBeWhereAFieldCouldBe() {
-            // In a method body.
-            assertEquals(List.of("JASX2015"), codes(file("void m() { <style>a{}</style> }")));
-            // At the top level of a file without a file class.
+        void aStyleBlockMustBeInsideAClass() {
+            // At the top level of a file without a file class: in no class at all.
             assertEquals(List.of("JASX2015"), codes(new SourceFile("T.jasx", "<style>a{}</style>\nclass T {}\n")));
+        }
+
+        @Test
+        void aStyleBlockCanBeInAMethodBody() {
+            // Before the return, between statements, and in a lambda body.
+            assertEquals("<p class=\"jx-e632b709\">2</p>", render("""
+                    static Element Test() {
+                      <style>p { margin: 0; }</style>
+                      int n = 1;
+                      <style>b { }</style>
+                      Runnable r = () -> { <style>i { }</style> };
+                      return <p>{n + 1}</p>;
+                    }
+                    """));
+        }
+
+        @Test
+        void aStyleBlockInATopLevelMethodUsesTheFileClass() {
+            CompilationResult r = compile(new SourceFile("T.jasx", """
+                    import jasx.runtime.Element;
+                    Element A() {
+                      <style>p { }</style>
+                      return <p/>;
+                    }
+                    """));
+            assertEquals(List.of(), r.diagnostics());
+            assertTrue(r.files().get(0).content().contains("jasx.html.Html.scoped(T.jasx$styles, "),
+                    r.files().get(0).content());
         }
 
         @Test

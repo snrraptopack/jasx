@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0-draft, revision 9
+
+### Changed
+
+- **Style blocks in method bodies** (`semantics.md` §10.1). A style block may now be written in a method, constructor or initializer body, where a statement starts, for example just before a component's `return`. It is removed from the generated code like any style block. JASX2015 now only applies to a style block outside any class.
+
+### Added
+
+- Render conformance test `013-style-block-in-method`.
+
 ## 1.0-draft, revision 8
 
 ### Added

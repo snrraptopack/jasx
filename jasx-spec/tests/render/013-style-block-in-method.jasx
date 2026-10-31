@@ -1,0 +1,14 @@
+import jasx.runtime.Element;
+import jasx.html.Html;
+
+Element Badge(String text) {
+  <style>
+    .badge { border-radius: 999px; }
+  </style>
+
+  return <span class="badge">{text}</span>;
+}
+
+Element Test() {
+  return <>{Html.styles()}<Badge text="new" /><Badge text="hot" /></>;
+}

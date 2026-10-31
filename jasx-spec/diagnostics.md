@@ -92,7 +92,7 @@ Codes are never renumbered or reused.
 | JASX2012 | A file with top-level declarations has a name that is not a Java identifier, so it cannot name its file class (`semantics.md` §9.2) | The first top-level field or method |
 | JASX2013 | A constructor or an initializer block at the top level of a file (`semantics.md` §9.2) | The declaration, up to its `{` |
 | JASX2014 | Invalid CSS in a style block: something unclosed, an unmatched `}`, an empty selector, or `</style` (`semantics.md` §10.4) | The offending text |
-| JASX2015 | A style block where a field could not be declared (`semantics.md` §10.1) | The style block's `<style>` tag |
+| JASX2015 | A style block outside any class: at the top level of a file without a file class (`semantics.md` §10.1) | The style block's `<style>` tag |
 | JASX2016 | *Retired* in revision 8, when files were allowed several style blocks. Not reported, and not reused | — |
 | JASX2101 | Attribute not defined by the target schema | The attribute |
 | JASX2102 | Children on a void element | The first child |

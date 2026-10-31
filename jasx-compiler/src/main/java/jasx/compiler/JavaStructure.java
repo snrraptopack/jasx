@@ -110,8 +110,8 @@ final class JavaStructure {
     /**
      * Where a style block is (semantics.md §10.1).
      *
-     * @param owner the class it is a member of (a type body, or the file class at the top level), or
-     *     null if it is somewhere a field can't be declared
+     * @param owner the innermost class it is in (in its body, or in a method of it; the file class at the
+     *     top level), or null if it is in no class: at the top level of a file without a file class
      */
     record StylePlace(int start, int end, TypeDecl owner) {}
 
@@ -156,8 +156,8 @@ final class JavaStructure {
     /** The style blocks of the file, in source order. */
     final List<StylePlace> styleBlocks = new ArrayList<>();
 
-    /** A style block as the walk saw it: in a type body (owner, null at the top level), or inside a block. */
-    private record StyleSighting(Token token, TypeDecl owner, boolean insideBlock) {}
+    /** A style block as the walk saw it, with the innermost type around it (null if none, or the file class). */
+    private record StyleSighting(Token token, TypeDecl owner) {}
 
     private final List<StyleSighting> styleSightings = new ArrayList<>();
 
@@ -237,11 +237,10 @@ final class JavaStructure {
         for (int i = 0; i < tokens.size(); i++) {
             Token t = tokens.get(i);
 
-            // A style block is noted where it is, and ends the member before it like a ';'.
+            // A style block is noted where it is. In a type body, it ends the member before it like a ';'.
             if (t.is(STYLE_BLOCK)) {
-                boolean insideBlock = isSkipped(braces.peek());
-                styleSightings.add(new StyleSighting(t, insideBlock ? null : (TypeDecl) braces.peek(), insideBlock));
-                if (!insideBlock) {
+                styleSightings.add(new StyleSighting(t, innermostType(braces)));
+                if (!isSkipped(braces.peek())) {
                     memberStart = i + 1;
                 }
                 continue;
@@ -440,20 +439,24 @@ final class JavaStructure {
         }
     }
 
+    /** The innermost type body on the brace stack (skipping blocks), or null if there is none. */
+    private static TypeDecl innermostType(Deque<Object> braces) {
+        for (Object entry : braces) {
+            if (entry instanceof TypeDecl type) {
+                return type;
+            }
+        }
+        return null;
+    }
+
     /**
-     * After the scan: the class each style block belongs to. At the top level that is the file class, so a
-     * style block at the top level of a file without one has no class (semantics.md §10.1).
+     * After the scan: the class each style block is in. Outside any type body (at the top level, or in a
+     * top-level method) that is the file class, so a style block at the top level of a file without one
+     * is in no class (semantics.md §10.1).
      */
     private void placeStyleBlocks() {
         for (StyleSighting sighting : styleSightings) {
-            TypeDecl owner;
-            if (sighting.insideBlock()) {
-                owner = null; // in a method body, an initializer, ...
-            } else if (sighting.owner() != null) {
-                owner = sighting.owner();
-            } else {
-                owner = fileClass; // the top level: null if the file has no file class
-            }
+            TypeDecl owner = sighting.owner() != null ? sighting.owner() : fileClass;
             styleBlocks.add(new StylePlace(sighting.token().start(), sighting.token().end(), owner));
         }
     }
