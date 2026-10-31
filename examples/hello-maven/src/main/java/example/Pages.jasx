@@ -1,0 +1,26 @@
+package example;
+
+import jasx.runtime.Element;
+import java.util.List;
+
+<style>
+  .greeting { color: teal; }
+</style>
+
+Element Greeting(String name) {
+  return <p class="greeting">Hello, {name}!</p>;
+}
+
+public Element Home(List<String> names) {
+  return (
+    <main>
+      {jasx.html.Html.styles()}
+      {names.stream().map(n -> <Greeting name={n} />).toList()}
+    </main>
+  );
+}
+
+/** Throws from inside markup, to show that stack traces name this file. */
+public Element Broken() {
+  return <p>{Integer.parseInt("not a number")}</p>;
+}

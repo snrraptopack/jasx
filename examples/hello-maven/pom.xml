@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A small Maven project that uses JASX. Until JASX is in a public repository, install it first, from the
+  root of the repository:   ./gradlew publishToMavenLocal
+  Then here:                mvn compile exec:java
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>example</groupId>
+  <artifactId>hello-maven</artifactId>
+  <version>1.0</version>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jasx.version>0.1.0-SNAPSHOT</jasx.version>
+  </properties>
+
+  <dependencies>
+    <!-- The html reference target (it brings jasx-runtime). -->
+    <dependency>
+      <groupId>dev.jasx</groupId>
+      <artifactId>jasx-target-html</artifactId>
+      <version>${jasx.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Compiles the .jasx files in src/main/java and src/main/jasx before the Java compiler runs. -->
+      <plugin>
+        <groupId>dev.jasx</groupId>
+        <artifactId>jasx-maven-plugin</artifactId>
+        <version>${jasx.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>compile</goal>
+              <goal>source-names</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <mainClass>example.Main</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

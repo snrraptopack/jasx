@@ -15,7 +15,7 @@ Support for `.jasx` files (Java with JSX-style markup): highlighting, and errors
 - **Go to Definition** (F12, or Ctrl+click) on a component tag opens the component's method.
 - **Hover** on a component tag shows its signature and how each prop is passed.
 
-**After a build** with the JASX Gradle plugin, the server also uses what the build knows (the plugin writes it to `build/jasx/editor/<sourceSet>.json` on every build):
+**After a build** with the JASX Gradle or Maven plugin, the server also uses what the build knows (the plugins write it to `build/jasx/editor/<sourceSet>.json` or `target/jasx/editor/<sourceSet>.json` on every build):
 
 - the components of the project's dependencies (jars) are known;
 - the project's own target is used;

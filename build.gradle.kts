@@ -11,6 +11,7 @@ val publishedModules = setOf(
     "jasx-target-html",
     "jasx-processor",
     "jasx-gradle-plugin",
+    "jasx-maven-plugin",
 )
 
 subprojects {
@@ -51,6 +52,10 @@ subprojects {
                             name.set(project.name)
                             description.set("JASX: JSX-style markup for Java")
                             url.set("https://github.com/snrraptopack/jasx")
+                            // Maven recognizes a plugin by this packaging (its jar holds META-INF/maven/plugin.xml).
+                            if (project.name == "jasx-maven-plugin") {
+                                packaging = "maven-plugin"
+                            }
                         }
                     }
                 }

@@ -1,6 +1,9 @@
 # Gradle
 .gradle/
 build/
+
+# Maven (examples/hello-maven)
+target/
 !gradle/wrapper/gradle-wrapper.jar
 
 # IDEs

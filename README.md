@@ -60,7 +60,7 @@ Early development. The specification is a draft.
 
 - [`jasx-spec/`](jasx-spec/README.md): the language specification and its conformance tests.
 - Parser, compiler and `html` target: implemented, and passing the whole conformance suite.
-- Gradle plugin, annotation processor, VS Code highlighting and a language server (errors while typing, completion, go-to-definition and hover): implemented.
+- Gradle plugin, Maven plugin, annotation processor, VS Code highlighting and a language server (errors while typing, completion, go-to-definition and hover): implemented.
 - Not yet: artifacts in a public repository.
 
 ## Try the example
@@ -94,9 +94,43 @@ The artifacts are not in a public repository yet. Run `./gradlew publishToMavenL
 
 For libraries, add `jasx-processor` as an annotation processor. It writes `META-INF/jasx/components.json` into your jar, so other projects can use your components from markup.
 
+## Using JASX in a Maven project
+
+Add a target, and the plugin with its two goals:
+
+```xml
+<dependencies>
+  <dependency>
+    <groupId>dev.jasx</groupId>
+    <artifactId>jasx-target-html</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </dependency>
+</dependencies>
+
+<build>
+  <plugins>
+    <plugin>
+      <groupId>dev.jasx</groupId>
+      <artifactId>jasx-maven-plugin</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+      <executions>
+        <execution>
+          <goals>
+            <goal>compile</goal>        <!-- .jasx to Java, before the Java compiler -->
+            <goal>source-names</goal>   <!-- stack traces name the .jasx files -->
+          </goals>
+        </execution>
+      </executions>
+    </plugin>
+  </plugins>
+</build>
+```
+
+It works as the Gradle plugin does: `.jasx` files go in `src/main/java` or `src/main/jasx`, errors are reported at their `.jasx` locations, javac's errors in markup once, and the target is set with the property `jasx.target` (`jasx.typeCheck=false` turns the type check off). For `.jasx` files in tests, add the goals `test-compile` and `test-source-names`. [`examples/hello-maven`](examples/hello-maven) is a complete project; until the artifacts are in a public repository, run `./gradlew publishToMavenLocal` here first.
+
 ## Editor support
 
-[`editors/vscode`](editors/vscode/README.md) is a VS Code extension: it highlights `.jasx` files (CSS in style blocks too), and runs the JASX language server ([`jasx-lsp`](jasx-lsp)), which shows JASX errors while you type, completes tag names and props, and offers go-to-definition and hover on components. Once the project has been built with the Gradle plugin, it also knows the components of your dependencies and shows javac's errors in `.jasx` files when you save.
+[`editors/vscode`](editors/vscode/README.md) is a VS Code extension: it highlights `.jasx` files (CSS in style blocks too), and runs the JASX language server ([`jasx-lsp`](jasx-lsp)), which shows JASX errors while you type, completes tag names and props, and offers go-to-definition and hover on components. Once the project has been built with the Gradle or Maven plugin, it also knows the components of your dependencies and shows javac's errors in `.jasx` files when you save.
 
 ## Building
 
@@ -120,6 +154,7 @@ The second command prints the Java generated for a sample file.
 | `jasx-target-html/` | The `html` reference target |
 | `jasx-processor/` | Annotation processor that publishes a library's components |
 | `jasx-gradle-plugin/` | Gradle plugin `dev.jasx` |
+| `jasx-maven-plugin/` | Maven plugin `dev.jasx:jasx-maven-plugin` |
 | `jasx-conformance/` | Runs the conformance tests |
 | `jasx-lsp/` | Language server: JASX errors while typing, completion, go-to-definition and hover |
 | `editors/vscode/` | VS Code extension (highlighting, language server client) |

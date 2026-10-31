@@ -447,5 +447,17 @@ class LanguageServerTest {
                     Workspace.sourceDirectory(Path.of("/p/src/test/jasx/B.jasx").toAbsolutePath()));
             assertNull(Workspace.sourceDirectory(Path.of("/p/other/C.jasx").toAbsolutePath()));
         }
+
+        @Test
+        void buildInformationOfGradleAndMaven(@TempDir Path project) throws IOException {
+            Path sources = project.resolve("src/main/java");
+            Path gradle = project.resolve("build/jasx/editor/main.json");
+            Path maven = project.resolve("target/jasx/editor/main.json");
+            assertEquals(gradle, BuildInfo.fileFor(sources)); // neither exists yet: Gradle's
+
+            Files.createDirectories(maven.getParent());
+            Files.writeString(maven, "{}");
+            assertEquals(maven, BuildInfo.fileFor(sources)); // only Maven's
+        }
     }
 }

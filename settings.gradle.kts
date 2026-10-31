@@ -7,6 +7,7 @@ include(
     "jasx-compiler",
     "jasx-processor",
     "jasx-gradle-plugin",
+    "jasx-maven-plugin",
     "jasx-conformance",
     "jasx-lsp",
 )

@@ -1,18 +1,15 @@
 package jasx.gradle;
 
+import jasx.compiler.BuildSources;
 import jasx.compiler.CompilationResult;
 import jasx.compiler.CompilerDiagnostic;
 import jasx.compiler.GeneratedFile;
 import jasx.compiler.JavacRunner;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Stream;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -111,8 +108,14 @@ public abstract class JasxCompile extends DefaultTask {
 
     @TaskAction
     public void compile() throws IOException {
-        JasxSources sources = JasxSources.read(getSourceRoots().getFiles(), getJavaSources().getFiles());
-        CompilationResult result = sources.compile(getClasspath().getFiles(), getTarget().get());
+        BuildSources sources = BuildSources.read(paths(getSourceRoots()));
+        CompilationResult result;
+        try {
+            result = sources.compile(paths(getClasspath()), getTarget().get());
+        } catch (IllegalArgumentException e) {
+            throw new GradleException(e.getMessage() + ". Add the target to your dependencies, for example"
+                    + " implementation(\"dev.jasx:jasx-target-" + getTarget().get() + ":VERSION\").", e);
+        }
 
         int errors = 0;
         for (CompilerDiagnostic d : result.diagnostics()) {
@@ -130,11 +133,11 @@ public abstract class JasxCompile extends DefaultTask {
         if (getTypeCheck().get()) {
             typeCheck(sources, result.files());
         }
-        writeGeneratedFiles(result.files());
+        BuildSources.writeGeneratedFiles(result.files(), getOutputDirectory().get().getAsFile().toPath());
     }
 
     /** Runs javac over the generated and plain sources, and fails if it finds an error in a .jasx file. */
-    private void typeCheck(JasxSources sources, List<GeneratedFile> generated) throws IOException {
+    private void typeCheck(BuildSources sources, List<GeneratedFile> generated) throws IOException {
         Integer release = getRelease().getOrNull();
         int runningJdk = Runtime.version().feature();
         if (release != null && release > runningJdk) {
@@ -149,19 +152,16 @@ public abstract class JasxCompile extends DefaultTask {
         JavacRunner.BuildOptions options = new JavacRunner.BuildOptions(
                 pathString(getCompileClasspath()), pathString(getProcessorPath()), release,
                 getTemporaryDir().toPath());
-        List<CompilerDiagnostic> diagnostics;
+        List<CompilerDiagnostic> javacErrors;
         try {
-            diagnostics = JavacRunner.typeCheck(generated, sources.javaFiles(), options);
+            javacErrors = sources.javacErrorsToReport(generated, options);
         } catch (RuntimeException e) {
             // The check is a convenience: if it can't run, compileJava still reports every error.
             getLogger().lifecycle("JASX: could not type-check the generated Java (" + e
                     + "); javac's errors in .jasx files will be reported by compileJava, in the generated files.");
             return;
         }
-
-        List<CompilerDiagnostic> javacErrors = diagnostics.stream().filter(CompilerDiagnostic::isError).toList();
-        boolean anyInJasx = javacErrors.stream().anyMatch(d -> d.path().endsWith(".jasx"));
-        if (!anyInJasx) {
+        if (javacErrors.isEmpty()) {
             return; // no errors, or only in .java files: compileJava reports those itself
         }
         for (CompilerDiagnostic d : javacErrors) {
@@ -171,38 +171,19 @@ public abstract class JasxCompile extends DefaultTask {
                 + " error(s); see the messages above.");
     }
 
+    private static List<Path> paths(FileCollection files) {
+        List<Path> paths = new ArrayList<>();
+        for (File file : files.getFiles()) {
+            paths.add(file.toPath());
+        }
+        return paths;
+    }
+
     private static String pathString(FileCollection files) {
         List<String> entries = new ArrayList<>();
         for (File entry : files.getFiles()) {
             entries.add(entry.getAbsolutePath());
         }
         return String.join(File.pathSeparator, entries);
-    }
-
-    /** Replaces the output directory's contents with the generated files. */
-    private void writeGeneratedFiles(List<GeneratedFile> files) throws IOException {
-        Path out = getOutputDirectory().get().getAsFile().toPath();
-        deleteContents(out);
-        for (GeneratedFile file : files) {
-            Path target = out.resolve(file.javaPath());
-            Files.createDirectories(target.getParent());
-            Files.writeString(target, file.content(), StandardCharsets.UTF_8);
-        }
-    }
-
-    /** Deletes everything inside {@code directory}, so that no stale generated file is left behind. */
-    private static void deleteContents(Path directory) throws IOException {
-        if (!Files.isDirectory(directory)) {
-            Files.createDirectories(directory);
-            return;
-        }
-        try (Stream<Path> walk = Files.walk(directory)) {
-            // Deepest first, so that directories are empty when they are deleted.
-            for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
-                if (!p.equals(directory)) {
-                    Files.delete(p);
-                }
-            }
-        }
     }
 }
