@@ -1,8 +1,8 @@
 {
   "name": "jasx",
   "displayName": "JASX",
-  "description": "Syntax highlighting for JASX: Java with JSX-style markup.",
-  "version": "0.1.0",
+  "description": "JASX (Java with JSX-style markup): syntax highlighting, and errors, go-to-definition and hover from the JASX language server.",
+  "version": "0.2.0",
   "publisher": "jasx",
   "license": "MIT",
   "repository": {
@@ -10,17 +10,23 @@
     "url": "https://github.com/snrraptopack/jasx"
   },
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.82.0"
   },
   "categories": [
     "Programming Languages"
   ],
+  "main": "./extension.js",
   "contributes": {
     "languages": [
       {
         "id": "jasx",
-        "aliases": ["JASX", "jasx"],
-        "extensions": [".jasx"],
+        "aliases": [
+          "JASX",
+          "jasx"
+        ],
+        "extensions": [
+          ".jasx"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -34,7 +40,27 @@
           "meta.embedded.block.css": "css"
         }
       }
-    ]
+    ],
+    "configuration": {
+      "title": "JASX",
+      "properties": {
+        "jasx.languageServer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the JASX language server (errors while typing, go-to-definition and hover on components). Needs Java 21 or later."
+        },
+        "jasx.languageServer.java": {
+          "type": "string",
+          "default": "",
+          "description": "The java executable that runs the language server. Empty: JAVA_HOME, then the Java extension's 'java.jdt.ls.java.home', then 'java' on the PATH."
+        },
+        "jasx.target": {
+          "type": "string",
+          "default": "html",
+          "description": "The JASX target whose schema markup is checked against."
+        }
+      }
+    }
   },
   "scripts": {
     "test": "node test/grammar.test.mjs"
@@ -42,5 +68,8 @@
   "devDependencies": {
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.2.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

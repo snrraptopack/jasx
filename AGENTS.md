@@ -23,11 +23,12 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 
 - `jasx-spec/` is the **normative source of truth**. `JASX-update1.md` is the **historical** design proposal: don't implement from it.
 - **Milestones 1 and 2 are done.** The parser passes the parse and error conformance tests, and the compiler with the `html` reference target passes the render tests: `.jasx` compiles to Java, javac compiles it, and it renders the expected HTML.
-- **Milestone 3 is mostly done:** the annotation processor, the Gradle plugin (with javac errors reported at `.jasx` locations), VS Code syntax highlighting, publishing to Maven Local, and a runnable example (`examples/hello`). Still missing: publishing to a public repository, and a language server.
+- **Milestone 3 is mostly done:** the annotation processor, the Gradle plugin (with javac errors reported at `.jasx` locations), VS Code syntax highlighting, a language server (`jasx-lsp`: JASX errors while typing, go-to-definition and hover on components) with its VS Code client, publishing to Maven Local, and a runnable example (`examples/hello`). Still missing: publishing to a public repository.
 
 ## Known gaps
 
 - **javac errors in Gradle builds** are printed twice: first by `compileJava`, pointing at the generated file (same line number as the `.jasx` source), then by `reportJasxJavacErrors` at the `.jasx` location. The second compilation doesn't run annotation processors, so code that uses processor-generated classes can get extra errors there.
+- **The language server checks JASX only.** Java type errors need the project's classpath and still come from the build, and components of the project's jars are unknown to it (a tag using one is reported as JASX2001). It analyses a Gradle-style source directory (`src/<set>/java` or `src/<set>/jasx`) as one group, and any other file alone.
 - **Not published to a public repository.** `./gradlew publishToMavenLocal` installs everything in `~/.m2`; `examples/hello` uses a composite build instead.
 
 ## Repository layout
@@ -52,7 +53,8 @@ jasx-target-html/          html reference target: descriptor, schemas/html.json,
 jasx-processor/            annotation processor: writes META-INF/jasx/components.json
 jasx-gradle-plugin/        Gradle plugin id "dev.jasx": compileJasx task per source set
 jasx-conformance/          JUnit runner for jasx-spec/tests (all levels)
-editors/vscode/            VS Code extension: TextMate grammar + Node tests (npm test)
+jasx-lsp/                  language server over stdio (no third-party deps): diagnostics, definition, hover
+editors/vscode/            VS Code extension: TextMate grammar, language server client (extension.js), Node tests
 examples/hello/            standalone example build (composite build of this repository)
 ```
 
@@ -71,18 +73,19 @@ These decisions are already made. Follow them unless the user changes them.
 | `jasx-conformance` | runner for `jasx-spec/tests`: parse, errors, AST schema, render | done |
 | `jasx-processor` | annotation processor that writes `META-INF/jasx/components.json` (Gradle aggregating incremental processor) | done |
 | `jasx-gradle-plugin` | `dev.jasx` plugin: `compileJasx` per source set, output added to the Java sources; TestKit functional tests | done |
-| `editors/vscode` | TextMate grammar injected into VS Code's Java grammar; tests with `vscode-textmate` | done |
+| `jasx-lsp` | language server (LSP over stdio, no third-party deps): JASX diagnostics while typing, go-to-definition and hover on components; `installServer` copies a self-contained jar into the VS Code extension | done (first version) |
+| `editors/vscode` | TextMate grammar injected into VS Code's Java grammar; language server client; tests with `vscode-textmate` | done |
 
-  Later: publishing, LSP, IntelliJ plugin. Other targets are undecided.
+  Later: publishing, IntelliJ plugin, more language server features (Java diagnostics through the build's classpath, completion of components and props). Other targets are undecided.
 - The Java package root is `jasx` (`jasx.parser`, `jasx.runtime`, `jasx.html`, …), matching the names the spec uses.
-- `jasx-parser`, `jasx-runtime` and `jasx-compiler` must stay free of third-party runtime dependencies (the compiler has its own small JSON reader). Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
+- `jasx-parser`, `jasx-runtime`, `jasx-compiler` and `jasx-lsp` must stay free of third-party runtime dependencies (the compiler has its own small JSON reader). Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
 - The compiler never references a target at compile time. It loads the target's descriptor and schema from the classpath (`Target.load`).
 
 ### Milestones
 
 1. **Parser** (done): `tests/parse` and `tests/errors` pass, and every AST validates against `ast.schema.json`.
 2. **Compiler and `html` reference target** (done): factory lowering, component index, line preservation, diagnostic remapping. `tests/render` passes.
-3. **Tooling** (mostly done): annotation processor, Gradle plugin and TextMate grammar are done; publishing, javac remapping in Gradle builds, and an LSP remain.
+3. **Tooling** (mostly done): annotation processor, Gradle plugin, javac errors at `.jasx` locations, TextMate grammar and a first language server are done; publishing to a public repository remains.
 4. **Targets:** to be decided after the core is complete.
 
 ### How the compiler works
@@ -105,6 +108,10 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew :jasx-gradle-plugin:test       # plugin functional tests (runs real Gradle builds; slow)
 (cd editors/vscode && npm install && npm test)   # grammar tests (Node)
 ./gradlew publishToMavenLocal            # install all dev.jasx artifacts in ~/.m2
+./gradlew :jasx-lsp:test                 # language server tests
+./gradlew :jasx-lsp:installServer        # build the server jar into editors/vscode/server/
+(cd editors/vscode && npx @vscode/vsce@3 package --skip-license && code --install-extension jasx-0.2.0.vsix --force)
+                                         # package and install the VS Code extension
 ./gradlew -p examples/hello run --args=--print   # build and run the example (prints the page)
 ./gradlew -p examples/hello run          # serve the example at http://localhost:8080
 ./gradlew -q :jasx-parser:run --args="--dump-ast ../jasx-spec/tests/parse/001-element.jasx"

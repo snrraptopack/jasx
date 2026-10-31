@@ -75,9 +75,10 @@ public final class JasxCompiler {
 
         // Pass 1: scan every file and collect the components it declares.
         ComponentIndex localComponents = new ComponentIndex();
+        List<CompilationResult.Declaration> declarations = new ArrayList<>();
         List<ScannedFile> scannedFiles = new ArrayList<>();
         for (SourceFile file : sources) {
-            scannedFiles.add(scan(file, localComponents, diagnostics));
+            scannedFiles.add(scan(file, localComponents, declarations, diagnostics));
         }
 
         // A component declared in the sources wins over a dependency's component with the same class and name.
@@ -85,21 +86,26 @@ public final class JasxCompiler {
 
         // Pass 2: lower each .jasx file to Java.
         List<GeneratedFile> generatedFiles = new ArrayList<>();
+        List<CompilationResult.Use> uses = new ArrayList<>();
         for (ScannedFile scanned : scannedFiles) {
-            GeneratedFile generated = lower(scanned, allComponents, diagnostics);
+            GeneratedFile generated = lower(scanned, allComponents, uses, diagnostics);
             if (generated != null) {
                 generatedFiles.add(generated);
             }
         }
-        return new CompilationResult(generatedFiles, diagnostics, localComponents);
+        return new CompilationResult(generatedFiles, diagnostics, localComponents, declarations, uses);
     }
 
     // ---------------------------------------------------------------------------------------------
     // Pass 1: scan
     // ---------------------------------------------------------------------------------------------
 
-    /** Parses (if {@code .jasx}) and scans one file, adding its components to {@code components}. */
-    private ScannedFile scan(SourceFile file, ComponentIndex components, List<CompilerDiagnostic> diagnostics) {
+    /**
+     * Parses (if {@code .jasx}) and scans one file, adding its components to {@code components} and where
+     * they are declared to {@code declarations}.
+     */
+    private ScannedFile scan(SourceFile file, ComponentIndex components,
+            List<CompilationResult.Declaration> declarations, List<CompilerDiagnostic> diagnostics) {
         LineMap lines = new LineMap(file.content());
 
         // Only .jasx files contain markup, so only they are parsed.
@@ -135,7 +141,10 @@ public final class JasxCompiler {
                                 + c.component().className() + "; components cannot be overloaded",
                         c.nameStart(), c.nameEnd());
                 report(diagnostics, file, lines, List.of(overloaded));
-            } else if (c.needsAnnotation()) {
+                continue;
+            }
+            declarations.add(new CompilationResult.Declaration(c.component(), file.path(), c.nameStart(), c.nameEnd()));
+            if (c.needsAnnotation()) {
                 insertions.add(new Lowering.Insertion(c.headerStart(), Lowering.Insertion.ANNOTATION, "@jasx.Component "));
             }
         }
@@ -170,8 +179,12 @@ public final class JasxCompiler {
     // Pass 2: lower
     // ---------------------------------------------------------------------------------------------
 
-    /** Lowers one scanned file; returns null if it is not a {@code .jasx} file or if it has errors. */
-    private GeneratedFile lower(ScannedFile scanned, ComponentIndex components, List<CompilerDiagnostic> diagnostics) {
+    /**
+     * Lowers one scanned file; returns null if it is not a {@code .jasx} file or if it has errors. The
+     * component tags it resolves are added to {@code uses}, even when the file has errors.
+     */
+    private GeneratedFile lower(ScannedFile scanned, ComponentIndex components, List<CompilationResult.Use> uses,
+            List<CompilerDiagnostic> diagnostics) {
         // .java files are not rewritten.
         if (scanned.parsed() == null) {
             return null;
@@ -185,6 +198,7 @@ public final class JasxCompiler {
         Lowering lowering = new Lowering(scanned.file(), scanned.lines(), target, resolver);
         GeneratedFile generated = lowering.lower(scanned.parsed().unit(), scanned.insertions(), scanned.styles());
         report(diagnostics, scanned.file(), scanned.lines(), lowering.diagnostics());
+        uses.addAll(lowering.uses());
 
         // Code generated around an error (an unknown component, say) is not meaningful, so don't return it.
         boolean hasErrors = lowering.diagnostics().stream()

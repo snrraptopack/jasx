@@ -8,4 +8,5 @@ include(
     "jasx-processor",
     "jasx-gradle-plugin",
     "jasx-conformance",
+    "jasx-lsp",
 )

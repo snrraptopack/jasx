@@ -941,4 +941,47 @@ class JasxCompilerTest {
             assertFalse(java.contains("scoped("), java);
         }
     }
+
+    /** CompilationResult.declarations and uses, for editor tooling. */
+    @Nested
+    class EditorInformation {
+        @Test
+        void declarationsAndUsesPointAtNames() {
+            SourceFile ui = new SourceFile("app/Ui.jasx", """
+                    package app;
+                    import jasx.runtime.Element;
+                    import java.util.List;
+                    public Element Card(List<Element> children) { return <div>{children}</div>; }
+                    """);
+            SourceFile page = new SourceFile("app/Page.jasx", """
+                    package app;
+                    import jasx.runtime.Element;
+                    class Page {
+                      static Element Test() { return <Ui.Card><p/></Ui.Card>; }
+                    }
+                    """);
+            CompilationResult r = compile(ui, page);
+            assertEquals(List.of(), r.diagnostics());
+
+            CompilationResult.Declaration card = r.declarations().stream()
+                    .filter(d -> d.component().method().equals("Card")).findFirst().orElseThrow();
+            assertEquals("app/Ui.jasx", card.path());
+            assertEquals("Card", ui.content().substring(card.nameStart(), card.nameEnd()));
+
+            List<String> uses = r.uses().stream()
+                    .map(u -> u.path() + ":" + page.content().substring(u.nameStart(), u.nameEnd()) + "->" + u.component().method())
+                    .toList();
+            assertEquals(List.of("app/Page.jasx:Ui.Card->Card", "app/Page.jasx:Ui.Card->Card"), uses);
+        }
+
+        @Test
+        void usesAreRecordedEvenWhenTheFileHasOtherErrors() {
+            CompilationResult r = compile(file("""
+                    static Element A(String x) { return <p/>; }
+                    static Element B() { return <A />; }
+                    """));
+            assertEquals(List.of("JASX2007"), r.diagnostics().stream().map(CompilerDiagnostic::code).toList());
+            assertEquals(1, r.uses().size());
+        }
+    }
 }

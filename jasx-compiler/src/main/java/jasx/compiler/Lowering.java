@@ -117,6 +117,8 @@ final class Lowering {
     private final List<Diagnostic> diagnostics = new ArrayList<>();
     /** The file's style block, or null. If set, every intrinsic element is scoped (semantics.md §10.5). */
     private StyleBlocks.Plan styles;
+    /** The component tags resolved so far, for editor tooling (CompilationResult.uses). */
+    private final List<CompilationResult.Use> uses = new ArrayList<>();
 
     Lowering(SourceFile file, LineMap lines, Target target, Resolver resolver) {
         this.file = file;
@@ -130,6 +132,10 @@ final class Lowering {
 
     List<Diagnostic> diagnostics() {
         return diagnostics;
+    }
+
+    List<CompilationResult.Use> uses() {
+        return uses;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -434,6 +440,7 @@ final class Lowering {
             return;
         }
         Component component = resolution.component();
+        recordUse(component, element);
         String tag = "<" + JasxParser.nameText(element.openingElement().name()) + ">";
 
         Map<String, JasxAttribute> givenProps = checkProps(tag, component, attributes);
@@ -451,6 +458,16 @@ final class Lowering {
             argument(params.get(i), givenProps, component.children(), children, element);
         }
         out.emit(")", closingAnchor(element));
+    }
+
+    /** Records the names of the opening and closing tags of {@code element} as uses of {@code component}. */
+    private void recordUse(Component component, JasxElement element) {
+        ElementName opening = element.openingElement().name();
+        uses.add(new CompilationResult.Use(component, file.path(), opening.start(), opening.end()));
+        if (element.closingElement() != null) {
+            ElementName closing = element.closingElement().name();
+            uses.add(new CompilationResult.Use(component, file.path(), closing.start(), closing.end()));
+        }
     }
 
     /** Checks each attribute against the component's props; returns the valid ones by name. */
