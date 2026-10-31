@@ -79,6 +79,23 @@ class HtmlTest {
     }
 
     @Test
+    void scriptAndStyleContentIsNotEscaped() {
+        assertEquals("<style>a > b { }</style><script>if (a < b && c) {}</script>",
+                render(fragment(h("style", null, "a > b { }"), h("script", null, "if (a < b && c) {}"))));
+    }
+
+    @Test
+    void textIsEscapedAgainAfterRawTextElements() {
+        assertEquals("<div><style>a>b</style>&lt;</div>", render(h("div", null, h("style", null, "a>b"), "<")));
+    }
+
+    @Test
+    void closingTagInsideRawTextIsRejected() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> render(h("script", null, "x</SCRIPT><b>")));
+    }
+
+    @Test
     void toStringRenders() {
         assertEquals("<p>x</p>", h("p", null, "x").toString());
     }

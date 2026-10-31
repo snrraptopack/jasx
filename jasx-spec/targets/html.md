@@ -46,7 +46,7 @@ The schema is the resource `schemas/html.json` of the target. The attribute buil
 | Element | `<tag` + attributes + `>` + children + `</tag>` |
 | Void element (`area`, `base`, `br`, `col`, `embed`, `hr`, `img`, `input`, `link`, `meta`, `source`, `track`, `wbr`) | `<tag` + attributes + `>`, with no closing tag and no slash |
 | Fragment | its children only |
-| Text | the text, escaped |
+| Text | the text, escaped (except inside `script` and `style`, §3.3) |
 | Keyed element | the element (keys are ignored) |
 
 ### 3.1 Attributes
@@ -67,6 +67,12 @@ The schema is the resource `schemas/html.json` of the target. The attribute buil
 
 Raw, unescaped HTML is inserted only through an explicit call, `jasx.html.Html.rawHtml(String)`, which returns an `Element`.
 
-### 3.3 Whitespace
+### 3.3 Raw text elements
+
+HTML parses the content of `script` and `style` as raw text: character references are not decoded there, so escaping would corrupt the content (`a > b` would become `a &gt; b`). Text inside these two elements is therefore written **without escaping**.
+
+The content of a `script` or `style` element **MUST NOT** contain its closing tag (`</script` or `</style`, compared case-insensitively), because that would end the element early and let the rest be parsed as HTML. Rendering such content fails with an error.
+
+### 3.4 Whitespace
 
 The renderer adds no whitespace and no line breaks. The only text in the output is the text child values produced by children normalization (`semantics.md` §3.1) and by expression children.

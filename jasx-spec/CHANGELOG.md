@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0-draft, revision 5
+
+### Changed
+
+- **`html` target: raw text elements** (`targets/html.md` §3.3). The content of `script` and `style` is no longer escaped, because HTML parses it as raw text (`a > b` in CSS used to become `a &gt; b`). Content that contains the element's own closing tag is rejected. Found while building the example project.
+
+### Added
+
+- Render conformance test `008-raw-text-elements`.
+
 ## 1.0-draft, revision 4
 
 Clarifications found while implementing the reference compiler and the `html` target. No AST node, diagnostic code or conformance expectation changed; all render tests pass.

@@ -1,0 +1,9 @@
+import jasx.runtime.Element;
+
+class T {
+  static Element Test() {
+    String css = "ul > li { color: red; }";
+    String js = "if (a < b && c) { go(); }";
+    return <><style>{css}</style><script>{js}</script><p>{"a < b"}</p></>;
+  }
+}
