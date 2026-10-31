@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0-draft, revision 4
+
+Clarifications found while implementing the reference compiler and the `html` target. No AST node, diagnostic code or conformance expectation changed; all render tests pass.
+
+### Changed
+
+- **Children passed to components** (`semantics.md` §5.5). An expression child value is converted with `fragment((Object) expr)`, not with `text`, so the child value contract still applies (a `null` becomes an empty fragment, an `Element` stays an element). Text child values still use `text`.
+- **Component index** (`semantics.md` §5.3): `params` lists every parameter in declaration order, including the `children` parameter, whose `kind` is `"children"`. `components.json` is a JSON array of entries.
+
+### Clarified
+
+- `@jasx.Default` (`semantics.md` §5.2): the annotation's string value is the literal's source text (`@jasx.Default("\"Untitled\"")`), written as `@jasx.Default("…")` or `@jasx.Default(value = "…")`.
+- The inserted `@jasx.Component` goes on the same line as the method header (`semantics.md` §5.1).
+- `targets/html.md` §2 describes the schema actually shipped (HTML plus common SVG elements, boolean-typed boolean attributes, builders generated from `schemas/html.json`). §3.1: an `Element` attribute value is rendered to HTML, then escaped.
+
 ## 1.0-draft, revision 3
 
 This revision narrows the current scope to the core language, JASX as JSX is without React, and adds tests written while implementing the reference parser. No AST node changed.

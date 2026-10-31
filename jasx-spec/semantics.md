@@ -131,7 +131,7 @@ A **component** is a Java method that:
 4. is declared in a `.jasx` file, or is annotated with `@jasx.Component` in a `.java` file,
 5. has a name that is unique among the components of its declaring class (**components cannot be overloaded**, JASX2006).
 
-Methods in `.jasx` files that satisfy (1)–(3) are components automatically. The compiler adds `@jasx.Component` to them in the generated Java. Static methods with lowercase names that return `Element` (helpers such as `renderRow`) are ordinary Java methods: they are not indexed, they can be overloaded, and they are called as Java (`{renderRow(r)}`).
+Methods in `.jasx` files that satisfy (1)–(3) are components automatically. The compiler adds `@jasx.Component` to them in the generated Java, on the same line as the method header, unless they already have it. Static methods with lowercase names that return `Element` (helpers such as `renderRow`) are ordinary Java methods: they are not indexed, they can be overloaded, and they are called as Java (`{renderRow(r)}`).
 
 `@jasx.Component` on a method that violates (1)–(3) is an error (JASX2010).
 
@@ -146,7 +146,7 @@ Each parameter of a component is a **prop**, named by the parameter name.
 | Parameter annotated `@jasx.Default("literal")` | An optional prop. If the attribute is absent, the argument is the given Java **literal**. |
 | Parameter named `children` of type `jasx.runtime.Element` or `java.util.List<jasx.runtime.Element>` | Receives the element's children (§5.5). It **MUST NOT** also be given as an attribute (JASX2008). |
 
-The value of `@jasx.Default` **MUST** be a single Java literal: an integer, floating-point, boolean, character, string or text-block literal, optionally preceded by `-` for numbers (JASX2011). A literal means the same thing at every call site, whatever that site's imports and scope. For any other default, declare the prop `@jasx.Optional` and compute the default in the component body:
+An annotation element can only hold a constant, so the annotation's string value is the literal's **source text**: `@jasx.Default("5")` for the `int` 5, and `@jasx.Default("\"Untitled\"")` for the string `Untitled`. The annotation's value **MUST** be written as a string literal (`@jasx.Default("…")` or `@jasx.Default(value = "…")`), and its content **MUST** be the source text of a single Java literal: an integer, floating-point, boolean, character, string or text-block literal, optionally preceded by `-` for numbers (JASX2011). A literal means the same thing at every call site, whatever that site's imports and scope. For any other default, declare the prop `@jasx.Optional` and compute the default in the component body:
 
 ```java
 static Element Timer(@jasx.Optional Duration every) {
@@ -174,7 +174,9 @@ Each index entry records:
 }
 ```
 
-`kind` is `"required"`, `"optional"` or `"default"`. `children` is one of `"none"`, `"single"` (`Element`) or `"list"` (`List<Element>`). Parameter types are informational: javac checks them after lowering.
+`params` lists **every** parameter in declaration order, including the `children` parameter, so that the compiler can place each argument. `kind` is `"required"`, `"optional"`, `"default"` or `"children"`. `default` is the literal's source text (§5.2). `children` is one of `"none"`, `"single"` (`Element`) or `"list"` (`List<Element>`). Parameter types are informational: javac checks them after lowering.
+
+`META-INF/jasx/components.json` is a JSON array of such entries.
 
 The index is built from three sources:
 
@@ -201,8 +203,10 @@ If no component is found, it's an error (JASX2001). If a simple name matches thr
 ### 5.5 Children of components
 
 - `"none"`: the element **MUST** have no child values (JASX2003).
-- `"single"`: the element **MUST** have exactly one child value, which is passed as the argument (JASX2004 otherwise). If that value isn't markup, it's converted with the factory's `text` function (§6.2).
+- `"single"`: the element **MUST** have exactly one child value, which is passed as the argument (JASX2004 otherwise).
 - `"list"`: all child values are passed as a `List<Element>`, in order (possibly empty).
+
+A child value passed to a component is converted to an `Element`: markup as it is, a text child value with the factory's `text` function, and an expression child value with `fragment((Object) expr)` (§6.2), so that the child value contract (§3.4) still applies to it. For example, a `null` expression becomes an empty fragment, not a `null` argument.
 
 ### 5.6 Component lowering
 

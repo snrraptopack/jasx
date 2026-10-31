@@ -26,12 +26,14 @@ It can be used with any Java web framework (Spring, Javalin, Helidon, plain serv
 
 ## 2. Schema
 
-- The intrinsic elements and attributes of the HTML Living Standard, with builder classes in `jasx.html.attrs`.
+- The elements and attributes of the HTML Living Standard, plus common SVG elements (`svg`, `g`, `path`, `circle`, `ellipse`, `rect`, `line`, `polyline`, `polygon`, `use`).
+- Global attributes (`class`, `id`, `style`, `title`, …) are accepted on every element.
+- Boolean attributes (`disabled`, `checked`, `inert`, …) have builder methods that take a `boolean`, so javac rejects `disabled="yes"`. Other attributes take any value, which is rendered with `String.valueOf` (`hidden` is not boolean-typed, because it also accepts `until-found`).
 - Event attributes such as `onclick` are accepted only with **string** values (inline script). A Java expression as their value is an error (JASX2103).
 - Extensions: `data-*`, `aria-*`, `hx-*` and `x-*` attribute names, through `.attr(name, value)`.
-- Custom elements (tags containing `-`) are accepted with a generic builder that only has `.attr(name, value)`.
+- Custom elements (tags containing `-`) are accepted with the builder `jasx.html.attrs.Custom`, and all their attributes are passed through `.attr(name, value)`.
 
-The reference implementation generates the schema from machine-readable HTML element and attribute data, not by hand.
+The schema is the resource `schemas/html.json` of the target. The attribute builders (`jasx.html.attrs.A`, `Button`, …, `HtmlAttributes` for the global attributes) are generated from it at build time, so the compiler's checks and the builders always agree.
 
 ---
 
@@ -52,7 +54,7 @@ The reference implementation generates the schema from machine-readable HTML ele
 - Attributes are emitted in source order, each preceded by one space.
 - An attribute whose value is `true` (including a shorthand attribute) is emitted as the bare name: `disabled`.
 - An attribute whose value is `false` or `null` is omitted.
-- Any other value is emitted as `name="value"`, where `value` is `String.valueOf` of the value, escaped.
+- Any other value is emitted as `name="value"`, where `value` is `String.valueOf` of the value, escaped. An `Element` value (markup as an attribute value) is rendered to HTML first, then escaped.
 
 ### 3.2 Escaping
 

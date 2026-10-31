@@ -22,8 +22,8 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 ## Current state
 
 - `jasx-spec/` is the **normative source of truth**. `JASX-update1.md` is the **historical** design proposal: don't implement from it.
-- **Milestone 1 is done:** `jasx-parser` passes all parse and error conformance tests, and its emitted ASTs are byte-identical to the fixtures.
-- Next is milestone 2: the compiler and the `html` reference target.
+- **Milestones 1 and 2 are done.** The parser passes the parse and error conformance tests, and the compiler with the `html` reference target passes the render tests: `.jasx` compiles to Java, javac compiles it, and it renders the expected HTML.
+- Next is milestone 3: the annotation processor (`components.json` for jars), the Gradle plugin, and editor support.
 
 ## Repository layout
 
@@ -37,9 +37,14 @@ jasx-spec/                 normative specification (see jasx-spec/README.md)
   tests/parse/   *.jasx -> *.ast.json          core: parser
   tests/errors/  *.jasx -> *.diagnostics.json  core: diagnostics
   tests/render/  *.jasx -> *.html              reference target: html
-jasx-parser/               tokenizer + markup parser, AST, JSON output, CLI (no third-party deps)
+jasx-parser/               JavaLexer, markup parser, AST, JSON output, CLI (no third-party deps)
   src/main/resources/jasx/parser/entities.txt  HTML named character references (generated)
-jasx-conformance/          JUnit runner for jasx-spec/tests
+jasx-runtime/              jasx.runtime.Element and @jasx.Component / @jasx.Optional / @jasx.Default
+jasx-compiler/             declaration scanner, component index, resolver, factory lowering, span maps,
+                           in-memory javac runner with diagnostic remapping, CLI
+jasx-target-html/          html reference target: descriptor, schemas/html.json, factory jasx.html.Html,
+                           renderer; attribute builders jasx.html.attrs.* generated from the schema
+jasx-conformance/          JUnit runner for jasx-spec/tests (all levels)
 ```
 
 ## Implementation plan
@@ -50,24 +55,32 @@ These decisions are already made. Follow them unless the user changes them.
 
 | Module | Contents | Status |
 |---|---|---|
-| `jasx-parser` | Java-mode tokenizer, markup parser with error recovery, AST, JSON serializer, `--dump-ast` CLI | done |
-| `jasx-conformance` | runner for `jasx-spec/tests` (parse, errors, schema; render once the compiler exists) | done for core levels |
-| `jasx-runtime` | `jasx.runtime.Element`, `@jasx.Component`, `@jasx.Optional`, `@jasx.Default` | next |
-| `jasx-compiler` | normalization, component index, name resolution, factory lowering, span map, javac diagnostic remapping, target loading | next |
+| `jasx-parser` | `JavaLexer`, markup parser with error recovery, AST, JSON serializer, `--dump-ast` CLI | done |
+| `jasx-runtime` | `jasx.runtime.Element`, `@jasx.Component`, `@jasx.Optional`, `@jasx.Default` | done |
+| `jasx-compiler` | declaration scanner, component index, name resolution, normalization, factory lowering, line preservation, span maps, javac diagnostic remapping, target loading, CLI | done |
+| `jasx-target-html` | `html` reference target: descriptor, schema, factory, renderer, generated attribute builders | done |
+| `jasx-conformance` | runner for `jasx-spec/tests`: parse, errors, AST schema, render | done |
 | `jasx-processor` | annotation processor that writes `META-INF/jasx/components.json` | next |
-| `jasx-target-html` | `html` reference target: descriptor, factory, attribute builders, schema, renderer | next |
-| `jasx-gradle-plugin` | compiles `.jasx` to generated sources | later |
+| `jasx-gradle-plugin` | compiles `.jasx` to generated sources | next |
 
   Later: TextMate grammar, LSP, IntelliJ plugin. Other targets are undecided.
 - The Java package root is `jasx` (`jasx.parser`, `jasx.runtime`, `jasx.html`, …), matching the names the spec uses.
-- `jasx-parser` must stay free of third-party runtime dependencies. Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
+- `jasx-parser`, `jasx-runtime` and `jasx-compiler` must stay free of third-party runtime dependencies (the compiler has its own small JSON reader). Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
+- The compiler never references a target at compile time. It loads the target's descriptor and schema from the classpath (`Target.load`).
 
 ### Milestones
 
 1. **Parser** (done): `tests/parse` and `tests/errors` pass, and every AST validates against `ast.schema.json`.
-2. **Compiler and `html` reference target:** factory lowering, component index, line preservation, diagnostic remapping. `tests/render` passes.
-3. **Tooling:** Gradle plugin, TextMate grammar, then LSP.
+2. **Compiler and `html` reference target** (done): factory lowering, component index, line preservation, diagnostic remapping. `tests/render` passes.
+3. **Tooling:** annotation processor, Gradle plugin, TextMate grammar, then LSP.
 4. **Targets:** to be decided after the core is complete.
+
+### How the compiler works
+
+1. Parse each `.jasx` file (`JasxParser`).
+2. Scan each source with `JavaStructure` (tokens only, markup skipped) for the package, imports, named types and method headers, and build the component index. Problems here are JASX2006, JASX2010 and JASX2011.
+3. Lower each `.jasx` file without syntax errors (`Lowering`, writing through `Emitter`). Java code is copied verbatim; markup becomes `F.h(...)`, `F.fragment(...)`, `F.keyed(...)` and direct component calls. `Emitter` only adds line breaks to catch up with the source line, and records a `SpanMap`.
+4. `JavacRunner` compiles the generated Java in memory and remaps javac's diagnostics through the span maps (code `javac`).
 
 ## Commands
 
@@ -78,8 +91,11 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew build                          # compile, unit tests, conformance suite
 ./gradlew :jasx-parser:test              # parser unit tests only
 ./gradlew :jasx-conformance:test         # conformance suite only
+./gradlew :jasx-compiler:test            # compiler unit tests only
 ./gradlew -q :jasx-parser:run --args="--dump-ast ../jasx-spec/tests/parse/001-element.jasx"
-                                         # paths are relative to jasx-parser/
+./gradlew -q :jasx-compiler:run --args="../jasx-spec/tests/render/001-basic.jasx"
+                                         # prints the generated Java; --out DIR writes files
+                                         # paths are relative to the module directory
 ```
 
 The CLI prints the AST (or `--diagnostics` JSON) to stdout and console-form diagnostics to stderr. Its JSON format matches the fixtures byte for byte, so it can draft a new parse fixture. **Review every drafted fixture by hand**: a fixture generated by the parser only proves the parser agrees with itself. Compute expected diagnostic ranges by hand.
