@@ -233,6 +233,110 @@ class LanguageServerTest {
             assertTrue(markdown.contains("- `children`: the children between the tags"), markdown);
         }
 
+        // --- Completion --------------------------------------------------------------------------
+
+        /**
+         * Opens {@code file} with {@code text}, in which {@code |} marks the cursor, and requests completion
+         * there. Returns the items.
+         */
+        private List<Map<String, Object>> completeAt(Path file, String text) {
+            int cursor = text.indexOf('|');
+            String before = text.substring(0, cursor);
+            int line = (int) before.chars().filter(c -> c == '\n').count();
+            int character = cursor - (before.lastIndexOf('\n') + 1);
+            open(file, text.substring(0, cursor) + text.substring(cursor + 1));
+            Map<String, Object> list = Json.object(request("textDocument/completion", position(file, line, character)).get("result"));
+            List<Map<String, Object>> items = new ArrayList<>();
+            for (Object item : (List<?>) list.get("items")) {
+                items.add(Json.object(item));
+            }
+            return items;
+        }
+
+        private static List<String> labels(List<Map<String, Object>> items) {
+            return items.stream().map(item -> Json.string(item.get("label"))).toList();
+        }
+
+        private static Map<String, Object> item(List<Map<String, Object>> items, String label) {
+            return items.stream().filter(i -> label.equals(i.get("label"))).findFirst().orElseThrow();
+        }
+
+        private static String pageWith(String returned) {
+            return PAGE.replace("<Ui.Card title=\"Hi\"><p>body</p></Ui.Card>;", returned);
+        }
+
+        @Test
+        void announcesCompletion() {
+            Map<String, Object> init = sent.get(0);
+            Map<String, Object> capabilities = Json.object(Json.object(init.get("result")).get("capabilities"));
+            Map<String, Object> completion = Json.object(capabilities.get("completionProvider"));
+            assertEquals(List.of("<", " ", "."), completion.get("triggerCharacters"));
+        }
+
+        @Test
+        void tagNamesAreComponentsAndElements() {
+            List<Map<String, Object>> items = completeAt(page, pageWith("<|"));
+            // Ui.Card isn't imported into Page, so it is offered by its class and name.
+            assertTrue(labels(items).contains("Ui.Card"), labels(items).toString());
+            assertTrue(labels(items).contains("div"), labels(items).toString());
+            String documentation = Json.string(Json.object(item(items, "Ui.Card").get("documentation")).get("value"));
+            assertTrue(documentation.contains("- `title`: required"), documentation);
+        }
+
+        @Test
+        void aComponentInTheSameClassIsOfferedByItsSimpleName() {
+            String text = UI + "\nElement Other() { return <|; }\n";
+            assertTrue(labels(completeAt(ui, text)).contains("Card"));
+        }
+
+        @Test
+        void aTypedPrefixIsReplaced() {
+            List<Map<String, Object>> items = completeAt(page, pageWith("<Ui.Ca|"));
+            Map<String, Object> edit = Json.object(item(items, "Ui.Card").get("textEdit"));
+            Map<String, Object> start = Json.object(Json.object(edit.get("range")).get("start"));
+            // Line 6 is "    return <Ui.Ca": the replaced text starts after '<', at column 12.
+            assertEquals(6L, start.get("line"));
+            assertEquals(12L, start.get("character"));
+            assertEquals("Ui.Card", edit.get("newText"));
+        }
+
+        @Test
+        void attributeNamesOfAComponentAreItsProps() {
+            List<Map<String, Object>> items = completeAt(page, pageWith("<Ui.Card |"));
+            // The children parameter is not an attribute.
+            assertEquals(List.of("title"), labels(items));
+            // This client didn't announce snippet support, so the value is left empty, without "$1".
+            Map<String, Object> edit = Json.object(item(items, "title").get("textEdit"));
+            assertEquals("title=\"\"", edit.get("newText"));
+            assertEquals(1L, item(items, "title").get("insertTextFormat"));
+        }
+
+        @Test
+        void propsAlreadyGivenAreNotOffered() {
+            assertEquals(List.of(), labels(completeAt(page, pageWith("<Ui.Card title=\"x\" |"))));
+        }
+
+        @Test
+        void attributeNamesOfAnElementComeFromTheSchema() {
+            List<Map<String, Object>> items = completeAt(page, pageWith("<a hr|"));
+            assertTrue(labels(items).contains("href"), labels(items).toString());
+            assertTrue(labels(items).contains("onclick"), labels(items).toString());
+            assertEquals("onclick={}", Json.object(item(items, "onclick").get("textEdit")).get("newText"));
+        }
+
+        @Test
+        void markupInsideAnExpressionIsCompleted() {
+            List<Map<String, Object>> items = completeAt(page, pageWith("<ul>{java.util.List.of(1).stream().map(i -> <|"));
+            assertTrue(labels(items).contains("li"), labels(items).toString());
+        }
+
+        @Test
+        void nothingIsOfferedInJavaOrInValues() {
+            assertEquals(List.of(), labels(completeAt(page, pageWith("1 < le|"))));
+            assertEquals(List.of(), labels(completeAt(page, pageWith("<a href=\"x|"))));
+            assertEquals(List.of(), labels(completeAt(page, pageWith("<p>some te|"))));
+        }
+
         @Test
         void nothingOutsideAComponentTag() {
             open(page, PAGE);

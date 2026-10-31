@@ -163,7 +163,7 @@ public final class JasxCompiler {
     }
 
     /** The markup expressions and style blocks at the top level of a parsed file, which aren't Java. */
-    private static List<JavaStructure.Opaque> opaqueRanges(ParseResult parsed) {
+    static List<JavaStructure.Opaque> opaqueRanges(ParseResult parsed) {
         List<JavaStructure.Opaque> ranges = new ArrayList<>();
         for (Segment segment : parsed.unit().segments()) {
             if (segment instanceof Markup) {

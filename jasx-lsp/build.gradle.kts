@@ -1,5 +1,6 @@
-// The JASX language server: reports JASX errors while you type, and offers go-to-definition and hover for
-// components, over the Language Server Protocol (stdin/stdout). It has no third-party dependencies.
+// The JASX language server: reports JASX errors while you type, completes tag names and props, and offers
+// go-to-definition and hover for components, over the Language Server Protocol (stdin/stdout). It has no
+// third-party dependencies.
 //
 // `./gradlew :jasx-lsp:installServer` builds one self-contained jar and copies it into the VS Code
 // extension (editors/vscode/server/jasx-lsp.jar), which starts it with `java -jar`.

@@ -5,12 +5,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /** A target's element and attribute schema (semantics.md §7.3). */
 public final class Schema {
-    /** An attribute: its builder method and whether it is an event attribute (schema kind {@code event}). */
-    public record AttributeSpec(String method, boolean event) {}
+    /**
+     * An attribute: its builder method, whether it is an event attribute (listed in {@code eventAttributes}),
+     * and whether it is a boolean attribute (schema {@code "type": "boolean"}).
+     */
+    public record AttributeSpec(String method, boolean event, boolean isBoolean) {}
 
     /** An intrinsic element: whether it is void, and its own (non-global) attributes. */
     public record ElementSpec(boolean isVoid, Map<String, AttributeSpec> attributes) {}
@@ -32,7 +37,7 @@ public final class Schema {
         Map<String, AttributeSpec> globals = new HashMap<>(attributes(Json.object(json.get("globalAttributes"))));
         for (Object event : Json.array(json.get("eventAttributes"))) {
             String name = (String) event;
-            globals.put(name, new AttributeSpec(camelCase(name), true));
+            globals.put(name, new AttributeSpec(camelCase(name), true, false));
         }
         Map<String, ElementSpec> elements = new LinkedHashMap<>();
         Json.object(json.get("elements")).forEach((tag, value) -> {
@@ -50,8 +55,10 @@ public final class Schema {
     private static Map<String, AttributeSpec> attributes(Map<String, Object> json) {
         Map<String, AttributeSpec> result = new HashMap<>();
         json.forEach((name, value) -> {
-            String method = Json.string(Json.object(value).get("method"));
-            result.put(name, new AttributeSpec(method != null ? method : camelCase(name), false));
+            Map<String, Object> spec = Json.object(value);
+            String method = Json.string(spec.get("method"));
+            boolean isBoolean = "boolean".equals(spec.get("type"));
+            result.put(name, new AttributeSpec(method != null ? method : camelCase(name), false, isBoolean));
         });
         return result;
     }
@@ -68,6 +75,19 @@ public final class Schema {
             return element.attributes().get(name);
         }
         return globalAttributes.get(name);
+    }
+
+    /**
+     * Every attribute {@code tag} accepts, its own and the global ones, sorted by name. Attributes matched
+     * only by a pattern ({@code data-*}) are not listed. Editors use it to complete attribute names.
+     */
+    public SortedMap<String, AttributeSpec> attributesOf(String tag) {
+        SortedMap<String, AttributeSpec> all = new TreeMap<>(globalAttributes);
+        ElementSpec element = elements.get(tag);
+        if (element != null) {
+            all.putAll(element.attributes());
+        }
+        return all;
     }
 
     /** Whether {@code name} matches an extension pattern such as {@code data-*}. */

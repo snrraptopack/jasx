@@ -205,6 +205,31 @@ final class Workspace {
         return at == null ? null : Hovers.component(at.use().component());
     }
 
+    /** Completion suggestions, and the LSP position where the text they replace starts. */
+    record CompletionAt(List<Completions.Item> items, int fromLine, int fromColumn) {}
+
+    /**
+     * The completion suggestions at a position of an analysed file: tag and attribute names in markup
+     * ({@link Completions}). Empty if the file wasn't analysed or the position isn't in a tag.
+     */
+    CompletionAt completion(String uri, int line, int column) {
+        Path file = toPath(uri);
+        for (Analysis analysis : analyses.values()) {
+            String relative = analysis.relativePath(file);
+            if (relative == null) {
+                continue;
+            }
+            String text = analysis.texts().get(relative);
+            int offset = offsetOf(text, line, column);
+            // The group's own components, and those of dependencies they don't hide.
+            ComponentIndex index = analysis.result().index().withFallback(dependencies);
+            Completions.Result result = Completions.at(new SourceFile(relative, text), offset, index, target.schema());
+            LineMap.Position from = new LineMap(text).position(result.replaceFrom());
+            return new CompletionAt(result.items(), from.line() - 1, from.column());
+        }
+        return new CompletionAt(List.of(), line, column);
+    }
+
     private UseAt useAt(String uri, int line, int column) {
         Path file = toPath(uri);
         for (Analysis analysis : analyses.values()) {

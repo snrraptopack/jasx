@@ -1,8 +1,8 @@
 {
   "name": "jasx",
   "displayName": "JASX",
-  "description": "JASX (Java with JSX-style markup): syntax highlighting, and errors, go-to-definition and hover from the JASX language server.",
-  "version": "0.2.0",
+  "description": "JASX (Java with JSX-style markup): syntax highlighting, and errors, completion, go-to-definition and hover from the JASX language server.",
+  "version": "0.3.0",
   "publisher": "jasx",
   "license": "MIT",
   "repository": {
@@ -47,7 +47,7 @@
         "jasx.languageServer.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Run the JASX language server (errors while typing, go-to-definition and hover on components). Needs Java 21 or later."
+          "description": "Run the JASX language server (errors while typing, completion, go-to-definition and hover on components). Needs Java 21 or later."
         },
         "jasx.languageServer.java": {
           "type": "string",

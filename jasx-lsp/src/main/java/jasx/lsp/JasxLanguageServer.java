@@ -20,7 +20,8 @@ import jasx.parser.Diagnostic;
  *   <li>documents: {@code didOpen}, {@code didChange} (whole text), {@code didSave}, {@code didClose},
  *       and {@code workspace/didChangeWatchedFiles}. Each of them re-analyses the file's group and
  *       publishes its diagnostics ({@code textDocument/publishDiagnostics});
- *   <li>{@code textDocument/definition} and {@code textDocument/hover} on component tags.
+ *   <li>{@code textDocument/definition} and {@code textDocument/hover} on component tags;
+ *   <li>{@code textDocument/completion} of tag and attribute names in markup ({@link Completions}).
  * </ul>
  *
  * <p>Messages are handled one at a time, in order. The protocol class is separate from {@link Main}, which
@@ -33,6 +34,8 @@ final class JasxLanguageServer {
 
     private final Consumer<String> send;
     private Workspace workspace;
+    /** Whether the client accepts snippets ({@code $1}) in completions; if not, plain text is sent. */
+    private boolean snippetSupport;
     private boolean shutdownRequested;
     private boolean exitRequested;
 
@@ -128,6 +131,8 @@ final class JasxLanguageServer {
                 return definition(params);
             case "textDocument/hover":
                 return hover(params);
+            case "textDocument/completion":
+                return completion(params);
             default:
                 if (isRequest) {
                     throw new UnsupportedOperationException(method);
@@ -150,6 +155,10 @@ final class JasxLanguageServer {
         Target target = Target.load(targetId != null ? targetId : "html", loader);
         workspace = new Workspace(target, ComponentIndex.fromClasspath(loader));
 
+        Map<String, Object> completionItem = Json.object(Json.object(Json.object(Json.object(
+                params.get("capabilities")).get("textDocument")).get("completion")).get("completionItem"));
+        snippetSupport = Boolean.TRUE.equals(completionItem.get("snippetSupport"));
+
         Map<String, Object> sync = new LinkedHashMap<>();
         sync.put("openClose", true);
         sync.put("change", 1); // full text on every change
@@ -159,10 +168,12 @@ final class JasxLanguageServer {
         capabilities.put("textDocumentSync", sync);
         capabilities.put("definitionProvider", true);
         capabilities.put("hoverProvider", true);
+        // '<' starts a tag name, ' ' an attribute name, '.' the rest of a qualified component name.
+        capabilities.put("completionProvider", Map.of("triggerCharacters", List.of("<", " ", ".")));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("capabilities", capabilities);
-        result.put("serverInfo", Map.of("name", "jasx-lsp", "version", "0.1.0"));
+        result.put("serverInfo", Map.of("name", "jasx-lsp", "version", "0.2.0"));
         return result;
     }
 
@@ -198,6 +209,38 @@ final class JasxLanguageServer {
             return null;
         }
         return Map.of("contents", Map.of("kind", "markdown", "value", markdown));
+    }
+
+    /** A CompletionList; every item replaces the name being typed (a textEdit from its start to the cursor). */
+    private Object completion(Map<String, Object> params) {
+        Map<String, Object> position = Json.object(params.get("position"));
+        int line = Json.integer(position.get("line"));
+        int character = Json.integer(position.get("character"));
+        Workspace.CompletionAt at = workspace().completion(documentUri(params), line, character);
+
+        Map<String, Object> replaced = range(at.fromLine(), at.fromColumn(), line, character);
+        List<Object> items = new ArrayList<>();
+        for (Completions.Item item : at.items()) {
+            Map<String, Object> json = new LinkedHashMap<>();
+            json.put("label", item.label());
+            json.put("kind", item.kind());
+            json.put("detail", item.detail());
+            if (item.documentation() != null) {
+                json.put("documentation", Map.of("kind", "markdown", "value", item.documentation()));
+            }
+            json.put("sortText", item.sortText());
+            // Filter on the label: the replaced text may include a qualifier (Ui.Ca) that a word doesn't.
+            json.put("filterText", item.label());
+            boolean asSnippet = item.snippet() && snippetSupport;
+            String newText = item.snippet() && !snippetSupport ? item.newText().replace("$1", "") : item.newText();
+            json.put("textEdit", Map.of("range", replaced, "newText", newText));
+            json.put("insertTextFormat", asSnippet ? 2 : 1);
+            items.add(json);
+        }
+        Map<String, Object> list = new LinkedHashMap<>();
+        list.put("isIncomplete", false);
+        list.put("items", items);
+        return list;
     }
 
     // ---------------------------------------------------------------------------------------------

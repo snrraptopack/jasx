@@ -2,6 +2,7 @@ package jasx.compiler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jasx.html.Html;
@@ -1012,6 +1013,46 @@ class JasxCompilerTest {
                     """));
             assertEquals(List.of("JASX2007"), r.diagnostics().stream().map(CompilerDiagnostic::code).toList());
             assertEquals(1, r.uses().size());
+        }
+    }
+
+    @Nested
+    class VisibleComponentNames {
+        private final ComponentIndex index = new JasxCompiler(HTML).compile(List.of(new SourceFile("lib/Ui.jasx",
+                "package lib;\npublic class Ui { public static jasx.runtime.Element Card() { return <i/>; } }\n"))).index();
+
+        /** The name offered for lib.Ui.Card in a file of package app with the given imports. */
+        private String nameIn(String imports) {
+            String text = "package app;\n" + imports + "\nclass Page { Object x = null; }\n";
+            SourceFile page = new SourceFile("app/Page.jasx", text);
+            return VisibleComponents.at(page, text.indexOf("null"), index).get(0).name();
+        }
+
+        @Test
+        void fullyQualifiedWhenNothingIsImported() {
+            assertEquals("lib.Ui.Card", nameIn(""));
+        }
+
+        @Test
+        void classAndNameWhenTheClassIsImported() {
+            assertEquals("Ui.Card", nameIn("import lib.Ui;"));
+            assertEquals("Ui.Card", nameIn("import lib.*;"));
+        }
+
+        @Test
+        void simpleNameWhenStaticallyImported() {
+            assertEquals("Card", nameIn("import static lib.Ui.*;"));
+            assertEquals("Card", nameIn("import static lib.Ui.Card;"));
+        }
+
+        @Test
+        void aTagNameIsResolvedHoweverItIsWritten() {
+            String text = "package app;\nimport lib.Ui;\nclass Page { Object x = null; }\n";
+            SourceFile page = new SourceFile("app/Page.jasx", text);
+            int offset = text.indexOf("null");
+            assertEquals("Card", VisibleComponents.named("Ui.Card", page, offset, index).method());
+            assertEquals("Card", VisibleComponents.named("lib.Ui.Card", page, offset, index).method());
+            assertNull(VisibleComponents.named("Card", page, offset, index));
         }
     }
 }
