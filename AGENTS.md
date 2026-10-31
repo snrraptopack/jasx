@@ -30,7 +30,7 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 - **The Gradle type check compiles twice.** `compileJasx` type-checks the generated Java with javac (`JavacRunner.typeCheck`: same classpath, annotation processors and release as `compileJava`, no class files) so that javac's errors in `.jasx` code are reported once, at `.jasx` locations, and `compileJava` doesn't run. On success, `compileJava` then compiles the source set again. `jasx { typeCheck.set(false) }` turns the check off; javac's errors then point at the generated files (same line numbers). Other `compileJava` options (`compilerArgs`) are not copied into the check.
 - **The language server needs a build for the full picture.** It analyses a Gradle-style source directory (`src/<set>/java` or `src/<set>/jasx`) as one group, and any other file alone. The Gradle plugin's `writeJasxEditorInfo` task writes `build/jasx/editor/<set>.json` (`EditorInfo`: target, classpaths, processor path, release) on every build, and the Maven plugin `target/jasx/editor/<set>.json`; with it, the server knows the components of the project's jars and runs javac (`JavacRunner.typeCheck`) on open and save, in the background, showing its errors in `.jasx` files only. Before the first build (or without the plugin, or with a custom build directory) it uses its bundled `html` target, knows no jar's components (JASX2001), and shows no javac errors. javac errors are hidden in a file as soon as it is edited, until the next save.
 - **Not published to a public repository.** `./gradlew publishToMavenLocal` installs everything in `~/.m2`; `examples/hello` uses a composite build instead, and `examples/hello-maven` needs `publishToMavenLocal` first.
-- **The Maven plugin's type check uses the classpath as the annotation processor path** (Maven's default). It doesn't read `annotationProcessorPaths` from the maven-compiler-plugin's configuration, nor other compiler options. Its plugin descriptor (`META-INF/maven/plugin.xml`) is written by hand; keep it in sync with the mojos' fields. It has no automated test yet: check it with `examples/hello-maven` (see Commands).
+- **The Maven plugin's type check uses the classpath as the annotation processor path** (Maven's default). It doesn't read `annotationProcessorPaths` from the maven-compiler-plugin's configuration, nor other compiler options. Its plugin descriptor (`META-INF/maven/plugin.xml`) is written by hand; keep it in sync with the mojos' fields (the functional tests catch a mismatch).
 
 ## Repository layout
 
@@ -78,7 +78,7 @@ These decisions are already made. Follow them unless the user changes them.
 | `jasx-processor` | annotation processor that writes `META-INF/jasx/components.json` (Gradle aggregating incremental processor) | done |
 | `jasx-gradle-plugin` | `dev.jasx` plugin: `compileJasx` per source set, output added to the Java sources, `.jasx` names in class files; TestKit functional tests (including the configuration cache and a multi-project build) | done |
 | `jasx-lsp` | language server (LSP over stdio, no third-party deps): JASX diagnostics while typing, javac diagnostics on save (with the build's classpath), completion of tag names and attributes/props in markup, go-to-definition and hover on components; `installServer` copies a self-contained jar into the VS Code extension | done (first version) |
-| `jasx-maven-plugin` | Maven plugin `dev.jasx:jasx-maven-plugin`: the same steps as the Gradle plugin, sharing `BuildSources`, `EditorInfo` and `JasxSourceNames` from the compiler | done (checked by hand with `examples/hello-maven`) |
+| `jasx-maven-plugin` | Maven plugin `dev.jasx:jasx-maven-plugin`: the same steps as the Gradle plugin, sharing `BuildSources`, `EditorInfo` and `JasxSourceNames` from the compiler | done; functional tests run real Maven builds of `examples/hello-maven` |
 | `editors/vscode` | TextMate grammar injected into VS Code's Java grammar; language server client; tests with `vscode-textmate` | done |
 
   Later: publishing, an IntelliJ client for the language server (and later a deeper IntelliJ plugin), more language server features (rename, find references). Other targets are undecided.
@@ -122,8 +122,9 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
                                          # package and install the VS Code extension
 ./gradlew -p examples/hello run --args=--print   # build and run the example (prints the page)
 ./gradlew -p examples/hello run          # serve the example at http://localhost:8080
-(cd examples/hello-maven && mvn compile exec:java)   # the Maven example, after ./gradlew publishToMavenLocal
-                                         # (Maven isn't installed on this machine; download it to the scratchpad)
+./gradlew :jasx-maven-plugin:test       # Maven plugin functional tests: downloads Maven 3.9.9 as a dependency,
+                                         # installs the JASX artifacts in ~/.m2, builds examples/hello-maven (slow)
+(cd examples/hello-maven && mvn compile exec:java)   # the Maven example by hand, after ./gradlew publishToMavenLocal
 ./gradlew -q :jasx-parser:run --args="--dump-ast ../jasx-spec/tests/parse/001-element.jasx"
 ./gradlew -q :jasx-compiler:run --args="../jasx-spec/tests/render/001-basic.jasx"
                                          # prints the generated Java; --out DIR writes files
