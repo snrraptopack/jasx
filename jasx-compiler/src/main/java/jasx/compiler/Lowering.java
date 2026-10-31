@@ -29,46 +29,86 @@ import jasx.parser.ast.Ast.Markup;
 import jasx.parser.ast.Ast.Segment;
 
 /**
- * Factory lowering of one {@code .jasx} file (semantics.md §6): every markup segment becomes calls on the
- * target's factory and direct component calls; Java code is copied byte for byte.
+ * Factory lowering of one {@code .jasx} file (semantics.md §6): Java code is copied byte for byte, and
+ * every markup expression is replaced by plain Java calls.
+ *
+ * <p>For example, with the html target ({@code F} = {@code jasx.html.Html}):
+ *
+ * <pre>
+ *   &lt;ul class="list"&gt;{items}&lt;/ul&gt;      →  F.h("ul", jasx.html.attrs.Ul.create().className("list"), (java.lang.Object) (items))
+ *   &lt;&gt;a&lt;/&gt;                          →  F.fragment("a")
+ *   &lt;Card title="t" /&gt;                →  app.Page.Card("t")
+ *   &lt;li key={id}&gt;x&lt;/li&gt;              →  F.keyed((id), F.h("li", null, "x"))
+ * </pre>
+ *
+ * <p>All output goes through an {@link Emitter}, which keeps the generated code on the same lines as the
+ * markup it came from. Every {@code emit} call therefore names the source position the code belongs to.
+ *
+ * <p>Problems found here (unknown attributes, missing props, ...) are collected in {@link #diagnostics()}.
+ * Lowering continues after an error, so that one run reports as many problems as possible.
  */
 final class Lowering {
+    /** Cast for expression children, so that a lone null or array is one variadic argument (§6.7). */
     private static final String OBJECT_CAST = "(java.lang.Object) ";
+
     private static final String ELEMENT = "jasx.runtime.Element";
 
-    /** A normalized child value (semantics.md §3). */
+    // ---------------------------------------------------------------------------------------------
+    // Normalized children (semantics.md §3)
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * A child after normalization: whitespace-only text is gone, text is trimmed, and empty expression
+     * containers ({@code {}} and comments) are removed.
+     */
     private sealed interface ChildValue {
         int start();
 
         int end();
     }
 
+    /** Normalized text. {@code start} is the first non-whitespace character, used to keep lines aligned. */
     private record TextValue(String text, int start, int end) implements ChildValue {}
 
+    /** A {@code {expression}} child. */
     private record ExpressionValue(JasxExpressionContainer container) implements ChildValue {
+        @Override
         public int start() {
             return container.start();
         }
 
+        @Override
         public int end() {
             return container.end();
         }
+
+        JavaExpression expression() {
+            return (JavaExpression) container.expression();
+        }
     }
 
+    /** A nested element or fragment. */
     private record MarkupValue(Markup markup) implements ChildValue {
+        @Override
         public int start() {
             return markup.start();
         }
 
+        @Override
         public int end() {
             return markup.end();
         }
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // State
+    // ---------------------------------------------------------------------------------------------
+
     private final SourceFile file;
     private final String src;
     private final Target target;
     private final Schema schema;
+    /** The fully qualified factory class, such as {@code jasx.html.Html}. */
     private final String factory;
     private final Resolver resolver;
     private final Emitter out;
@@ -88,336 +128,388 @@ final class Lowering {
         return diagnostics;
     }
 
-    /** Lowers {@code unit}, inserting {@code @jasx.Component} at each offset in {@code annotations} (sorted). */
-    GeneratedFile lower(JasxCompilationUnit unit, List<Integer> annotations) {
-        int next = 0;
+    // ---------------------------------------------------------------------------------------------
+    // The file
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Lowers the whole file.
+     *
+     * @param annotationOffsets sorted offsets of component method headers, where {@code @jasx.Component}
+     *     is inserted (semantics.md §5.1)
+     */
+    GeneratedFile lower(JasxCompilationUnit unit, List<Integer> annotationOffsets) {
+        int nextAnnotation = 0;
+
         for (Segment segment : unit.segments()) {
-            if (segment instanceof JavaCode) {
-                int at = segment.start();
-                while (next < annotations.size() && annotations.get(next) < segment.end()) {
-                    int insert = annotations.get(next++);
-                    if (insert >= at) {
-                        out.copy(at, insert);
-                        out.emit("@jasx.Component ", insert);
-                        at = insert;
-                    }
-                }
-                out.copy(at, segment.end());
-            } else {
-                markup((Markup) segment);
+            if (segment instanceof Markup markup) {
+                markup(markup);
+                continue;
             }
+
+            // A Java segment: copy it, inserting @jasx.Component before each component method in it.
+            int copiedUpTo = segment.start();
+            while (nextAnnotation < annotationOffsets.size() && annotationOffsets.get(nextAnnotation) < segment.end()) {
+                int insertAt = annotationOffsets.get(nextAnnotation);
+                nextAnnotation++;
+                if (insertAt < copiedUpTo) {
+                    continue;
+                }
+                out.copy(copiedUpTo, insertAt);
+                out.emit("@jasx.Component ", insertAt);
+                copiedUpTo = insertAt;
+            }
+            out.copy(copiedUpTo, segment.end());
         }
+
         return new GeneratedFile(file, file.javaPath(), out.text(), out.spans());
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Elements and fragments
+    // ---------------------------------------------------------------------------------------------
+
+    /** Lowers an element or a fragment. */
     private void markup(Markup markup) {
         switch (markup) {
-            case JasxFragment f -> {
-                out.emit(factory + ".fragment(", f.start());
-                List<ChildValue> children = normalize(f.children());
-                for (int i = 0; i < children.size(); i++) {
-                    if (i > 0) {
-                        out.emit(", ", children.get(i).start());
-                    }
-                    child(children.get(i));
-                }
-                out.emit(")", f.closingFragment() != null ? f.closingFragment().start() : f.end());
-            }
-            case JasxElement e -> {
-                JasxAttribute key = null;
-                List<JasxAttribute> attributes = new ArrayList<>();
-                for (JasxAttribute a : e.openingElement().attributes()) {
-                    if (a.name() instanceof JasxIdentifier id && id.name().equals("key")) {
-                        key = a;
-                    } else {
-                        attributes.add(a);
-                    }
-                }
-                if (key != null) {
-                    out.emit(factory + ".keyed(", e.start());
-                    keyValue(key);
-                    out.emit(", ", e.start());
-                }
-                if (isIntrinsic(e.openingElement().name())) {
-                    intrinsic(e, attributes);
-                } else {
-                    component(e, attributes);
-                }
-                if (key != null) {
-                    out.emit(")", closingAnchor(e));
-                }
-            }
+            case JasxFragment fragment -> fragment(fragment);
+            case JasxElement element -> element(element);
         }
     }
 
-    /** semantics.md §2: a lowercase identifier, or one containing '-', names an intrinsic element. */
-    private static boolean isIntrinsic(ElementName name) {
-        return name instanceof JasxIdentifier id
-                && (id.name().contains("-") || Character.isLowerCase(id.name().charAt(0)));
+    /** {@code <>a{b}</>}  →  {@code F.fragment("a", (java.lang.Object) (b))} */
+    private void fragment(JasxFragment fragment) {
+        out.emit(factory + ".fragment(", fragment.start());
+
+        List<ChildValue> children = normalize(fragment.children());
+        for (int i = 0; i < children.size(); i++) {
+            if (i > 0) {
+                out.emit(", ", children.get(i).start());
+            }
+            child(children.get(i));
+        }
+
+        int closeAt = fragment.closingFragment() != null ? fragment.closingFragment().start() : fragment.end();
+        out.emit(")", closeAt);
     }
 
-    private void intrinsic(JasxElement e, List<JasxAttribute> attributes) {
-        JasxIdentifier name = (JasxIdentifier) e.openingElement().name();
+    /**
+     * Lowers an element: intrinsic ({@code <div>}) or component ({@code <Card>}). A {@code key} attribute
+     * wraps the result in {@code F.keyed(key, ...)} and is not passed on (semantics.md §4.1, §6.4).
+     */
+    private void element(JasxElement element) {
+        JasxAttribute key = null;
+        List<JasxAttribute> attributes = new ArrayList<>();
+        for (JasxAttribute attribute : element.openingElement().attributes()) {
+            if (isKey(attribute)) {
+                key = attribute;
+            } else {
+                attributes.add(attribute);
+            }
+        }
+
+        if (key != null) {
+            out.emit(factory + ".keyed(", element.start());
+            keyValue(key);
+            out.emit(", ", element.start());
+        }
+
+        if (isIntrinsic(element.openingElement().name())) {
+            intrinsic(element, attributes);
+        } else {
+            component(element, attributes);
+        }
+
+        if (key != null) {
+            out.emit(")", closingAnchor(element));
+        }
+    }
+
+    private static boolean isKey(JasxAttribute attribute) {
+        return attribute.name() instanceof JasxIdentifier id && id.name().equals("key");
+    }
+
+    /** semantics.md §2: a lowercase name, or one containing '-', is an intrinsic element. */
+    private static boolean isIntrinsic(ElementName name) {
+        if (!(name instanceof JasxIdentifier id)) {
+            return false; // qualified names (Ui.Card) are always components
+        }
+        boolean customElement = id.name().contains("-");
+        boolean lowercase = Character.isLowerCase(id.name().charAt(0));
+        return customElement || lowercase;
+    }
+
+    /** The value of a key: a string literal or an expression (JASX2009 otherwise). */
+    private void keyValue(JasxAttribute key) {
+        if (key.value() instanceof JasxStringLiteral string) {
+            out.emit(javaString(string.value()), string.start());
+            return;
+        }
+        if (key.value() instanceof JasxExpressionContainer container
+                && container.expression() instanceof JavaExpression expression) {
+            parenthesized(container, expression);
+            return;
+        }
+        error("JASX2009", "a key must be a string literal or an expression", key.start(), key.end());
+        out.emit("null", key.start());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Intrinsic elements (semantics.md §6.3)
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * {@code <a href="/x">go</a>}  →  {@code F.h("a", jasx.html.attrs.A.create().href("/x"), "go")}
+     *
+     * <p>The tag and every attribute are checked against the target's schema.
+     */
+    private void intrinsic(JasxElement element, List<JasxAttribute> attributes) {
+        JasxIdentifier name = (JasxIdentifier) element.openingElement().name();
         String tag = name.name();
         Schema.ElementSpec spec = schema.element(tag);
-        boolean custom = spec == null && tag.contains("-") && schema.customElements();
-        if (spec == null && !custom) {
-            error("JASX2105", "<" + tag + "> is not an element of target '" + target.id() + "'", name.start(), name.end());
+
+        // A tag the schema doesn't know is an error, unless it is a custom element (my-widget) and the
+        // target accepts those.
+        boolean isCustomElement = spec == null && tag.contains("-") && schema.customElements();
+        if (spec == null && !isCustomElement) {
+            error("JASX2105", "<" + tag + "> is not an element of target '" + target.id() + "'",
+                    name.start(), name.end());
         }
-        List<ChildValue> children = normalize(e.children());
+
+        List<ChildValue> children = normalize(element.children());
         if (spec != null && spec.isVoid() && !children.isEmpty()) {
-            error("JASX2102", "<" + tag + "> is a void element and cannot have children",
-                    children.get(0).start(), children.get(0).end());
+            ChildValue first = children.get(0);
+            error("JASX2102", "<" + tag + "> is a void element and cannot have children", first.start(), first.end());
         }
-        out.emit(factory + ".h(" + javaString(tag) + ", ", e.start());
-        if (attributes.isEmpty()) {
-            out.emit("null", e.start());
-        } else {
-            String builder = spec == null ? "Custom" : Schema.pascalCase(tag);
-            out.emit(target.attributesPackage() + "." + builder + ".create()", e.start());
-            for (JasxAttribute a : attributes) {
-                attributeCall(tag, spec == null, a);
-            }
+
+        // F.h("tag", attributes, children...)
+        out.emit(factory + ".h(" + javaString(tag) + ", ", element.start());
+        attributeBuilder(tag, spec, attributes, element.start());
+        for (ChildValue child : children) {
+            out.emit(", ", child.start());
+            child(child);
         }
-        for (ChildValue c : children) {
-            out.emit(", ", c.start());
-            child(c);
-        }
-        out.emit(")", closingAnchor(e));
+        out.emit(")", closingAnchor(element));
     }
 
-    private void attributeCall(String tag, boolean byNameOnly, JasxAttribute a) {
-        String name = JasxParser.attributeNameText(a.name());
-        boolean byName = byNameOnly || a.name() instanceof JasxNamespacedName || schema.matchesPattern(name);
+    /**
+     * The attributes argument of {@code F.h}: {@code null} without attributes, otherwise a builder chain
+     * such as {@code jasx.html.attrs.Button.create().className("x").disabled(true)}.
+     */
+    private void attributeBuilder(String tag, Schema.ElementSpec spec, List<JasxAttribute> attributes, int anchor) {
+        if (attributes.isEmpty()) {
+            out.emit("null", anchor);
+            return;
+        }
+
+        // Unknown and custom elements use the generic builder, which only has .attr(name, value).
+        boolean unknownElement = spec == null;
+        String builderClass = unknownElement ? "Custom" : Schema.pascalCase(tag);
+        out.emit(target.attributesPackage() + "." + builderClass + ".create()", anchor);
+
+        for (JasxAttribute attribute : attributes) {
+            attributeCall(tag, unknownElement, attribute);
+        }
+    }
+
+    /**
+     * One builder call for one attribute: {@code .className("x")}, or {@code .attr("data-id", 7)} for names
+     * the schema accepts by pattern (data-*, aria-*, ...), namespaced names, and custom elements.
+     */
+    private void attributeCall(String tag, boolean unknownElement, JasxAttribute attribute) {
+        String name = JasxParser.attributeNameText(attribute.name());
+
+        boolean passByName = unknownElement
+                || attribute.name() instanceof JasxNamespacedName
+                || schema.matchesPattern(name);
         String method = "attr";
-        if (!byName) {
+
+        if (!passByName) {
             Schema.AttributeSpec spec = schema.attribute(tag, name);
             if (spec == null) {
                 error("JASX2101", "<" + tag + "> has no attribute '" + name + "' on target '" + target.id() + "'",
-                        a.start(), a.end());
-                byName = true;
+                        attribute.start(), attribute.end());
+                passByName = true; // keep going, so that later errors are found too
             } else {
                 method = spec.method();
-                if (spec.event() && !target.javaEventHandlers() && a.value() instanceof JasxExpressionContainer v) {
-                    error("JASX2103", "event attribute '" + name + "' accepts only a string on target '" + target.id()
-                            + "', which has no Java event handlers", v.start(), v.end());
-                }
+                checkEventHandler(name, spec, attribute);
             }
         }
-        out.emit("." + method + "(" + (byName ? javaString(name) + ", " : ""), a.start());
-        attributeValue(a);
-        out.emit(")", a.end());
+
+        String nameArgument = passByName ? javaString(name) + ", " : "";
+        out.emit("." + method + "(" + nameArgument, attribute.start());
+        attributeValue(attribute);
+        out.emit(")", attribute.end());
     }
 
-    private void attributeValue(JasxAttribute a) {
-        switch (a.value()) {
-            case null -> out.emit("true", a.start());
-            case JasxStringLiteral s -> out.emit(javaString(s.value()), s.start());
-            case JasxExpressionContainer c -> {
-                if (c.expression() instanceof JavaExpression expression) {
-                    out.emit("(", c.start());
-                    expression(expression);
-                    out.emit(")", c.end() - 1);
+    /** On a target without Java event handlers, an event attribute only takes a string (JASX2103). */
+    private void checkEventHandler(String name, Schema.AttributeSpec spec, JasxAttribute attribute) {
+        boolean javaHandler = attribute.value() instanceof JasxExpressionContainer;
+        if (spec.event() && javaHandler && !target.javaEventHandlers()) {
+            error("JASX2103", "event attribute '" + name + "' accepts only a string on target '" + target.id()
+                            + "', which has no Java event handlers",
+                    attribute.value().start(), attribute.value().end());
+        }
+    }
+
+    /**
+     * The Java value of an attribute (semantics.md §4): {@code true} for a shorthand attribute, a string
+     * literal, a parenthesized expression, or lowered markup.
+     */
+    private void attributeValue(JasxAttribute attribute) {
+        switch (attribute.value()) {
+            case null -> out.emit("true", attribute.start());
+            case JasxStringLiteral string -> out.emit(javaString(string.value()), string.start());
+            case JasxExpressionContainer container -> {
+                if (container.expression() instanceof JavaExpression expression) {
+                    parenthesized(container, expression);
                 } else {
-                    out.emit("null", c.start());
+                    out.emit("null", container.start()); // {} is already a syntax error (JASX1008)
                 }
             }
-            case Markup m -> markup(m);
+            case Markup markup -> markup(markup);
         }
     }
 
-    private void keyValue(JasxAttribute key) {
-        if (key.value() instanceof JasxStringLiteral s) {
-            out.emit(javaString(s.value()), s.start());
-        } else if (key.value() instanceof JasxExpressionContainer c && c.expression() instanceof JavaExpression e) {
-            out.emit("(", c.start());
-            expression(e);
-            out.emit(")", c.end() - 1);
-        } else {
-            error("JASX2009", "a key must be a string literal or an expression", key.start(), key.end());
-            out.emit("null", key.start());
-        }
-    }
+    // ---------------------------------------------------------------------------------------------
+    // Components (semantics.md §5.4–§5.6)
+    // ---------------------------------------------------------------------------------------------
 
-    private void component(JasxElement e, List<JasxAttribute> attributes) {
-        Resolver.Resolution resolution = resolver.resolve(e.openingElement().name(), e.start());
+    /**
+     * {@code <Card subtitle="s" title="t" />}  →  {@code app.Page.Card("t", "s")}
+     *
+     * <p>A direct static call. Arguments are in <em>parameter</em> order, whatever the attribute order;
+     * absent optional props get {@code null} (or a primitive's default), absent default props get their
+     * literal, and the {@code children} parameter gets the child content.
+     */
+    private void component(JasxElement element, List<JasxAttribute> attributes) {
+        Resolver.Resolution resolution = resolver.resolve(element.openingElement().name(), element.start());
         if (resolution.error() != null) {
             diagnostics.add(resolution.error());
-            out.emit("null", e.start());
+            out.emit("null", element.start());
             return;
         }
-        Component c = resolution.component();
-        String tag = "<" + JasxParser.nameText(e.openingElement().name()) + ">";
-        Map<String, JasxAttribute> given = new LinkedHashMap<>();
-        for (JasxAttribute a : attributes) {
-            String name = JasxParser.attributeNameText(a.name());
-            if (name.equals("children") && c.children() != Children.NONE) {
-                error("JASX2008", "pass the children of " + tag + " as child content, not as an attribute",
-                        a.start(), a.end());
-            } else if (!(a.name() instanceof JasxIdentifier) || c.prop(name) == null) {
-                error("JASX2005", tag + " has no prop '" + name + "'", a.start(), a.end());
-            } else {
-                given.put(name, a);
-            }
-        }
-        List<ChildValue> children = normalize(e.children());
-        if (c.children() == Children.NONE && !children.isEmpty()) {
-            error("JASX2003", tag + " takes no children", children.get(0).start(), children.get(0).end());
-        } else if (c.children() == Children.SINGLE && children.size() != 1) {
-            error("JASX2004", tag + " takes exactly one child, but has " + children.size(), e.start(), e.end());
-        }
-        for (Prop p : c.params()) {
-            if (p.kind() == PropKind.REQUIRED && !given.containsKey(p.name())) {
-                error("JASX2007", tag + " is missing the required prop '" + p.name() + "'",
-                        e.openingElement().start(), e.openingElement().end());
-            }
-        }
-        out.emit(c.className() + "." + c.method() + "(", e.start());
-        for (int i = 0; i < c.params().size(); i++) {
-            Prop p = c.params().get(i);
+        Component component = resolution.component();
+        String tag = "<" + JasxParser.nameText(element.openingElement().name()) + ">";
+
+        Map<String, JasxAttribute> givenProps = checkProps(tag, component, attributes);
+        List<ChildValue> children = normalize(element.children());
+        checkChildren(tag, component, children, element);
+        checkRequiredProps(tag, component, givenProps, element);
+
+        // Component.Method(arg1, arg2, ...)
+        out.emit(component.className() + "." + component.method() + "(", element.start());
+        List<Prop> params = component.params();
+        for (int i = 0; i < params.size(); i++) {
             if (i > 0) {
-                out.emit(", ", e.start());
+                out.emit(", ", element.start());
             }
-            JasxAttribute a = given.get(p.name());
-            if (p.kind() == PropKind.CHILDREN) {
-                componentChildren(c.children(), children, e);
-            } else if (a != null) {
-                attributeValue(a);
-            } else if (p.kind() == PropKind.DEFAULT) {
-                out.emit(p.defaultValue(), e.start());
-            } else {
-                out.emit(absentValue(p.type()), e.start());
-            }
+            argument(params.get(i), givenProps, component.children(), children, element);
         }
-        out.emit(")", closingAnchor(e));
+        out.emit(")", closingAnchor(element));
     }
 
-    private void componentChildren(Children kind, List<ChildValue> children, JasxElement e) {
+    /** Checks each attribute against the component's props; returns the valid ones by name. */
+    private Map<String, JasxAttribute> checkProps(String tag, Component component, List<JasxAttribute> attributes) {
+        Map<String, JasxAttribute> given = new LinkedHashMap<>();
+        for (JasxAttribute attribute : attributes) {
+            String name = JasxParser.attributeNameText(attribute.name());
+            boolean isPlainName = attribute.name() instanceof JasxIdentifier;
+
+            if (name.equals("children") && component.children() != Children.NONE) {
+                error("JASX2008", "pass the children of " + tag + " as child content, not as an attribute",
+                        attribute.start(), attribute.end());
+            } else if (!isPlainName || component.prop(name) == null) {
+                error("JASX2005", tag + " has no prop '" + name + "'", attribute.start(), attribute.end());
+            } else {
+                given.put(name, attribute);
+            }
+        }
+        return given;
+    }
+
+    /** semantics.md §5.5: no children, exactly one child, or any number, depending on the component. */
+    private void checkChildren(String tag, Component component, List<ChildValue> children, JasxElement element) {
+        if (component.children() == Children.NONE && !children.isEmpty()) {
+            ChildValue first = children.get(0);
+            error("JASX2003", tag + " takes no children", first.start(), first.end());
+        } else if (component.children() == Children.SINGLE && children.size() != 1) {
+            error("JASX2004", tag + " takes exactly one child, but has " + children.size(),
+                    element.start(), element.end());
+        }
+    }
+
+    private void checkRequiredProps(String tag, Component component, Map<String, JasxAttribute> given, JasxElement element) {
+        for (Prop prop : component.params()) {
+            if (prop.kind() == PropKind.REQUIRED && !given.containsKey(prop.name())) {
+                error("JASX2007", tag + " is missing the required prop '" + prop.name() + "'",
+                        element.openingElement().start(), element.openingElement().end());
+            }
+        }
+    }
+
+    /** The argument for one parameter of a component call. */
+    private void argument(Prop prop, Map<String, JasxAttribute> givenProps, Children childrenKind,
+            List<ChildValue> children, JasxElement element) {
+        if (prop.kind() == PropKind.CHILDREN) {
+            componentChildren(childrenKind, children, element);
+            return;
+        }
+        JasxAttribute given = givenProps.get(prop.name());
+        if (given != null) {
+            attributeValue(given);
+        } else if (prop.kind() == PropKind.DEFAULT) {
+            out.emit(prop.defaultValue(), element.start());
+        } else {
+            out.emit(absentValue(prop.type()), element.start());
+        }
+    }
+
+    /**
+     * The {@code children} argument: the single child as an Element, or
+     * {@code java.util.List.<jasx.runtime.Element>of(child1, child2, ...)}.
+     */
+    private void componentChildren(Children kind, List<ChildValue> children, JasxElement element) {
         if (kind == Children.SINGLE) {
             if (children.size() == 1) {
                 asElement(children.get(0));
             } else {
-                out.emit("null", e.start());
+                out.emit("null", element.start()); // wrong count, already reported (JASX2004)
             }
             return;
         }
-        out.emit("java.util.List.<" + ELEMENT + ">of(", e.start());
+
+        out.emit("java.util.List.<" + ELEMENT + ">of(", element.start());
         for (int i = 0; i < children.size(); i++) {
             if (i > 0) {
                 out.emit(", ", children.get(i).start());
             }
             asElement(children.get(i));
         }
-        out.emit(")", closingAnchor(e));
+        out.emit(")", closingAnchor(element));
     }
 
-    /** A child value as an Element: text through {@code text}, an expression through {@code fragment}. */
-    private void asElement(ChildValue c) {
-        switch (c) {
-            case TextValue t -> out.emit(factory + ".text(" + javaString(t.text()) + ")", t.start());
+    /**
+     * A child converted to an {@code Element} for a component parameter (semantics.md §5.5): markup as it
+     * is, text through {@code F.text}, and an expression through {@code F.fragment}, so that null, lists and
+     * Optionals keep their meaning.
+     */
+    private void asElement(ChildValue child) {
+        switch (child) {
             case MarkupValue m -> markup(m.markup());
+            case TextValue t -> out.emit(factory + ".text(" + javaString(t.text()) + ")", t.start());
             case ExpressionValue v -> {
                 out.emit(factory + ".fragment(" + OBJECT_CAST + "(", v.start());
-                expression((JavaExpression) v.container().expression());
+                expression(v.expression());
                 out.emit("))", v.end() - 1);
             }
         }
     }
 
-    /** A child of an intrinsic element or fragment: one variadic argument (semantics.md §6.7). */
-    private void child(ChildValue c) {
-        switch (c) {
-            case TextValue t -> out.emit(javaString(t.text()), t.start());
-            case MarkupValue m -> markup(m.markup());
-            case ExpressionValue v -> {
-                out.emit(OBJECT_CAST + "(", v.start());
-                expression((JavaExpression) v.container().expression());
-                out.emit(")", v.end() - 1);
-            }
-        }
-    }
-
-    private void expression(JavaExpression expression) {
-        for (Segment s : expression.segments()) {
-            if (s instanceof JavaCode) {
-                out.copy(s.start(), s.end());
-            } else {
-                markup((Markup) s);
-            }
-        }
-    }
-
-    /** Children normalization (semantics.md §3.1–§3.3). */
-    private List<ChildValue> normalize(List<Child> children) {
-        List<ChildValue> values = new ArrayList<>();
-        for (Child c : children) {
-            switch (c) {
-                case JasxText t -> {
-                    String text = normalizeText(t.value());
-                    if (text != null) {
-                        values.add(new TextValue(text, firstNonWhitespace(t.start(), t.end()), t.end()));
-                    }
-                }
-                case JasxExpressionContainer container -> {
-                    if (!(container.expression() instanceof JasxEmptyExpression)) {
-                        values.add(new ExpressionValue(container));
-                    }
-                }
-                case Markup m -> values.add(new MarkupValue(m));
-            }
-        }
-        return values;
-    }
-
-    /** The JSX text algorithm (semantics.md §3.1); null if the text is removed. */
-    static String normalizeText(String value) {
-        String[] lines = value.split("\r\n|\r|\n", -1);
-        List<String> kept = new ArrayList<>();
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i];
-            if (i > 0) {
-                line = stripLeading(line);
-            }
-            if (i < lines.length - 1) {
-                line = stripTrailing(line);
-            }
-            if (!line.isEmpty()) {
-                kept.add(line);
-            }
-        }
-        return kept.isEmpty() ? null : String.join(" ", kept);
-    }
-
-    private static String stripLeading(String s) {
-        int i = 0;
-        while (i < s.length() && (s.charAt(i) == ' ' || s.charAt(i) == '\t')) {
-            i++;
-        }
-        return s.substring(i);
-    }
-
-    private static String stripTrailing(String s) {
-        int i = s.length();
-        while (i > 0 && (s.charAt(i - 1) == ' ' || s.charAt(i - 1) == '\t')) {
-            i--;
-        }
-        return s.substring(0, i);
-    }
-
-    private int firstNonWhitespace(int start, int end) {
-        for (int i = start; i < end; i++) {
-            if (!Character.isWhitespace(src.charAt(i))) {
-                return i;
-            }
-        }
-        return start;
-    }
-
-    private static int closingAnchor(JasxElement e) {
-        return e.closingElement() != null ? e.closingElement().start() : Math.max(e.start(), e.end() - 1);
-    }
-
-    /** The argument for an absent optional prop: null, or the default value of a primitive type. */
+    /**
+     * The value passed for an absent {@code @jasx.Optional} prop: null, or the default value of a primitive
+     * type. Byte and short need a cast, because Java doesn't narrow {@code 0} for a method argument.
+     */
     private static String absentValue(String type) {
         return switch (type) {
             case "boolean" -> "false";
@@ -432,29 +524,165 @@ final class Lowering {
         };
     }
 
-    /** A Java string literal for {@code value}. */
+    // ---------------------------------------------------------------------------------------------
+    // Children and expressions
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * A child of an intrinsic element or fragment, as one variadic argument of {@code F.h} or
+     * {@code F.fragment}: text as a string literal, an expression cast to Object, or markup.
+     */
+    private void child(ChildValue child) {
+        switch (child) {
+            case MarkupValue m -> markup(m.markup());
+            case TextValue t -> out.emit(javaString(t.text()), t.start());
+            case ExpressionValue v -> {
+                out.emit(OBJECT_CAST + "(", v.start());
+                expression(v.expression());
+                out.emit(")", v.end() - 1);
+            }
+        }
+    }
+
+    /** {@code {expr}} as an attribute or prop value: {@code (expr)}. */
+    private void parenthesized(JasxExpressionContainer container, JavaExpression expression) {
+        out.emit("(", container.start());
+        expression(expression);
+        out.emit(")", container.end() - 1);
+    }
+
+    /** Copies a Java expression, lowering any markup nested inside it. */
+    private void expression(JavaExpression expression) {
+        for (Segment segment : expression.segments()) {
+            if (segment instanceof Markup markup) {
+                markup(markup);
+            } else {
+                out.copy(segment.start(), segment.end());
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Children normalization (semantics.md §3)
+    // ---------------------------------------------------------------------------------------------
+
+    /** Turns the AST children into child values: text normalized, empty containers removed. */
+    private List<ChildValue> normalize(List<Child> children) {
+        List<ChildValue> values = new ArrayList<>();
+        for (Child child : children) {
+            switch (child) {
+                case JasxText text -> {
+                    String normalized = normalizeText(text.value());
+                    if (normalized != null) {
+                        int start = firstNonWhitespace(text.start(), text.end());
+                        values.add(new TextValue(normalized, start, text.end()));
+                    }
+                }
+                case JasxExpressionContainer container -> {
+                    boolean isEmpty = container.expression() instanceof JasxEmptyExpression;
+                    if (!isEmpty) {
+                        values.add(new ExpressionValue(container));
+                    }
+                }
+                case Markup markup -> values.add(new MarkupValue(markup));
+            }
+        }
+        return values;
+    }
+
+    /**
+     * The JSX text rule (semantics.md §3.1). Returns null if nothing is left.
+     *
+     * <p>The text is split into lines. Every line but the first loses its leading spaces and tabs, every
+     * line but the last loses its trailing ones, empty lines are dropped, and the rest are joined with one
+     * space. So indentation and line breaks between tags disappear, but {@code "Count: "} on a single line
+     * keeps its trailing space.
+     */
+    static String normalizeText(String value) {
+        String[] lines = value.split("\r\n|\r|\n", -1);
+        List<String> kept = new ArrayList<>();
+        for (int i = 0; i < lines.length; i++) {
+            boolean isFirst = i == 0;
+            boolean isLast = i == lines.length - 1;
+
+            String line = lines[i];
+            if (!isFirst) {
+                line = stripLeadingSpacesAndTabs(line);
+            }
+            if (!isLast) {
+                line = stripTrailingSpacesAndTabs(line);
+            }
+            if (!line.isEmpty()) {
+                kept.add(line);
+            }
+        }
+        return kept.isEmpty() ? null : String.join(" ", kept);
+    }
+
+    private static String stripLeadingSpacesAndTabs(String s) {
+        int i = 0;
+        while (i < s.length() && (s.charAt(i) == ' ' || s.charAt(i) == '\t')) {
+            i++;
+        }
+        return s.substring(i);
+    }
+
+    private static String stripTrailingSpacesAndTabs(String s) {
+        int end = s.length();
+        while (end > 0 && (s.charAt(end - 1) == ' ' || s.charAt(end - 1) == '\t')) {
+            end--;
+        }
+        return s.substring(0, end);
+    }
+
+    private int firstNonWhitespace(int start, int end) {
+        for (int i = start; i < end; i++) {
+            if (!Character.isWhitespace(src.charAt(i))) {
+                return i;
+            }
+        }
+        return start;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * The source position the closing {@code )} of an element belongs to: its closing tag, or for a
+     * self-closing element, the {@code >} of {@code />}.
+     */
+    private static int closingAnchor(JasxElement element) {
+        if (element.closingElement() != null) {
+            return element.closingElement().start();
+        }
+        return Math.max(element.start(), element.end() - 1);
+    }
+
+    /** {@code value} as a Java string literal, with quotes, backslashes and control characters escaped. */
     static String javaString(String value) {
-        StringBuilder out = new StringBuilder("\"");
+        StringBuilder literal = new StringBuilder("\"");
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
             switch (c) {
-                case '"' -> out.append("\\\"");
-                case '\\' -> out.append("\\\\");
-                case '\n' -> out.append("\\n");
-                case '\r' -> out.append("\\r");
-                case '\t' -> out.append("\\t");
-                case '\b' -> out.append("\\b");
-                case '\f' -> out.append("\\f");
+                case '"' -> literal.append("\\\"");
+                case '\\' -> literal.append("\\\\");
+                case '\n' -> literal.append("\\n");
+                case '\r' -> literal.append("\\r");
+                case '\t' -> literal.append("\\t");
+                case '\b' -> literal.append("\\b");
+                case '\f' -> literal.append("\\f");
                 default -> {
-                    if (c < 0x20 || c == 0x7f) {
-                        out.append(String.format("\\%03o", (int) c));
+                    boolean isControl = c < 0x20 || c == 0x7f;
+                    if (isControl) {
+                        literal.append(String.format("\\%03o", (int) c)); // octal escape, such as \001
                     } else {
-                        out.append(c);
+                        literal.append(c);
                     }
                 }
             }
         }
-        return out.append('"').toString();
+        return literal.append('"').toString();
     }
 
     private void error(String code, String message, int start, int end) {

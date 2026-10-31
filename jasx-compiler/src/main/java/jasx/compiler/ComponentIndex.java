@@ -113,26 +113,51 @@ public final class ComponentIndex {
         return index;
     }
 
-    /** The {@code components.json} form of this index. */
+    /**
+     * The {@code components.json} form of this index: a JSON array with one line per component, for
+     * example
+     *
+     * <pre>
+     * [
+     *   {"class": "app.Ui", "method": "Chip", "params": [{"name": "label", "type": "String", "kind": "required"}], "children": "none"}
+     * ]
+     * </pre>
+     */
     public String toJson() {
-        StringBuilder out = new StringBuilder("[");
-        List<Component> all = all();
-        for (int i = 0; i < all.size(); i++) {
-            Component c = all.get(i);
-            out.append(i == 0 ? "\n" : ",\n").append("  {\"class\": ").append(Json.quote(c.className()))
-                    .append(", \"method\": ").append(Json.quote(c.method())).append(", \"params\": [");
-            for (int j = 0; j < c.params().size(); j++) {
-                Prop p = c.params().get(j);
-                out.append(j == 0 ? "" : ", ").append("{\"name\": ").append(Json.quote(p.name()))
-                        .append(", \"type\": ").append(Json.quote(p.type()))
-                        .append(", \"kind\": ").append(Json.quote(p.kind().name().toLowerCase(Locale.ROOT)));
-                if (p.defaultValue() != null) {
-                    out.append(", \"default\": ").append(Json.quote(p.defaultValue()));
-                }
-                out.append('}');
-            }
-            out.append("], \"children\": ").append(Json.quote(c.children().name().toLowerCase(Locale.ROOT))).append('}');
+        List<String> lines = new ArrayList<>();
+        for (Component component : all()) {
+            lines.add("  " + componentJson(component));
         }
-        return out.append(all.isEmpty() ? "]\n" : "\n]\n").toString();
+        if (lines.isEmpty()) {
+            return "[]\n";
+        }
+        return "[\n" + String.join(",\n", lines) + "\n]\n";
+    }
+
+    private static String componentJson(Component component) {
+        List<String> params = new ArrayList<>();
+        for (Prop prop : component.params()) {
+            params.add(propJson(prop));
+        }
+        return "{\"class\": " + Json.quote(component.className())
+                + ", \"method\": " + Json.quote(component.method())
+                + ", \"params\": [" + String.join(", ", params) + "]"
+                + ", \"children\": " + Json.quote(lowercase(component.children()))
+                + "}";
+    }
+
+    private static String propJson(Prop prop) {
+        String json = "{\"name\": " + Json.quote(prop.name())
+                + ", \"type\": " + Json.quote(prop.type())
+                + ", \"kind\": " + Json.quote(lowercase(prop.kind()));
+        if (prop.defaultValue() != null) {
+            json += ", \"default\": " + Json.quote(prop.defaultValue());
+        }
+        return json + "}";
+    }
+
+    /** Enum constants are written in lowercase in JSON: {@code REQUIRED} becomes {@code "required"}. */
+    private static String lowercase(Enum<?> value) {
+        return value.name().toLowerCase(Locale.ROOT);
     }
 }

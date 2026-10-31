@@ -10,9 +10,27 @@ import jasx.parser.ast.Ast.ElementName;
 import jasx.parser.ast.Ast.JasxIdentifier;
 import jasx.parser.ast.Ast.JasxQualifiedName;
 
-/** Resolves component element names against the component index (semantics.md §5.4). */
+/**
+ * Finds the component that a component tag refers to (semantics.md §5.4).
+ *
+ * <p>A <b>simple name</b> {@code <Card>} is looked up, in order:
+ *
+ * <ol>
+ *   <li>in the class that contains the markup, then in each enclosing class;
+ *   <li>through a single static import, {@code import static app.Ui.Card;};
+ *   <li>through static on-demand imports, {@code import static app.Ui.*;}. If two of them provide the
+ *       name, it is ambiguous (JASX2002).
+ * </ol>
+ *
+ * <p>A <b>qualified name</b> {@code <Ui.Card>} means "the component {@code Card} of the class {@code Ui}".
+ * {@code Ui} is resolved the way Java resolves a type name, from the most local to the least: a nested
+ * class of an enclosing class, a single-type import, the current package, an on-demand import, and
+ * finally a fully qualified name.
+ *
+ * <p>The resolver only uses the component index and the file's imports. It never needs Java types.
+ */
 final class Resolver {
-    /** Exactly one of {@code component} and {@code error} is non-null. */
+    /** The result of resolving a name: exactly one of {@code component} and {@code error} is non-null. */
     record Resolution(ComponentIndex.Component component, Diagnostic error) {}
 
     private final JavaStructure structure;
@@ -23,36 +41,48 @@ final class Resolver {
         this.index = index;
     }
 
-    /** Resolves {@code name}, written at {@code offset} in the file. */
+    /** Resolves {@code name}, which appears at {@code offset} in the file. */
     Resolution resolve(ElementName name, int offset) {
         return switch (name) {
-            case JasxIdentifier id -> simple(id, offset);
-            case JasxQualifiedName q -> qualified(q, offset);
+            case JasxIdentifier simple -> resolveSimple(simple, offset);
+            case JasxQualifiedName qualified -> resolveQualified(qualified, offset);
         };
     }
 
-    private Resolution simple(JasxIdentifier id, int offset) {
-        String n = id.name();
-        for (JavaStructure.TypeDecl t = structure.enclosingType(offset); t != null; t = t.parent) {
-            ComponentIndex.Component c = index.get(t.qualifiedName, n);
-            if (c != null) {
-                return found(c);
+    // ---------------------------------------------------------------------------------------------
+    // <Card>
+    // ---------------------------------------------------------------------------------------------
+
+    private Resolution resolveSimple(JasxIdentifier id, int offset) {
+        String name = id.name();
+
+        // 1. The enclosing classes, innermost first.
+        for (JavaStructure.TypeDecl type = structure.enclosingType(offset); type != null; type = type.parent) {
+            ComponentIndex.Component component = index.get(type.qualifiedName, name);
+            if (component != null) {
+                return found(component);
             }
         }
+
+        // 2. import static app.Ui.Card;
         for (JavaStructure.Import imp : structure.imports) {
-            if (imp.isStatic() && !imp.onDemand() && imp.name().endsWith("." + n)) {
-                ComponentIndex.Component c = index.get(imp.name().substring(0, imp.name().length() - n.length() - 1), n);
-                if (c != null) {
-                    return found(c);
+            boolean importsThisName = imp.isStatic() && !imp.onDemand() && imp.name().endsWith("." + name);
+            if (importsThisName) {
+                String className = imp.name().substring(0, imp.name().length() - name.length() - 1);
+                ComponentIndex.Component component = index.get(className, name);
+                if (component != null) {
+                    return found(component);
                 }
             }
         }
+
+        // 3. import static app.Ui.*;  (several matches are ambiguous)
         List<ComponentIndex.Component> matches = new ArrayList<>();
         for (JavaStructure.Import imp : structure.imports) {
             if (imp.isStatic() && imp.onDemand()) {
-                ComponentIndex.Component c = index.get(imp.name(), n);
-                if (c != null) {
-                    matches.add(c);
+                ComponentIndex.Component component = index.get(imp.name(), name);
+                if (component != null) {
+                    matches.add(component);
                 }
             }
         }
@@ -60,44 +90,72 @@ final class Resolver {
             return found(matches.get(0));
         }
         if (matches.size() > 1) {
-            String classes = String.join(" and ", matches.stream().map(ComponentIndex.Component::className).toList());
-            return error("JASX2002", "component <" + n + "> is ambiguous: it is imported from " + classes, id);
+            List<String> classes = matches.stream().map(ComponentIndex.Component::className).toList();
+            String message = "component <" + name + "> is ambiguous: it is imported from " + String.join(" and ", classes);
+            return error("JASX2002", message, id);
         }
-        return error("JASX2001", "cannot resolve component <" + n + ">", id);
+
+        return error("JASX2001", "cannot resolve component <" + name + ">", id);
     }
 
-    private Resolution qualified(JasxQualifiedName q, int offset) {
-        String qualifier = JasxParser.nameText(q.qualifier());
-        String n = q.name().name();
-        String first = qualifier.contains(".") ? qualifier.substring(0, qualifier.indexOf('.')) : qualifier;
-        String rest = qualifier.substring(first.length());
-        Set<String> candidates = new LinkedHashSet<>();
-        for (JavaStructure.TypeDecl t = structure.enclosingType(offset); t != null; t = t.parent) {
-            candidates.add(t.qualifiedName + "." + qualifier);
+    // ---------------------------------------------------------------------------------------------
+    // <Ui.Card>
+    // ---------------------------------------------------------------------------------------------
+
+    private Resolution resolveQualified(JasxQualifiedName qualifiedName, int offset) {
+        String typeName = JasxParser.nameText(qualifiedName.qualifier()); // "Ui" or "app.ui.Ui"
+        String componentName = qualifiedName.name().name(); // "Card"
+
+        for (String className : candidateClassNames(typeName, offset)) {
+            ComponentIndex.Component component = index.get(className, componentName);
+            if (component != null) {
+                return found(component);
+            }
         }
+        return error("JASX2001", "cannot resolve component <" + typeName + "." + componentName + ">", qualifiedName);
+    }
+
+    /**
+     * The fully qualified class names that the type name {@code typeName} could mean in this file, most
+     * local first. For {@code Ui} in package {@code app}, with {@code import lib.*;}: {@code app.Page.Ui}
+     * (a nested class), {@code app.Ui}, {@code lib.Ui}, and {@code Ui}.
+     */
+    private Set<String> candidateClassNames(String typeName, int offset) {
+        Set<String> candidates = new LinkedHashSet<>();
+
+        // A nested class of the current class or of an enclosing class.
+        for (JavaStructure.TypeDecl type = structure.enclosingType(offset); type != null; type = type.parent) {
+            candidates.add(type.qualifiedName + "." + typeName);
+        }
+
+        // A single-type import of the first segment: "import app.ui.Ui;" makes "Ui.Inner" mean "app.ui.Ui.Inner".
+        int dot = typeName.indexOf('.');
+        String firstSegment = dot < 0 ? typeName : typeName.substring(0, dot);
+        String rest = typeName.substring(firstSegment.length());
         for (JavaStructure.Import imp : structure.imports) {
-            if (!imp.isStatic() && !imp.onDemand() && imp.name().endsWith("." + first)) {
+            boolean importsFirstSegment = !imp.isStatic() && !imp.onDemand() && imp.name().endsWith("." + firstSegment);
+            if (importsFirstSegment) {
                 candidates.add(imp.name() + rest);
             }
         }
-        candidates.add(structure.packageName.isEmpty() ? qualifier : structure.packageName + "." + qualifier);
+
+        // The current package.
+        candidates.add(structure.packageName.isEmpty() ? typeName : structure.packageName + "." + typeName);
+
+        // On-demand imports: "import lib.*;"
         for (JavaStructure.Import imp : structure.imports) {
             if (!imp.isStatic() && imp.onDemand()) {
-                candidates.add(imp.name() + "." + qualifier);
+                candidates.add(imp.name() + "." + typeName);
             }
         }
-        candidates.add(qualifier);
-        for (String className : candidates) {
-            ComponentIndex.Component c = index.get(className, n);
-            if (c != null) {
-                return found(c);
-            }
-        }
-        return error("JASX2001", "cannot resolve component <" + qualifier + "." + n + ">", q);
+
+        // A fully qualified name: <app.ui.Ui.Card>
+        candidates.add(typeName);
+        return candidates;
     }
 
-    private static Resolution found(ComponentIndex.Component c) {
-        return new Resolution(c, null);
+    private static Resolution found(ComponentIndex.Component component) {
+        return new Resolution(component, null);
     }
 
     private static Resolution error(String code, String message, ElementName at) {

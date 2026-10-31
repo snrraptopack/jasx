@@ -187,16 +187,30 @@ public final class JasxParser {
     // Markup mode (grammar.md §5, §6)
     // ---------------------------------------------------------------------------------------------
 
-    /** Parses an element or fragment starting at the '<' at {@code lt}. Leaves {@code pos} at its end. */
+    /**
+     * Parses an element or a fragment that starts at the {@code <} at {@code lt}, and leaves {@code pos} at
+     * its end. {@code <>} starts a fragment; anything else must be an element name.
+     */
     private Markup parseMarkup(int lt) {
         pos = lt + 1;
         skipWhitespace();
-        if (pos < len && src.charAt(pos) == '>') {
+        boolean isFragment = pos < len && src.charAt(pos) == '>';
+        if (isFragment) {
             pos++;
             return parseFragment(new JasxOpeningFragment(lt, pos));
         }
+        return parseElement(lt);
+    }
+
+    /**
+     * Parses an element: the opening tag with its attributes, then, unless it is self-closing
+     * ({@code <br />}), its children and closing tag.
+     */
+    private JasxElement parseElement(int lt) {
         ElementName name = parseElementName();
         if (name == null) {
+            // "<" followed by something that isn't a name. Report it and return an empty element, so that
+            // parsing can continue right after the "<".
             if (pos >= len) {
                 reportEof("JASX1002", "unclosed element", lt, len);
             } else {
@@ -206,32 +220,40 @@ public final class JasxParser {
             JasxOpeningElement opening = new JasxOpeningElement(lt, pos, missing, List.of(), true);
             return new JasxElement(lt, pos, opening, List.of(), null);
         }
+
+        // The attributes, up to "/>" or ">".
         List<JasxAttribute> attributes = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
+        Set<String> attributeNames = new HashSet<>();
         while (true) {
             skipWhitespace();
+
             if (pos >= len) {
                 reportEof("JASX1002", "unclosed element <" + nameText(name) + ">", lt, len);
                 JasxOpeningElement opening = new JasxOpeningElement(lt, len, name, attributes, false);
                 return new JasxElement(lt, len, opening, List.of(), null);
             }
+
             char c = src.charAt(pos);
-            if (c == '/' && charAt(pos + 1) == '>') {
+            boolean selfClosing = c == '/' && charAt(pos + 1) == '>';
+            if (selfClosing) {
                 pos += 2;
                 JasxOpeningElement opening = new JasxOpeningElement(lt, pos, name, attributes, true);
                 return new JasxElement(lt, pos, opening, List.of(), null);
             }
             if (c == '>') {
                 pos++;
-                return parseElementBody(new JasxOpeningElement(lt, pos, name, attributes, false));
+                JasxOpeningElement opening = new JasxOpeningElement(lt, pos, name, attributes, false);
+                return parseElementBody(opening);
             }
+
             if (c == '{') {
-                parseBracedAttribute();
+                parseBracedAttribute(); // {...spread} or a stray {expr}: always an error
             } else if (isIdentifierStart(pos)) {
                 JasxAttribute attribute = parseAttribute();
-                String key = attributeNameText(attribute.name());
-                if (!seen.add(key)) {
-                    error("JASX1004", "duplicate attribute '" + key + "'", attribute.start(), attribute.end());
+                String attributeName = attributeNameText(attribute.name());
+                boolean isDuplicate = !attributeNames.add(attributeName);
+                if (isDuplicate) {
+                    error("JASX1004", "duplicate attribute '" + attributeName + "'", attribute.start(), attribute.end());
                 }
                 attributes.add(attribute);
             } else {
@@ -240,6 +262,7 @@ public final class JasxParser {
         }
     }
 
+    /** Parses the children of an element and its closing tag. */
     private JasxElement parseElementBody(JasxOpeningElement opening) {
         List<Child> children = new ArrayList<>();
         while (true) {
@@ -256,6 +279,7 @@ public final class JasxParser {
         }
     }
 
+    /** Parses the children of a fragment and its closing {@code </>}. */
     private JasxFragment parseFragment(JasxOpeningFragment opening) {
         List<Child> children = new ArrayList<>();
         while (true) {
@@ -265,16 +289,19 @@ public final class JasxParser {
             }
             if (atClosingTag()) {
                 int start = pos;
-                ElementName stray = parseClosingTagName();
-                if (stray != null) {
-                    mismatch(start, pos, stray, null, opening.start());
+                ElementName closingName = parseClosingTagName();
+                if (closingName != null) {
+                    // A fragment must close with </>, not </name>.
+                    mismatch(start, pos, closingName, null, opening.start());
                 }
-                return new JasxFragment(opening.start(), pos, opening, children, new JasxClosingFragment(start, pos));
+                JasxClosingFragment closing = new JasxClosingFragment(start, pos);
+                return new JasxFragment(opening.start(), pos, opening, children, closing);
             }
             parseChild(children);
         }
     }
 
+    /** Parses one child at {@code pos}: an expression container, nested markup, or text. */
     private void parseChild(List<Child> children) {
         char c = src.charAt(pos);
         if (c == '{') {
@@ -288,6 +315,7 @@ public final class JasxParser {
         }
     }
 
+    /** Whether a closing tag starts at {@code pos}: {@code <}, optional whitespace, then {@code /}. */
     private boolean atClosingTag() {
         if (src.charAt(pos) != '<') {
             return false;
@@ -299,13 +327,21 @@ public final class JasxParser {
         return p < len && src.charAt(p) == '/';
     }
 
+    /**
+     * Parses the closing tag of {@code opening}. A different name is reported (JASX1001), but the tag
+     * still closes the element, so that parsing can go on.
+     */
     private JasxClosingElement parseClosingElement(JasxOpeningElement opening) {
         int start = pos;
         ElementName name = parseClosingTagName();
-        if (name == null || !sameName(opening.name(), name)) {
+        boolean matches = name != null && sameName(opening.name(), name);
+        if (!matches) {
             mismatch(start, pos, name, opening.name(), opening.start());
         }
-        return new JasxClosingElement(start, pos, name != null ? name : new JasxIdentifier(start, start, ""));
+        if (name == null) {
+            name = new JasxIdentifier(start, start, ""); // "</>" closing an element
+        }
+        return new JasxClosingElement(start, pos, name);
     }
 
     /** Parses {@code </name>} or {@code </>} at {@code pos}; returns the name, or null for {@code </>}. */
@@ -326,15 +362,24 @@ public final class JasxParser {
         return name;
     }
 
+    /**
+     * Reports JASX1001: the closing tag at {@code [start, end)} doesn't match what was opened at
+     * {@code openedAt}. A null {@code opening} means a fragment ({@code <>}); a null {@code closing} means
+     * {@code </>}. The opening tag is attached as a related location.
+     */
     private void mismatch(int start, int end, ElementName closing, ElementName opening, int openedAt) {
-        String open = opening == null ? "<>" : "<" + nameText(opening) + ">";
-        String close = closing == null ? "</>" : "</" + nameText(closing) + ">";
-        LineMap.Position p = lines().position(openedAt);
-        int relStart = opening == null ? openedAt : opening.start();
-        int relEnd = opening == null ? openedAt + 2 : opening.end();
-        diagnostics.add(new Diagnostic("JASX1001", Diagnostic.Severity.ERROR,
-                "closing tag " + close + " does not match " + open + " opened at " + p.line() + ":" + (p.column() + 1),
-                start, end, List.of(new Diagnostic.Related(open + " opened here", relStart, relEnd))));
+        String openText = opening == null ? "<>" : "<" + nameText(opening) + ">";
+        String closeText = closing == null ? "</>" : "</" + nameText(closing) + ">";
+        LineMap.Position opened = lines().position(openedAt);
+        String message = "closing tag " + closeText + " does not match " + openText
+                + " opened at " + opened.line() + ":" + (opened.column() + 1);
+
+        // Point the related location at the opening name, or at "<>" for a fragment.
+        int relatedStart = opening == null ? openedAt : opening.start();
+        int relatedEnd = opening == null ? openedAt + 2 : opening.end();
+        Diagnostic.Related openedHere = new Diagnostic.Related(openText + " opened here", relatedStart, relatedEnd);
+
+        diagnostics.add(new Diagnostic("JASX1001", Diagnostic.Severity.ERROR, message, start, end, List.of(openedHere)));
     }
 
     private ElementName parseElementName() {
@@ -468,39 +513,58 @@ public final class JasxParser {
         }
     }
 
-    /** A Java escape sequence (JLS §3.10.7). Unicode escapes are not processed in markup (grammar.md §2.1). */
+    /**
+     * Parses a Java escape sequence (JLS §3.10.7) at the backslash at {@code pos}, appending its value to
+     * {@code out}.
+     *
+     * <p>Unicode escapes are not processed in markup (grammar.md §2.1), so a backslash followed by
+     * {@code u} is kept as those two characters.
+     */
     private void parseEscape(StringBuilder out) {
-        int start = pos;
+        int backslash = pos;
         pos++;
-        char e = charAt(pos);
-        switch (e) {
+        char escape = charAt(pos);
+
+        // Octal escapes have several digits, so they advance pos themselves.
+        if (escape >= '0' && escape <= '7') {
+            parseOctalEscape(out);
+            return;
+        }
+
+        switch (escape) {
             case 'b' -> out.append('\b');
             case 't' -> out.append('\t');
             case 'n' -> out.append('\n');
             case 'f' -> out.append('\f');
             case 'r' -> out.append('\r');
             case 's' -> out.append(' ');
-            case '"', '\'', '\\' -> out.append(e);
+            case '"', '\'', '\\' -> out.append(escape);
             case 'u' -> out.append('\\').append('u');
             default -> {
-                if (e >= '0' && e <= '7') {
-                    int max = e <= '3' ? 3 : 2;
-                    int v = 0;
-                    for (int n = 0; n < max && pos < len && src.charAt(pos) >= '0' && src.charAt(pos) <= '7'; n++) {
-                        v = v * 8 + (src.charAt(pos) - '0');
-                        pos++;
-                    }
-                    out.append((char) v);
-                    return;
+                error("JASX1005", "invalid escape sequence", backslash, Math.min(pos + 1, len));
+                boolean atLineEnd = pos >= len || escape == '\n' || escape == '\r';
+                if (atLineEnd) {
+                    return; // leave the line break for the unterminated-string check
                 }
-                error("JASX1005", "invalid escape sequence", start, Math.min(pos + 1, len));
-                if (pos >= len || e == '\n' || e == '\r') {
-                    return;
-                }
-                out.append(e);
+                out.append(escape); // keep the character, to continue after the error
             }
         }
         pos++;
+    }
+
+    /** An octal escape: up to three digits if the first is 0–3, otherwise up to two ({@code \0} to {@code \377}). */
+    private void parseOctalEscape(StringBuilder out) {
+        int maxDigits = charAt(pos) <= '3' ? 3 : 2;
+        int code = 0;
+        for (int digits = 0; digits < maxDigits; digits++) {
+            char c = charAt(pos);
+            if (c < '0' || c > '7') {
+                break;
+            }
+            code = code * 8 + (c - '0');
+            pos++;
+        }
+        out.append((char) code);
     }
 
     /** A '{' in attribute position: a reserved spread attribute (JASX1007) or an error (JASX1006). */
@@ -519,23 +583,42 @@ public final class JasxParser {
         }
     }
 
+    /**
+     * Parses an expression container {@code {...}} whose {@code {} is at {@code lbrace}. Its content is
+     * scanned in Java mode, which may find nested markup. A container with only whitespace and comments
+     * is a {@code JasxEmptyExpression}.
+     */
     private JasxExpressionContainer parseExpressionContainer(int lbrace) {
         JavaScan scan = scanJava(lbrace + 1, true);
+
         int end;
         if (scan.closed()) {
-            // The closing '}' is a Java-mode character, so it may be written as a Unicode escape.
+            // The closing '}' is a Java-mode character, so it may be written as a Unicode escape:
+            // step over the whole character, not just one char.
             end = lexer.next(scan.end());
         } else {
             reportEof("JASX1003", "unclosed expression container", lbrace, lbrace + 1);
             end = len;
         }
-        Expression expression = scan.empty()
-                ? new JasxEmptyExpression(lbrace + 1, scan.end(), src.substring(lbrace + 1, scan.end()))
-                : new JavaExpression(lbrace + 1, scan.end(), scan.segments());
+
+        int contentStart = lbrace + 1;
+        int contentEnd = scan.end();
+        Expression expression;
+        if (scan.empty()) {
+            expression = new JasxEmptyExpression(contentStart, contentEnd, src.substring(contentStart, contentEnd));
+        } else {
+            expression = new JavaExpression(contentStart, contentEnd, scan.segments());
+        }
+
         pos = end;
         return new JasxExpressionContainer(lbrace, end, expression);
     }
 
+    /**
+     * Parses a run of text up to the next {@code {} or {@code <}. Character references are decoded in
+     * {@code value}; {@code raw} keeps the source. A {@code }} or {@code >} in text is an error (JASX1009),
+     * but is kept as text so that parsing continues.
+     */
     private JasxText parseText() {
         int start = pos;
         StringBuilder value = new StringBuilder();
@@ -545,8 +628,8 @@ public final class JasxParser {
                 break;
             }
             if (c == '}' || c == '>') {
-                error("JASX1009", "'" + c + "' is not allowed in text; write " + (c == '}' ? "&#125;" : "&gt;"),
-                        pos, pos + 1);
+                String replacement = c == '}' ? "&#125;" : "&gt;";
+                error("JASX1009", "'" + c + "' is not allowed in text; write " + replacement, pos, pos + 1);
                 value.append(c);
                 pos++;
             } else if (c == '&') {
@@ -559,47 +642,85 @@ public final class JasxParser {
         return new JasxText(start, pos, value.toString(), src.substring(start, pos));
     }
 
-    /** Decodes a character reference at {@code pos}; a '&' that starts none is literal text. */
+    /**
+     * Decodes the character reference that starts with the {@code &} at {@code pos} (grammar.md §5):
+     * {@code &#65;} (decimal), {@code &#x41;} (hexadecimal), or {@code &amp;} (named). A {@code &} that
+     * doesn't start a complete reference, such as in {@code a & b}, is literal text.
+     */
     private void parseCharacterReference(StringBuilder out) {
-        int start = pos;
-        int p = pos + 1;
-        if (charAt(p) == '#') {
-            p++;
-            boolean hex = charAt(p) == 'x' || charAt(p) == 'X';
-            if (hex) {
-                p++;
-            }
-            int digits = p;
-            long cp = 0;
-            while (p < len && (hex ? isAsciiHexDigit(src.charAt(p)) : isAsciiDigit(src.charAt(p)))) {
-                cp = Math.min(cp * (hex ? 16 : 10) + Character.digit(src.charAt(p), 16), 0x110000);
-                p++;
-            }
-            if (p > digits && charAt(p) == ';') {
-                boolean valid = cp > 0 && cp <= Character.MAX_CODE_POINT && !(cp >= 0xD800 && cp <= 0xDFFF);
-                out.appendCodePoint(valid ? (int) cp : 0xFFFD);
-                pos = p + 1;
-                return;
-            }
-        } else if (isAsciiLetter(charAt(p))) {
-            int name = p;
-            while (p < len && (isAsciiLetter(src.charAt(p)) || isAsciiDigit(src.charAt(p)))) {
-                p++;
-            }
-            if (charAt(p) == ';') {
-                String decoded = Entities.decode(src.substring(name, p));
-                if (decoded == null) {
-                    error("JASX1010", "unknown character reference '" + src.substring(start, p + 1) + "'", start, p + 1);
-                    out.append(src, start, p + 1);
-                } else {
-                    out.append(decoded);
-                }
-                pos = p + 1;
-                return;
-            }
+        int ampersand = pos;
+        int afterAmpersand = pos + 1;
+
+        boolean decoded;
+        if (charAt(afterAmpersand) == '#') {
+            decoded = parseNumericReference(ampersand, afterAmpersand + 1, out);
+        } else if (isAsciiLetter(charAt(afterAmpersand))) {
+            decoded = parseNamedReference(ampersand, afterAmpersand, out);
+        } else {
+            decoded = false;
         }
-        out.append('&');
-        pos = start + 1;
+
+        if (!decoded) {
+            out.append('&');
+            pos = ampersand + 1;
+        }
+    }
+
+    /**
+     * {@code &#65;} or {@code &#x41;}, with the digits (or the {@code x}) starting at {@code p}. Returns
+     * false, consuming nothing, if there are no digits or no {@code ;}.
+     */
+    private boolean parseNumericReference(int ampersand, int p, StringBuilder out) {
+        boolean hex = charAt(p) == 'x' || charAt(p) == 'X';
+        if (hex) {
+            p++;
+        }
+
+        int digitsStart = p;
+        long codePoint = 0;
+        while (p < len && (hex ? isAsciiHexDigit(src.charAt(p)) : isAsciiDigit(src.charAt(p)))) {
+            int digit = Character.digit(src.charAt(p), 16);
+            // Cap the value just above the Unicode range, so that long digit runs can't overflow.
+            codePoint = Math.min(codePoint * (hex ? 16 : 10) + digit, Character.MAX_CODE_POINT + 1);
+            p++;
+        }
+
+        boolean complete = p > digitsStart && charAt(p) == ';';
+        if (!complete) {
+            return false;
+        }
+
+        // Like HTML, decode 0, surrogates and values past U+10FFFF as U+FFFD (the replacement character).
+        boolean isSurrogate = codePoint >= 0xD800 && codePoint <= 0xDFFF;
+        boolean valid = codePoint > 0 && codePoint <= Character.MAX_CODE_POINT && !isSurrogate;
+        out.appendCodePoint(valid ? (int) codePoint : 0xFFFD);
+        pos = p + 1;
+        return true;
+    }
+
+    /**
+     * {@code &name;} with the name starting at {@code p}. An unknown name is an error (JASX1010) and is
+     * kept as written. Returns false, consuming nothing, if there is no {@code ;} after the name.
+     */
+    private boolean parseNamedReference(int ampersand, int p, StringBuilder out) {
+        int nameStart = p;
+        while (p < len && (isAsciiLetter(src.charAt(p)) || isAsciiDigit(src.charAt(p)))) {
+            p++;
+        }
+        if (charAt(p) != ';') {
+            return false;
+        }
+
+        int end = p + 1; // after the ';'
+        String decoded = Entities.decode(src.substring(nameStart, p));
+        if (decoded == null) {
+            error("JASX1010", "unknown character reference '" + src.substring(ampersand, end) + "'", ampersand, end);
+            out.append(src, ampersand, end);
+        } else {
+            out.append(decoded);
+        }
+        pos = end;
+        return true;
     }
 
     // ---------------------------------------------------------------------------------------------
