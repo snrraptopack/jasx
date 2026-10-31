@@ -69,7 +69,7 @@ interface JasxCompilationUnit <: Node {
   type: "JasxCompilationUnit";
   specVersion: string;                      // e.g. "1.0"
   sourceFile: string | null;                // file name, if known
-  segments: [ JavaCode | JasxElement | JasxFragment ];
+  segments: [ JavaCode | JasxElement | JasxFragment | JasxStyleBlock ];
 }
 ```
 
@@ -228,6 +228,17 @@ interface JasxEmptyExpression <: Node {
 
 The container's `range` includes the braces. The range of its `expression` excludes them. The closing `}` is scanned in Java mode, so it may be written as a Unicode escape (`grammar.md` §3); the container's range then ends after the whole escape.
 
+### 6.7 Style blocks
+
+```
+interface JasxStyleBlock <: Node {
+  type: "JasxStyleBlock";
+  css: string;    // the text between <style> and </style>, exactly as written
+}
+```
+
+A style block (`grammar.md` §7.3) appears only in `JasxCompilationUnit.segments`. Its `range` runs from the `<` of `<style>` to the end of `</style>`. Its `css` is not processed in any way: comments, whitespace and line terminators are kept. If the block is not closed (JASX1012), its range and its `css` run to the end of the file.
+
 ---
 
 ## 7. Node summary
@@ -251,6 +262,7 @@ The container's `range` includes the braces. The range of its `expression` exclu
 | `JasxText` | `children` |
 | `JasxExpressionContainer` | `children`, `JasxAttribute.value` |
 | `JasxEmptyExpression` | `JasxExpressionContainer.expression` |
+| `JasxStyleBlock` | `JasxCompilationUnit.segments` |
 
 ---
 

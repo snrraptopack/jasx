@@ -70,6 +70,7 @@ Codes are never renumbered or reused.
 | JASX1009 | `}` or `>` in text | The character |
 | JASX1010 | Unknown named character reference | The reference |
 | JASX1011 | Identifier ends with `-`, or qualified name contains `-` | The identifier |
+| JASX1012 | Unclosed style block (no `</style>`) at end of input | The `<style>` tag |
 
 ---
 
@@ -90,11 +91,15 @@ Codes are never renumbered or reused.
 | JASX2011 | `@jasx.Default` value is not a single Java literal | The annotation value |
 | JASX2012 | A file with top-level declarations has a name that is not a Java identifier, so it cannot name its file class (`semantics.md` §9.2) | The first top-level field or method |
 | JASX2013 | A constructor or an initializer block at the top level of a file (`semantics.md` §9.2) | The declaration, up to its `{` |
+| JASX2014 | Invalid CSS in a style block: something unclosed, an unmatched `}`, an empty selector, or `</style` (`semantics.md` §10.4) | The offending text |
+| JASX2015 | A style block where a field could not be declared (`semantics.md` §10.1) | The style block's `<style>` tag |
+| JASX2016 | A second style block in one file (`semantics.md` §10.1) | The second style block's `<style>` tag |
 | JASX2101 | Attribute not defined by the target schema | The attribute |
 | JASX2102 | Children on a void element | The first child |
 | JASX2103 | Java event handler on a target without event handlers | The attribute value |
 | JASX2104 | *Reserved* for reactive targets (not defined in 1.0) | — |
 | JASX2105 | Tag not defined by the target schema | The element name |
+| JASX2106 | Style block on a target that does not support style blocks (`semantics.md` §10.6) | The style block's `<style>` tag |
 
 ---
 

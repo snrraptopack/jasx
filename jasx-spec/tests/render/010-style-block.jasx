@@ -1,0 +1,27 @@
+import jasx.runtime.Element;
+import jasx.html.Html;
+
+<style>
+  .card { padding: 1rem; }
+  .card > h2, .title::before { color: red; }
+  @media (min-width: 40rem) {
+    .card { padding: 2rem; }
+  }
+  :global(body) { margin: 0; }
+  /* comments are removed */
+  a:hover { content: "{ not a block }"; }
+</style>
+
+Element Card(String title) {
+  return <div class="card"><h2>{title}</h2></div>;
+}
+
+Element Test() {
+  return (
+    <>
+      {Html.styles()}
+      <Card title="Hi" />
+      <a href="/">home</a>
+    </>
+  );
+}

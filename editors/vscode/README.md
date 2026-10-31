@@ -4,6 +4,7 @@ Syntax highlighting for `.jasx` files: Java with JSX-style markup.
 
 - Java code is highlighted by VS Code's built-in Java grammar.
 - Markup is highlighted on top of it: tags (`div`), components (`Card`, `Ui.Card`), attributes, strings, character references (`&amp;`) and `{...}` expressions. The Java inside an expression is highlighted as Java, and markup inside that Java is found again.
+- Style blocks (`<style>...</style>` where a declaration starts) are highlighted as CSS, by VS Code's built-in CSS grammar.
 
 This extension only highlights syntax. It doesn't report errors or offer completion; those need a language server, which is planned.
 
@@ -21,6 +22,8 @@ The JASX specification decides whether `<` starts markup from the token before i
 
 Known imperfection: a generic method with no modifiers whose declaration starts a line is recognized by its shape (`<T> Element ListOf(`), which covers type parameters with simple bounds (`<T extends Number>`). With a nested generic bound (`<T extends Comparable<T>> void sort(`) it is highlighted as markup. Adding a modifier (`static <T ...>`) avoids it.
 
+A style block is recognized when `<style>` comes at the start of a line or after `;`, `{` or `}`, outside markup. A `<style>` element that starts a line inside Java parentheses (rare; markup usually starts after `return (`, `=` or similar on the same line) is therefore highlighted as a style block.
+
 ## Tests
 
 ```
@@ -28,4 +31,4 @@ npm install
 npm test
 ```
 
-The tests tokenize JASX snippets with VS Code's TextMate engine (`vscode-textmate`) and check the scopes of the tokens. A small stand-in for the Java grammar is used (`test/java-stub.tmLanguage.json`).
+The tests tokenize JASX snippets with VS Code's TextMate engine (`vscode-textmate`) and check the scopes of the tokens. Small stand-ins for the Java and CSS grammars are used (`test/java-stub.tmLanguage.json`, `test/css-stub.tmLanguage.json`).

@@ -22,6 +22,7 @@ await oniguruma.loadWASM(wasm);
 const grammarFiles = {
   "source.jasx": path.join(here, "..", "syntaxes", "jasx.tmLanguage.json"),
   "source.java": path.join(here, "java-stub.tmLanguage.json"),
+  "source.css": path.join(here, "css-stub.tmLanguage.json"),
 };
 
 const registry = new vsctm.Registry({
@@ -163,6 +164,25 @@ test("a generic method at the start of a line is Java, not markup", () => {
 
 test("an element at the start of a line is still markup", () => {
   assertScope(["return (", "<Row item={x} />", ");"].join("\n"), "Row", "support.class.component.jasx");
+});
+
+test("a style block's content is CSS", () => {
+  const source = ["<style>", "  .card { padding: 1rem; }", "</style>", "Element Card() { return <div/>; }"].join("\n");
+  assertScope(source, ".card", "entity.other.attribute-name.class.css");
+  assertScope(source, ".card", "meta.embedded.block.css");
+  assertScope(source, "style", "entity.name.tag.jasx", 1);
+  assertScope(source, "div", "entity.name.tag.jasx");
+});
+
+test("a style block in a class body (through the injection)", () => {
+  const source = ["class T {", "  <style>.a { }</style>", "}"].join("\n");
+  assertScope(source, ".a", "entity.other.attribute-name.class.css");
+});
+
+test("a <style> element inside markup is not a style block", () => {
+  const source = ["return (", "  <head>", "    <style>{CSS}</style>", "  </head>", ");"].join("\n");
+  assertNoScope(source, "CSS", "meta.embedded.block.css");
+  assertScope(source, "style", "entity.name.tag.jasx", 1);
 });
 
 // --- Run -------------------------------------------------------------------------------------------

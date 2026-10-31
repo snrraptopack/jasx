@@ -14,6 +14,7 @@ import jasx.parser.ast.Ast.JasxEmptyExpression;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxStringLiteral;
+import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JasxText;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
@@ -515,6 +516,84 @@ class JasxParserTest {
             String source = "Element e = <p>a\tb" + (char) 1 + "</p>;";
             String json = AstJson.toJson(parseClean(source).unit(), source);
             assertTrue(json.contains("\"a\\tb\\" + "u0001\""), json);
+        }
+    }
+
+    /** grammar.md §7.3: where {@code <style>} starts a style block, and what it contains. */
+    @Nested
+    class StyleBlocks {
+        /** The CSS of every style block in {@code source}, which must parse without errors. */
+        private List<String> styleBlocks(String source) {
+            List<String> found = new ArrayList<>();
+            for (Segment s : parseClean(source).unit().segments()) {
+                if (s instanceof JasxStyleBlock block) {
+                    found.add(block.css());
+                }
+            }
+            return found;
+        }
+
+        @Test
+        void atTheStartOfTheFileAndAfterDeclarations() {
+            assertEquals(List.of("a{}"), styleBlocks("<style>a{}</style>"));
+            assertEquals(List.of("b{}"), styleBlocks("import x.Y;\n<style>b{}</style>\nint x;"));
+            assertEquals(List.of("c{}"), styleBlocks("class A { void m() {} <style>c{}</style> }"));
+            assertEquals(List.of("d{}"), styleBlocks("class A {<style>d{}</style>}"));
+        }
+
+        @Test
+        void twoBlocksInARowAreBothFound() {
+            // The compiler reports the second one (JASX2016); the parser only finds them.
+            assertEquals(List.of("a", "b"), styleBlocks("<style>a</style><style>b</style>"));
+        }
+
+        @Test
+        void theContentIsRawTextUpToTheFirstClosingTag() {
+            String css = "\n  a > b { content: \"}\" } /* { */ p::after { content: '<' }\n";
+            assertEquals(List.of(css), styleBlocks("<style>" + css + "</style>"));
+        }
+
+        @Test
+        void unicodeEscapesInTheContentAreNotProcessed() {
+            String css = "a { content: \"" + esc("0041") + "\" }";
+            assertEquals(List.of(css), styleBlocks("<style>" + css + "</style>"));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "x = <style>{css}</style>;",      // after '=': markup, an ordinary <style> element
+                "f(<style>{css}</style>);",       // after '(': markup
+                "for (;<style>a</style>;) {}",    // innermost bracket is '(': neither (a Java syntax error)
+        })
+        void notAStyleBlockOutsideDeclarationPositions(String source) {
+            boolean hasStyleBlock = parse(source).unit().segments().stream().anyMatch(s -> s instanceof JasxStyleBlock);
+            assertTrue(!hasStyleBlock, source);
+        }
+
+        @Test
+        void notAStyleBlockInsideAnExpressionContainer() {
+            String source = "x = <p>{items.map(i -> { <style>a</style> })}</p>;";
+            assertEquals(List.of(), styleBlocks(source));
+        }
+
+        @Test
+        void aSpaceInTheTagMeansItIsNotAStyleBlock() {
+            assertEquals(List.of(), styleBlocks("class A { <style > void m() {} }"));
+        }
+
+        @Test
+        void aGenericMethodAfterAStyleBlockIsJava() {
+            assertEquals(List.of(), markup("class A { <style>a</style> <T> void m() {} }"));
+        }
+
+        @Test
+        void unclosedStyleBlockRunsToTheEnd() {
+            String source = "class A {\n  <style>\n  a {}\n}\n";
+            ParseResult result = parse(source);
+            assertEquals(List.of("JASX1012"), result.diagnostics().stream().map(Diagnostic::code).toList());
+            JasxStyleBlock block = (JasxStyleBlock) result.unit().segments().get(1);
+            assertEquals(source.length(), block.end());
+            assertEquals("\n  a {}\n}\n", block.css());
         }
     }
 }

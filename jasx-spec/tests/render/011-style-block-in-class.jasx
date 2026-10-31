@@ -1,0 +1,21 @@
+import jasx.runtime.Element;
+import jasx.html.Html;
+import java.util.List;
+
+class T {
+  <style>
+    li { list-style: none; }
+  </style>
+
+  static Element Test() {
+    List<String> items = List.of("a", "b");
+    return (
+      <>
+        <ul class={null}>
+          {items.stream().map(i -> <li key={i} class={i.equals("a") ? "first" : null}>{i}</li>).toList()}
+        </ul>
+        {Html.styles()}
+      </>
+    );
+  }
+}

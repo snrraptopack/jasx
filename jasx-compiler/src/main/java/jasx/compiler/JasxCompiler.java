@@ -6,6 +6,7 @@ import jasx.parser.Diagnostic;
 import jasx.parser.JasxParser;
 import jasx.parser.LineMap;
 import jasx.parser.ParseResult;
+import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.Markup;
 import jasx.parser.ast.Ast.Segment;
 
@@ -26,12 +27,13 @@ import jasx.parser.ast.Ast.Segment;
  * declared in another file.
  *
  * <p>A {@code .jasx} file with fields or methods at its top level is also wrapped in its <em>file class</em>,
- * named after the file (semantics.md §9, {@link FileClass}).
+ * named after the file (semantics.md §9, {@link FileClass}). A style block's CSS is scoped to the file and
+ * attached to its elements (semantics.md §10, {@link StyleBlocks}).
  *
  * <p>{@code .java} files are only scanned (for {@code @jasx.Component} methods). They are never rewritten;
  * the build compiles them as they are.
  *
- * <p>See jasx-spec/semantics.md §5 (components), §6 (lowering) and §9 (file classes).
+ * <p>See jasx-spec/semantics.md §5 (components), §6 (lowering), §9 (file classes) and §10 (style blocks).
  */
 public final class JasxCompiler {
     private final Target target;
@@ -62,6 +64,8 @@ public final class JasxCompiler {
             JavaStructure structure,
             /** Text to insert into the Java code: {@code @jasx.Component}, and the file class (§5.1, §9.4). */
             List<Lowering.Insertion> insertions,
+            /** How to lower the file's style block, or null if it has none (semantics.md §10). */
+            StyleBlocks.Plan styles,
             /** True if the file can't be lowered because of an error found while scanning it. */
             boolean unlowerable) {}
 
@@ -100,17 +104,17 @@ public final class JasxCompiler {
 
         // Only .jasx files contain markup, so only they are parsed.
         ParseResult parsed = null;
-        List<int[]> markupRanges = List.of();
+        List<JavaStructure.Opaque> opaque = List.of();
         if (file.isJasx()) {
             parsed = JasxParser.parse(file.content(), file.path());
             report(diagnostics, file, lines, parsed.diagnostics());
-            markupRanges = topLevelMarkupRanges(parsed);
+            opaque = opaqueRanges(parsed);
         }
 
         // Read the declarations. The scanner skips markup, so braces in markup can't confuse it. Only a
         // .jasx file can have a file class (semantics.md §9).
         String fileClassName = file.isJasx() ? file.baseName() : null;
-        JavaStructure structure = JavaStructure.scan(file.content(), markupRanges, fileClassName);
+        JavaStructure structure = JavaStructure.scan(file.content(), opaque, fileClassName);
 
         // Find the components and add them to the shared index.
         ComponentScanner.Result found = ComponentScanner.scan(file, structure);
@@ -136,15 +140,24 @@ public final class JasxCompiler {
             }
         }
 
-        return new ScannedFile(file, lines, parsed, structure, insertions, !fileClassErrors.isEmpty());
+        // The style block, if any: checked and scoped now, so that its errors come with the scan's.
+        StyleBlocks.Result styles = parsed != null ? StyleBlocks.check(file, parsed, structure, target) : null;
+        List<Diagnostic> styleErrors = styles != null ? styles.errors() : List.of();
+        report(diagnostics, file, lines, styleErrors);
+
+        boolean unlowerable = !fileClassErrors.isEmpty() || !styleErrors.isEmpty();
+        StyleBlocks.Plan plan = styles != null ? styles.plan() : null;
+        return new ScannedFile(file, lines, parsed, structure, insertions, plan, unlowerable);
     }
 
-    /** The {@code [start, end)} ranges of the markup segments at the top level of a parsed file. */
-    private static List<int[]> topLevelMarkupRanges(ParseResult parsed) {
-        List<int[]> ranges = new ArrayList<>();
+    /** The markup expressions and style blocks at the top level of a parsed file, which aren't Java. */
+    private static List<JavaStructure.Opaque> opaqueRanges(ParseResult parsed) {
+        List<JavaStructure.Opaque> ranges = new ArrayList<>();
         for (Segment segment : parsed.unit().segments()) {
             if (segment instanceof Markup) {
-                ranges.add(new int[] {segment.start(), segment.end()});
+                ranges.add(new JavaStructure.Opaque(segment.start(), segment.end(), false));
+            } else if (segment instanceof JasxStyleBlock) {
+                ranges.add(new JavaStructure.Opaque(segment.start(), segment.end(), true));
             }
         }
         return ranges;
@@ -167,7 +180,7 @@ public final class JasxCompiler {
 
         Resolver resolver = new Resolver(scanned.structure(), components);
         Lowering lowering = new Lowering(scanned.file(), scanned.lines(), target, resolver);
-        GeneratedFile generated = lowering.lower(scanned.parsed().unit(), scanned.insertions());
+        GeneratedFile generated = lowering.lower(scanned.parsed().unit(), scanned.insertions(), scanned.styles());
         report(diagnostics, scanned.file(), scanned.lines(), lowering.diagnostics());
 
         // Code generated around an error (an unknown component, say) is not meaningful, so don't return it.

@@ -1,0 +1,4 @@
+class A {
+  <style>
+    .a { color: red; }
+}

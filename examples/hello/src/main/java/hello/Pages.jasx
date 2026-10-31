@@ -8,6 +8,14 @@ import static hello.ui.Layout.*;
 // The pages of the example. A .jasx file is Java plus markup expressions; these components are declared at
 // the top level, so they are static methods of the file class `hello.Pages`.
 
+// Styles for the elements of this file only. `.badge` from Layout.jasx doesn't leak in, and this `span`
+// rule doesn't affect the spans of Layout's badges.
+<style>
+    .todo { display: flex; gap: .5rem; align-items: center; padding: .25rem 0; }
+    .todo.done span { text-decoration: line-through; opacity: .6; }
+    footer { margin-top: 1.5rem; color: #6b7280; }
+</style>
+
 /** One to-do item. Components are static methods; their parameters are the props. */
 Element TodoItem(Todo todo) {
     return (

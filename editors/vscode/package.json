@@ -30,7 +30,8 @@
         "scopeName": "source.jasx",
         "path": "./syntaxes/jasx.tmLanguage.json",
         "embeddedLanguages": {
-          "meta.embedded.expression.jasx": "java"
+          "meta.embedded.expression.jasx": "java",
+          "meta.embedded.block.css": "css"
         }
       }
     ]

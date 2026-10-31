@@ -14,8 +14,10 @@ import java.util.Map;
  * @param factory the factory class {@code F} of {@code F.h(...)}
  * @param attributesPackage the package of the generated attribute builders
  * @param javaEventHandlers whether event attributes accept Java expressions ({@code eventHandlers: "java"})
+ * @param styles whether the target supports style blocks ({@code styles: "css"}, semantics.md §10.6)
  */
-public record Target(String id, String factory, String attributesPackage, Schema schema, boolean javaEventHandlers) {
+public record Target(String id, String factory, String attributesPackage, Schema schema, boolean javaEventHandlers,
+        boolean styles) {
     public static final String DESCRIPTOR = "META-INF/jasx/target.json";
 
     /** Loads the target {@code id} from the descriptors visible to {@code loader}. */
@@ -51,7 +53,7 @@ public record Target(String id, String factory, String attributesPackage, Schema
         }
         Schema schema = Schema.fromJson(Json.object(Json.parse(read(schemaUrl))));
         return new Target(id, Json.string(descriptor.get("factory")), Json.string(descriptor.get("attributes")),
-                schema, "java".equals(descriptor.get("eventHandlers")));
+                schema, "java".equals(descriptor.get("eventHandlers")), "css".equals(descriptor.get("styles")));
     }
 
     private static String read(URL url) throws IOException {

@@ -18,9 +18,12 @@ It can be used with any Java web framework (Spring, Javalin, Helidon, plain serv
   "attributes": "jasx.html.attrs",
   "schema": "schemas/html.json",
   "lowering": "factory",
-  "eventHandlers": "none"
+  "eventHandlers": "none",
+  "styles": "css"
 }
 ```
+
+The target supports style blocks (`semantics.md` §10). See §3.5.
 
 ---
 
@@ -48,6 +51,7 @@ The schema is the resource `schemas/html.json` of the target. The attribute buil
 | Fragment | its children only |
 | Text | the text, escaped (except inside `script` and `style`, §3.3) |
 | Keyed element | the element (keys are ignored) |
+| Scoped element | the element, with its scope name added to its `class` attribute (§3.5) |
 
 ### 3.1 Attributes
 
@@ -75,4 +79,17 @@ The content of a `script` or `style` element **MUST NOT** contain its closing ta
 
 ### 3.4 Whitespace
 
-The renderer adds no whitespace and no line breaks. The only text in the output is the text child values produced by children normalization (`semantics.md` §3.1) and by expression children.
+The renderer adds no whitespace and no line breaks, except inside the `<style>` element of §3.5. The only other text in the output is the text child values produced by children normalization (`semantics.md` §3.1) and by expression children.
+
+### 3.5 Style sheets
+
+The factory functions of `semantics.md` §10.5 are `jasx.html.Html.styleSheet(String scope, String css)`, which returns a `jasx.html.StyleSheet` (with the methods `scope()` and `css()`), and `jasx.html.Html.scoped(Object sheet, Element element)`.
+
+**Scoped elements.** A scoped element is rendered as its element, with the scope name of its style sheet added to its `class` attribute:
+
+- if the element has a `class` attribute whose value is not `null`, `false` or `true`, a space and the scope name are appended to the value: `class="card jx-1a2b3c4d"`;
+- otherwise, `class="jx-1a2b3c4d"` is written after its other attributes, in place of any `class` attribute it has.
+
+**Delivering the CSS.** `jasx.html.Html.styles()` returns an element that renders as the style sheets used in the same `Html.render` call: a `<style>` element containing the scoped CSS of every style sheet of a scoped element rendered in that call, in the order in which each was first used, separated by LF. If no scoped element is rendered, it renders as nothing. It may appear before the elements whose style sheets it contains (typically in `<head>`), because the renderer fills it in at the end of the call. If a call renders several `styles()` elements, only the first receives the style sheets; the others render as nothing.
+
+An application that serves CSS as a file can read `StyleSheet.css()` instead.

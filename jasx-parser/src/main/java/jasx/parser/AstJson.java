@@ -16,6 +16,7 @@ import jasx.parser.ast.Ast.JasxOpeningFragment;
 import jasx.parser.ast.Ast.JasxQualifiedName;
 import jasx.parser.ast.Ast.JasxStringLiteral;
 import jasx.parser.ast.Ast.JasxText;
+import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
 import jasx.parser.ast.Ast.Node;
@@ -78,6 +79,7 @@ public final class AstJson {
                 nodes("segments", u.segments());
             }
             case JavaCode j -> w.name("source").value(j.source());
+            case JasxStyleBlock b -> w.name("css").value(b.css());
             case JavaExpression e -> nodes("segments", e.segments());
             case JasxEmptyExpression e -> w.name("source").value(e.source());
             case JasxElement e -> {

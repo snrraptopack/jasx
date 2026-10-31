@@ -39,4 +39,20 @@ public sealed interface HtmlElement extends Element {
             return html;
         }
     }
+
+    /** An element written in a file with a style sheet: rendered with the sheet's scope class (§3.5). */
+    record Scoped(StyleSheet sheet, Element element) implements HtmlElement {
+        @Override
+        public String toString() {
+            return Html.render(this);
+        }
+    }
+
+    /** Where {@link Html#styles()} puts the style sheets used in a render (§3.5). */
+    record Styles() implements HtmlElement {
+        @Override
+        public String toString() {
+            return Html.render(this);
+        }
+    }
 }

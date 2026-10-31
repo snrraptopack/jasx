@@ -45,7 +45,7 @@ jasx-spec/                 normative specification (see jasx-spec/README.md)
 jasx-parser/               JavaLexer, markup parser, AST, JSON output, CLI (no third-party deps)
   src/main/resources/jasx/parser/entities.txt  HTML named character references (generated)
 jasx-runtime/              jasx.runtime.Element and @jasx.Component / @jasx.Optional / @jasx.Default
-jasx-compiler/             declaration scanner, component index, resolver, factory lowering, span maps,
+jasx-compiler/             declaration scanner, file classes, component index, resolver, factory lowering, scoped CSS, span maps,
                            in-memory javac runner with diagnostic remapping, CLI
 jasx-target-html/          html reference target: descriptor, schemas/html.json, factory jasx.html.Html,
                            renderer; attribute builders jasx.html.attrs.* generated from the schema
@@ -88,8 +88,8 @@ These decisions are already made. Follow them unless the user changes them.
 ### How the compiler works
 
 1. Parse each `.jasx` file (`JasxParser`).
-2. Scan each source with `JavaStructure` (tokens only, markup skipped) for the package, imports, named types, method headers and top-level declarations, and build the component index. If a `.jasx` file has top-level fields or methods, `JavaStructure` creates its **file class** (`semantics.md` §9) and `FileClass` computes the text that wraps the file in it. Problems here are JASX2006, JASX2010–JASX2013.
-3. Lower each `.jasx` file without syntax errors (`Lowering`, writing through `Emitter`). Java code is copied verbatim, except for **insertions** (`Lowering.Insertion`) on the same line: `@jasx.Component` before components, and for a file class its header after the imports, `static` in each top-level declaration, and `}` after the end of the file. Markup becomes `F.h(...)`, `F.fragment(...)`, `F.keyed(...)` and direct component calls. `Emitter` only adds line breaks to catch up with the source line, and records a `SpanMap`.
+2. Scan each source with `JavaStructure` (tokens only, markup skipped) for the package, imports, named types, method headers and top-level declarations, and build the component index. If a `.jasx` file has top-level fields or methods, `JavaStructure` creates its **file class** (`semantics.md` §9) and `FileClass` computes the text that wraps the file in it. Problems here are JASX2006, JASX2010–JASX2013. `StyleBlocks` then checks the file's style block (`semantics.md` §10) and scopes its CSS with `ScopedCss` (JASX2014–JASX2016, JASX2106).
+3. Lower each `.jasx` file without syntax errors (`Lowering`, writing through `Emitter`). Java code is copied verbatim, except for **insertions** (`Lowering.Insertion`) on the same line: `@jasx.Component` before components, and for a file class its header after the imports, `static` in each top-level declaration, and `}` after the end of the file. Markup becomes `F.h(...)`, `F.fragment(...)`, `F.keyed(...)` and direct component calls. A style block becomes a `jasx$styles` field on its first line, and in such a file every intrinsic element is wrapped in `F.scoped(C.jasx$styles, ...)`. `Emitter` only adds line breaks to catch up with the source line, and records a `SpanMap`.
 4. `JavacRunner` compiles the generated Java in memory and remaps javac's diagnostics through the span maps (code `javac`).
 
 ## Commands
@@ -157,6 +157,8 @@ When running Java directly on Windows, separate classpath entries with `;`, not 
 - In Java mode, Unicode escapes **are** significant: the escape backslash-`u007D` is a real `}` to javac, so it can close an expression container (and the container's range then includes the whole escape). In markup, they are not processed.
 - `Boolean` children render as `true`/`false`. JASX doesn't hide them as JSX does, and `&&` is not a rendering idiom.
 - A `.jasx` file with a top-level field or method is wrapped in a `public final` class named after the file (`semantics.md` §9), and its top-level types become nested types. The file name must therefore be a valid class name. Render tests are compiled as `T.jasx` (`conformance.md` §4).
+- `<style>` where a statement or member starts is a **style block** (raw CSS up to `</style>`), not markup (`grammar.md` §7.3). After `=`, `(`, `return` and the other tokens of set S it is still an ordinary `<style>` element.
+- `ScopedCss` is not a CSS parser: it only finds selectors. Keep it that way; the spec (`semantics.md` §10.4) defines exactly what it reads.
 - A cast directly on markup (`(Element) <div/>`) is not supported, by design.
 - Character references are decoded in text only. Attribute strings use Java escapes, so `title="a&amp;b"` keeps `&amp;` literally.
 

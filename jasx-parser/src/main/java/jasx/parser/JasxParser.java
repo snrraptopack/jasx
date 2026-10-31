@@ -25,6 +25,7 @@ import jasx.parser.ast.Ast.JasxOpeningElement;
 import jasx.parser.ast.Ast.JasxOpeningFragment;
 import jasx.parser.ast.Ast.JasxQualifiedName;
 import jasx.parser.ast.Ast.JasxStringLiteral;
+import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JasxText;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
@@ -79,6 +80,11 @@ public final class JasxParser {
     private static final Tok MARKUP_OPERAND = Tok.of("<jasx>");
     /** A string, character, text-block or number literal. */
     private static final Tok LITERAL = Tok.of("0");
+    /** A complete style block, which ends a member like a {@code ;} does. */
+    private static final Tok STYLE_BLOCK = Tok.of("<style>");
+
+    private static final String STYLE_OPEN = "<style>";
+    private static final String STYLE_CLOSE = "</style>";
 
     private record Bracket(char kind, boolean arrayInit) {}
 
@@ -123,7 +129,14 @@ public final class JasxParser {
                 return new JavaScan(segments, pos, empty, true);
             }
             empty = false;
-            if (src.charAt(pos) == '<' && introducesMarkup(prev)) {
+            if (!inContainer && startsStyleBlock(prev, brackets)) {
+                addJavaCode(segments, chunk, pos);
+                JasxStyleBlock block = parseStyleBlock(pos);
+                segments.add(block);
+                pos = block.end();
+                chunk = pos;
+                prev = STYLE_BLOCK;
+            } else if (src.charAt(pos) == '<' && introducesMarkup(prev)) {
                 addJavaCode(segments, chunk, pos);
                 Markup markup = parseMarkup(pos);
                 segments.add(markup);
@@ -182,6 +195,43 @@ public final class JasxParser {
         };
     }
 
+
+    // ---------------------------------------------------------------------------------------------
+    // Style blocks (grammar.md §7.3)
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Whether a style block starts at {@code pos}: the text is exactly {@code <style>}, and it is where a
+     * statement or member begins (after {@code ;}, {@code }}, a block or body {@code {}, another style
+     * block, or at the start of the file), directly inside braces or at the top level.
+     */
+    private boolean startsStyleBlock(Tok prev, Deque<Bracket> brackets) {
+        if (!src.startsWith(STYLE_OPEN, pos)) {
+            return false;
+        }
+        boolean atDeclarationStart = switch (prev.text()) {
+            case "", ";", "}" -> true;
+            case "{" -> !prev.arrayInit();
+            default -> prev == STYLE_BLOCK;
+        };
+        boolean directlyInBraces = brackets.isEmpty() || brackets.peek().kind() == '{';
+        return atDeclarationStart && directlyInBraces;
+    }
+
+    /**
+     * Parses the style block whose {@code <style>} starts at {@code lt}. Its content is raw text up to the
+     * first {@code </style>}; nothing inside is tokenized. Without {@code </style>}, the block runs to the
+     * end of the file (JASX1012).
+     */
+    private JasxStyleBlock parseStyleBlock(int lt) {
+        int contentStart = lt + STYLE_OPEN.length();
+        int close = src.indexOf(STYLE_CLOSE, contentStart);
+        if (close < 0) {
+            error("JASX1012", "the style block is not closed: </style> is missing", lt, contentStart);
+            return new JasxStyleBlock(lt, len, src.substring(contentStart));
+        }
+        return new JasxStyleBlock(lt, close + STYLE_CLOSE.length(), src.substring(contentStart, close));
+    }
 
     // ---------------------------------------------------------------------------------------------
     // Markup mode (grammar.md §5, §6)

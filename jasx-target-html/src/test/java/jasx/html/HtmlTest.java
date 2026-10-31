@@ -5,6 +5,8 @@ import static jasx.html.Html.h;
 import static jasx.html.Html.keyed;
 import static jasx.html.Html.rawHtml;
 import static jasx.html.Html.render;
+import static jasx.html.Html.scoped;
+import static jasx.html.Html.styles;
 import static jasx.html.Html.text;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -98,5 +100,54 @@ class HtmlTest {
     @Test
     void toStringRenders() {
         assertEquals("<p>x</p>", h("p", null, "x").toString());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Style sheets (targets/html.md §3.5)
+    // ---------------------------------------------------------------------------------------------
+
+    private static final StyleSheet CARD = Html.styleSheet("jx-1", ".card.jx-1 { }");
+    private static final StyleSheet PAGE = Html.styleSheet("jx-2", "p.jx-2 { }");
+
+    @Test
+    void scopedElementsGetTheScopeClass() {
+        assertEquals("<div class=\"card jx-1\"></div>", render(scoped(CARD, h("div", A.create().className("card")))));
+        assertEquals("<div class=\"jx-1\"></div>", render(scoped(CARD, h("div", null))));
+        assertEquals("<a href=\"/\" class=\"jx-1\"></a>", render(scoped(CARD, h("a", A.create().href("/")))));
+    }
+
+    @Test
+    void anAbsentClassIsReplacedByTheScopeClass() {
+        assertEquals("<p class=\"jx-1\"></p>", render(scoped(CARD, h("p", A.create().className(null)))));
+        assertEquals("<p class=\"jx-1\"></p>", render(scoped(CARD, h("p", A.create().className(false)))));
+        assertEquals("<p class=\"jx-1\"></p>", render(scoped(CARD, h("p", A.create().className(true)))));
+    }
+
+    @Test
+    void stylesAreFilledInWithTheSheetsUsedInOrder() {
+        Object page = fragment(
+                h("head", null, styles()),
+                scoped(PAGE, h("p", null)),
+                scoped(CARD, h("div", null)),
+                scoped(PAGE, h("p", null)));
+        assertEquals("<head><style>p.jx-2 { }\n.card.jx-1 { }</style></head>"
+                + "<p class=\"jx-2\"></p><div class=\"jx-1\"></div><p class=\"jx-2\"></p>", render(page));
+    }
+
+    @Test
+    void stylesRenderAsNothingWithoutScopedElements() {
+        assertEquals("<head></head><p></p>", render(fragment(h("head", null, styles()), h("p", null))));
+    }
+
+    @Test
+    void onlyTheFirstStylesReceivesTheSheets() {
+        assertEquals("<style>.card.jx-1 { }</style><i class=\"jx-1\"></i>",
+                render(fragment(styles(), scoped(CARD, h("i", null)), styles())));
+    }
+
+    @Test
+    void eachRenderCollectsItsOwnSheets() {
+        render(scoped(CARD, h("i", null)));
+        assertEquals("<b></b>", render(fragment(styles(), h("b", null))));
     }
 }

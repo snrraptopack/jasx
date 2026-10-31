@@ -1,0 +1,7 @@
+class A {
+  <style>
+    a > b { content: "</p>"; }
+  </style>
+  <T> void m() {}
+  Object x = <style>{css}</style>;
+}

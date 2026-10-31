@@ -717,4 +717,151 @@ class JasxCompilerTest {
                     compiled.diagnostics().get(0).format().lines().findFirst().orElseThrow());
         }
     }
+
+    /** semantics.md §10: style blocks. */
+    @Nested
+    class StyleBlocks {
+        /** The scope name of a file with this qualified name (semantics.md §10.3), computed independently. */
+        private static String scope(String qualifiedName) throws Exception {
+            byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(qualifiedName.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return "jx-" + java.util.HexFormat.of().formatHex(hash).substring(0, 8);
+        }
+
+        private static final SourceFile UI = new SourceFile("app/Ui.jasx", """
+                package app;
+
+                import jasx.runtime.Element;
+                import java.util.List;
+
+                <style>
+                  .card { padding: 1rem; }
+                </style>
+
+                public Element Card(List<Element> children) {
+                  return <div class="card">{children}</div>;
+                }
+                """);
+
+        @Test
+        void aStyleBlockAppliesOnlyToElementsWrittenInItsFile() throws Exception {
+            SourceFile page = new SourceFile("app/Page.jasx", """
+                    package app;
+
+                    import jasx.runtime.Element;
+                    import jasx.html.Html;
+
+                    class Page {
+                      static Element Test() {
+                        return <>{Html.styles()}<Ui.Card><p>not scoped</p></Ui.Card></>;
+                      }
+                    }
+                    """);
+            String ui = scope("app.Ui");
+            assertEquals("<style>.card." + ui + " { padding: 1rem; }</style>"
+                            + "<div class=\"card " + ui + "\"><p>not scoped</p></div>",
+                    render("app.Page", List.of(UI, page), List.of()));
+        }
+
+        @Test
+        void styleSheetsAreCollectedInTheOrderTheyAreFirstUsed() throws Exception {
+            SourceFile page = new SourceFile("app/Page.jasx", """
+                    package app;
+
+                    import jasx.runtime.Element;
+                    import jasx.html.Html;
+
+                    <style>p { margin: 0; }</style>
+
+                    Element Test() {
+                      return <>{Html.styles()}<p>a</p><Ui.Card><p>b</p></Ui.Card><p>c</p></>;
+                    }
+                    """);
+            String ui = scope("app.Ui");
+            String pg = scope("app.Page");
+            assertEquals("<style>p." + pg + " { margin: 0; }\n.card." + ui + " { padding: 1rem; }</style>"
+                            + "<p class=\"" + pg + "\">a</p>"
+                            + "<div class=\"card " + ui + "\"><p class=\"" + pg + "\">b</p></div>"
+                            + "<p class=\"" + pg + "\">c</p>",
+                    render("app.Page", List.of(UI, page), List.of()));
+        }
+
+        @Test
+        void theStyleBlockKeepsLinesAligned() {
+            CompilationResult r = compile(new SourceFile("T.jasx", """
+                    import jasx.runtime.Element;
+                    <style>
+                      a { }
+                    </style>
+                    Element A() {
+                      return <p>{missing}</p>;
+                    }
+                    """));
+            String[] javaLines = r.files().get(0).content().split("\n");
+            assertTrue(javaLines[1].contains("jasx$styles = jasx.html.Html.styleSheet("), javaLines[1]);
+            assertEquals("", javaLines[2]);
+            JavacRunner.Result compiled = JavacRunner.compile(r.files(), List.of(), CLASSPATH);
+            assertEquals("T.jasx:6:14: error: javac: cannot find symbol",
+                    compiled.diagnostics().get(0).format().lines().findFirst().orElseThrow());
+        }
+
+        @Test
+        void cssErrorsAreReportedInTheJasxFile() {
+            CompilationResult r = compile(new SourceFile("T.jasx", """
+                    import jasx.runtime.Element;
+                    <style>
+                      a { color: red;
+                    </style>
+                    Element A() { return <p/>; }
+                    """));
+            assertEquals(List.of("T.jasx:3:5: error: this block is not closed [JASX2014]"),
+                    r.diagnostics().stream().map(CompilerDiagnostic::format).toList());
+            assertEquals(List.of(), r.files());
+        }
+
+        @Test
+        void aStyleBlockMustBeWhereAFieldCouldBe() {
+            // In a method body.
+            assertEquals(List.of("JASX2015"), codes(file("void m() { <style>a{}</style> }")));
+            // At the top level of a file without a file class.
+            assertEquals(List.of("JASX2015"), codes(new SourceFile("T.jasx", "<style>a{}</style>\nclass T {}\n")));
+        }
+
+        @Test
+        void aStyleBlockCanBeInAnyClassBody() {
+            CompilationResult r = compile(new SourceFile("T.jasx", """
+                    import jasx.runtime.Element;
+                    class T {
+                      static class Inner {
+                        <style>a { }</style>
+                      }
+                      static Element A() { return <a/>; }
+                    }
+                    """));
+            assertEquals(List.of(), r.diagnostics());
+            assertTrue(r.files().get(0).content().contains("jasx.html.Html.scoped(T.Inner.jasx$styles, "),
+                    r.files().get(0).content());
+        }
+
+        @Test
+        void onlyOneStyleBlockPerFile() {
+            CompilationResult r = compile(file("<style>a{}</style>\n<style>b{}</style>"));
+            assertEquals(List.of("T.jasx:6:1: error: a file can have only one style block [JASX2016]"),
+                    r.diagnostics().stream().map(CompilerDiagnostic::format).toList());
+        }
+
+        @Test
+        void theTargetMustSupportStyleBlocks() {
+            Target withoutStyles = new Target("plain", HTML.factory(), HTML.attributesPackage(), HTML.schema(),
+                    HTML.javaEventHandlers(), false);
+            CompilationResult r = new JasxCompiler(withoutStyles).compile(List.of(file("<style>a{}</style>")));
+            assertEquals(List.of("JASX2106"), r.diagnostics().stream().map(CompilerDiagnostic::code).toList());
+        }
+
+        @Test
+        void filesWithoutAStyleBlockAreNotScoped() {
+            String java = compile(file("static Element A() { return <p/>; }")).files().get(0).content();
+            assertFalse(java.contains("scoped("), java);
+        }
+    }
 }

@@ -1,0 +1,8 @@
+[
+  {
+    "code": "JASX1012",
+    "severity": "error",
+    "range": [12, 19],
+    "loc": { "start": { "line": 2, "column": 2 }, "end": { "line": 2, "column": 9 } }
+  }
+]

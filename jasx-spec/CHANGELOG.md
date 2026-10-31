@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0-draft, revision 7
+
+### Added
+
+- **Style blocks** (`grammar.md` §7.3, `ast.md` §6.7, `semantics.md` §10). A `<style>...</style>` block where a field could be declared holds plain CSS for the markup of its file. The compiler scopes it: each selector gets the file's scope class (`jx-` and 8 hex digits of a hash of the file's qualified name) on its last compound selector, `:global(...)` opts out, and every intrinsic element written in the file is marked with `F.scoped(sheet, element)`. CSS mistakes are compile-time errors with `.jasx` locations. Targets opt in with the descriptor field `"styles": "css"`.
+- AST node `JasxStyleBlock`.
+- Diagnostics JASX1012 (unclosed style block), JASX2014 (invalid CSS), JASX2015 (misplaced style block), JASX2016 (second style block in a file) and JASX2106 (target without style support).
+- `html` target: `"styles": "css"`, scoped elements get the scope class, and `Html.styles()` renders the style sheets used in a render (`targets/html.md` §3.5).
+- Conformance tests `parse/014-style-block`, `errors/013-unclosed-style-block`, `render/010-style-block` and `render/011-style-block-in-class`.
+
+### Changed
+
+- **Markup detection is unchanged, but `<style>` at the start of a statement or member now starts a style block** (`grammar.md` §7.3). A generic method or constructor declared without modifiers can no longer have a first type parameter named `style`.
+
 ## 1.0-draft, revision 6
 
 ### Added

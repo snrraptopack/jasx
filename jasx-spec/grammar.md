@@ -13,7 +13,7 @@ A JASX source file is a Java compilation unit in which **markup** may appear whe
 JASX extends the Java grammar in two places:
 
 - **Markup expressions** (below, §4–§6), the main extension.
-- **The compilation unit** (§7): a `.jasx` file may declare fields and methods at the top level, outside any class (§7.2).
+- **The compilation unit** (§7): a `.jasx` file may declare fields and methods at the top level, outside any class (§7.2), and may contain a **style block** of CSS where a field could be declared (§7.3).
 
 Markup is added as a new kind of primary expression:
 
@@ -289,9 +289,10 @@ JasxUnitSegment:
     JavaCode
     JasxElement
     JasxFragment
+    JasxStyleBlock
 ```
 
-`JavaCode` is a maximal run of source text scanned in Java mode that contains no markup. A JASX source file containing no markup is a single `JavaCode` segment and is a valid Java compilation unit.
+`JavaCode` is a maximal run of source text scanned in Java mode that contains no markup and no style block. A JASX source file containing neither is a single `JavaCode` segment.
 
 ### 7.2 Top-level members
 
@@ -313,6 +314,36 @@ Top-level members are Java source. The parser does not recognize them: they are 
 
 Markup detection (§4) is unchanged at the top level. `;` and `}` are not in **S**, so a generic method declared without modifiers (`<T> Element ListView(...)`) is Java, exactly as it is at the start of a type body.
 
+### 7.3 Style blocks
+
+A style block holds CSS for the markup of its file (`semantics.md` §10):
+
+```java
+<style>
+  .card { padding: 1rem; }
+</style>
+```
+
+```
+JasxStyleBlock:
+    < style > JasxStyleText < / style >
+
+JasxStyleText:
+    any sequence of characters that does not contain </style>
+```
+
+**Detection.** In Java mode, outside expression containers, a `<` begins a style block if and only if:
+
+- the seven characters `<style>` start at it (no whitespace or attributes inside the tag), and
+- the previous significant token is a `;`, a `}`, a `{` that does not open an array initializer, or there is none, and
+- the innermost unclosed bracket, if there is one, is a `{`.
+
+These are the positions where a statement or a member declaration begins. Markup is never detected there (§4.4), and Java allows a `<` there only to start the type parameters of a generic method or constructor declared without modifiers, or the type arguments of an explicit constructor invocation. Consequently, such a declaration or invocation **cannot** have a first type parameter or type argument named `style` (`<style> void m()`). Add a modifier or rename the type parameter.
+
+**Content.** The text of a style block runs from after `<style>` up to the first `</style>`. It is not tokenized: braces, quotes, `<` and `&` have no meaning to the parser, and Unicode escapes are not processed. The content is CSS, and its meaning is defined in `semantics.md` §10.
+
+End of input before `</style>` is an error (JASX1012).
+
 ---
 
 ## 8. Early errors
@@ -332,5 +363,6 @@ The following are syntax errors that a conforming parser **MUST** report, with t
 | `}` or `>` appears in `JasxText` | JASX1009 |
 | An unknown named character reference | JASX1010 |
 | A `JasxIdentifier` ends with `-`, or a qualified name contains `-` | JASX1011 |
+| End of input inside a `JasxStyleBlock` (no `</style>`) | JASX1012 |
 
 Two element names are **identical** if they have the same AST shape and the same identifier strings. `<a.b>` closes only with `</a.b>`.

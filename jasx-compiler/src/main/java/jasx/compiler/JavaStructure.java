@@ -101,8 +101,25 @@ final class JavaStructure {
      */
     record TopLevelDecl(TopLevelKind kind, int start, int end, int staticAt, boolean isStatic) {}
 
+    /**
+     * A part of the file that is not Java and becomes one opaque token: a markup expression, or a style
+     * block, so that braces and {@code <} inside it are never seen as Java.
+     */
+    record Opaque(int start, int end, boolean isStyleBlock) {}
+
+    /**
+     * Where a style block is (semantics.md §10.1).
+     *
+     * @param owner the class it is a member of (a type body, or the file class at the top level), or
+     *     null if it is somewhere a field can't be declared
+     */
+    record StylePlace(int start, int end, TypeDecl owner) {}
+
     /** The text of the opaque token that stands for a markup expression. */
     private static final String MARKUP = "<jasx>";
+
+    /** The text of the opaque token that stands for a style block. */
+    private static final String STYLE_BLOCK = "<style>";
 
     /** The stack entry for a brace that is not a type body. */
     private static final Object BLOCK = new Object();
@@ -136,6 +153,14 @@ final class JavaStructure {
     /** The end of the last package or import declaration, where the file class starts (semantics.md §9.4). */
     int afterImports;
 
+    /** The style blocks of the file, in source order. */
+    final List<StylePlace> styleBlocks = new ArrayList<>();
+
+    /** A style block as the walk saw it: in a type body (owner, null at the top level), or inside a block. */
+    private record StyleSighting(Token token, TypeDecl owner, boolean insideBlock) {}
+
+    private final List<StyleSighting> styleSightings = new ArrayList<>();
+
     private JavaStructure(List<Token> tokens, int fileLength, String fileClassName) {
         this.tokens = tokens;
         this.fileLength = fileLength;
@@ -145,41 +170,37 @@ final class JavaStructure {
     /**
      * Scans {@code source}.
      *
-     * @param markupRanges the {@code [start, end)} range of each top-level markup expression, in order;
-     *     each becomes one opaque token, so that braces and {@code <} inside markup are never seen as Java
+     * @param opaque the top-level markup expressions and style blocks, in order; each becomes one token
      * @param fileClassName the name of the file class if the file turns out to need one (the file name
      *     without {@code .jasx}), or null for a {@code .java} file, whose top-level declarations are not
      *     recorded
      */
-    static JavaStructure scan(String source, List<int[]> markupRanges, String fileClassName) {
-        JavaStructure structure = new JavaStructure(tokenize(source, markupRanges), source.length(), fileClassName);
+    static JavaStructure scan(String source, List<Opaque> opaque, String fileClassName) {
+        JavaStructure structure = new JavaStructure(tokenize(source, opaque), source.length(), fileClassName);
         structure.walk();
         structure.nestTopLevelTypesInFileClass();
+        structure.placeStyleBlocks();
         return structure;
     }
 
-    /** Scans a file that can't have a file class. */
-    static JavaStructure scan(String source, List<int[]> markupRanges) {
-        return scan(source, markupRanges, null);
-    }
-
-    private static List<Token> tokenize(String source, List<int[]> markupRanges) {
+    private static List<Token> tokenize(String source, List<Opaque> opaque) {
         JavaLexer lexer = new JavaLexer(source);
         List<Token> tokens = new ArrayList<>();
-        int nextMarkup = 0;
+        int nextOpaque = 0;
 
         int p = lexer.skipTrivia(0);
         while (p < source.length()) {
-            // Skip past markup ranges that are already behind us.
-            while (nextMarkup < markupRanges.size() && markupRanges.get(nextMarkup)[1] <= p) {
-                nextMarkup++;
+            // Skip past opaque ranges that are already behind us.
+            while (nextOpaque < opaque.size() && opaque.get(nextOpaque).end() <= p) {
+                nextOpaque++;
             }
 
-            boolean atMarkup = nextMarkup < markupRanges.size() && markupRanges.get(nextMarkup)[0] == p;
-            if (atMarkup) {
-                int end = markupRanges.get(nextMarkup)[1];
-                tokens.add(new Token(Kind.OPERATOR, MARKUP, p, end));
-                p = lexer.skipTrivia(end);
+            boolean atOpaque = nextOpaque < opaque.size() && opaque.get(nextOpaque).start() == p;
+            if (atOpaque) {
+                Opaque range = opaque.get(nextOpaque);
+                String text = range.isStyleBlock() ? STYLE_BLOCK : MARKUP;
+                tokens.add(new Token(Kind.OPERATOR, text, p, range.end()));
+                p = lexer.skipTrivia(range.end());
             } else {
                 Token token = lexer.lex(p);
                 tokens.add(token);
@@ -215,6 +236,16 @@ final class JavaStructure {
 
         for (int i = 0; i < tokens.size(); i++) {
             Token t = tokens.get(i);
+
+            // A style block is noted where it is, and ends the member before it like a ';'.
+            if (t.is(STYLE_BLOCK)) {
+                boolean insideBlock = isSkipped(braces.peek());
+                styleSightings.add(new StyleSighting(t, insideBlock ? null : (TypeDecl) braces.peek(), insideBlock));
+                if (!insideBlock) {
+                    memberStart = i + 1;
+                }
+                continue;
+            }
 
             // Inside a block: only track braces until the block closes.
             if (isSkipped(braces.peek())) {
@@ -406,6 +437,24 @@ final class JavaStructure {
         }
         for (TypeDecl type : types) {
             type.qualifiedName = qualifiedNameOf(type);
+        }
+    }
+
+    /**
+     * After the scan: the class each style block belongs to. At the top level that is the file class, so a
+     * style block at the top level of a file without one has no class (semantics.md §10.1).
+     */
+    private void placeStyleBlocks() {
+        for (StyleSighting sighting : styleSightings) {
+            TypeDecl owner;
+            if (sighting.insideBlock()) {
+                owner = null; // in a method body, an initializer, ...
+            } else if (sighting.owner() != null) {
+                owner = sighting.owner();
+            } else {
+                owner = fileClass; // the top level: null if the file has no file class
+            }
+            styleBlocks.add(new StylePlace(sighting.token().start(), sighting.token().end(), owner));
         }
     }
 

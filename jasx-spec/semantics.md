@@ -2,7 +2,7 @@
 
 **Spec version:** 1.0-draft
 
-This document defines what JASX markup **means** independently of any target. It covers how element names are classified, how text and attributes are normalized, how components are resolved and called, the standard **factory lowering**, the **target interface** through which targets plug in, the classification of **static and dynamic positions**, and **file classes** for top-level declarations.
+This document defines what JASX markup **means** independently of any target. It covers how element names are classified, how text and attributes are normalized, how components are resolved and called, the standard **factory lowering**, the **target interface** through which targets plug in, the classification of **static and dynamic positions**, **file classes** for top-level declarations, and scoped **style blocks**.
 
 JASX relates to its targets the way JSX relates to React, Preact or Solid. The language defines syntax and a standard transform to calls on a factory supplied by a library. A target is that library. It supplies the factory and an attribute schema and, optionally, its own lowering. Target-specific behaviour is specified separately, under [`targets/`](targets/).
 
@@ -275,6 +275,8 @@ A target's **factory class** `F` provides these static functions:
 | `Element F.keyed(Object key, Element element)` | Attach a key (§6.4). |
 | `Element F.text(String value)` | Create a text element (used where a child must be an `Element`). |
 
+A target that supports style blocks also provides `styleSheet` and `scoped` (§10.5).
+
 Each child passed to `h` or `fragment` is a child value (§3). Text child values are passed as Java string literals, and expression child values as their Java expression. All of them **MUST** be interpreted by the child value contract (§3.4).
 
 ### 6.3 Intrinsic lowering
@@ -369,6 +371,7 @@ The build selects one target per source set by its `id`. All targets share the g
 | `schema` | resource path | Element and attribute schema (§7.3). |
 | `lowering` | `"factory"` or a class name | Factory lowering (§6), or the class implementing a custom lowering (§7.4). |
 | `eventHandlers` | `"none"` or `"java"` | Whether event attributes accept Java expressions (such as lambdas) as handlers. Where and when a handler runs is defined by the target. |
+| `styles` | `"none"` (the default) or `"css"` | Whether the target supports style blocks (§10). |
 
 A descriptor **MAY** contain other fields, which a compiler that doesn't know them ignores. Fields for reactive targets (such as a `reactive` flag) are not defined in 1.0 (§7.6).
 
@@ -401,6 +404,7 @@ The interface through which the compiler loads a custom lowering is defined by t
 | Children on a void element | JASX2102 |
 | A Java expression as the value of an event attribute on a target with `eventHandlers: "none"` | JASX2103 |
 | A tag not in the schema | JASX2105 |
+| A style block on a target without `"styles": "css"` (§10.6) | JASX2106 |
 
 JASX2104 is reserved for reactive targets, which are not defined in 1.0.
 
@@ -492,3 +496,99 @@ The compiler turns the file into its file class by inserting text into the `Java
 1. `public final class N { private N() {} `, where `N` is the file class name, is inserted directly after the `;` of the last package or import declaration, or at the start of the file if there is none.
 2. `static ` is inserted into each top-level declaration that is not already `static`, after its annotations and modifiers and before the rest of the declaration (the type parameters, the type, or the `class`, `interface`, `enum`, `record` or `@interface` keyword).
 3. A line terminator, if the file does not end with one, and `}` are appended at the end of the file.
+
+---
+
+## 10. Style blocks
+
+A style block (`grammar.md` §7.3) holds CSS for the markup of its file. The CSS is **scoped**: its rules apply only to the intrinsic elements written in the same file, so two files can both style `.title` without affecting each other. The CSS is plain CSS; JASX adds nothing to it except `:global(...)` (§10.4).
+
+```java
+<style>
+  .card  { padding: 1rem; }
+  .title { font-weight: 600; }
+</style>
+
+public Element Card(String title) {
+  return <div class="card"><h2 class="title">{title}</h2></div>;
+}
+```
+
+The core defines where a style block may appear, which elements it applies to, how its CSS is scoped and how it is lowered. How the CSS reaches the output (for example, as a `<style>` element in an HTML page) is defined by the target. Style blocks require a target that supports them (§10.6).
+
+### 10.1 Placement
+
+- A style block **MUST** appear where a field declaration could: directly in the body of a class, interface, enum or record, or at the top level of a file that has a file class (§9). Anywhere else (in a method body, or at the top level of a file without a file class) it is an error (JASX2015).
+- A file **MUST NOT** contain more than one style block (JASX2016).
+
+### 10.2 What a style block applies to
+
+A style block applies to every **intrinsic element written in its file**, in any class of the file. It does not apply to elements written in other files, even when they are passed into this file's markup (as `children`, for example). A component's elements are styled by the style block of the file that declares the component.
+
+### 10.3 The scope name
+
+Each file with a style block has a **scope name**: `jx-` followed by the first 8 hexadecimal digits, in lowercase, of the SHA-256 hash of the UTF-8 encoding of the file's **qualified name**. The qualified name is the package name, a `.`, and the file name without `.jasx` (`hello.ui.Layout` for `hello/ui/Layout.jasx` in package `hello.ui`), or only the file name without `.jasx` in the unnamed package. The scope name is a valid CSS class name.
+
+### 10.4 Scoped CSS
+
+The content of the style block is transformed into its **scoped CSS** as follows. The transformation reads CSS only as far as needed to find selectors; it never interprets properties or values.
+
+**Reading.** The content is read as CSS text in which:
+
+- a comment runs from `/*` to the next `*/`;
+- a string runs from `"` or `'` to the next unescaped matching quote, and may not contain a line terminator;
+- `\` escapes the next character;
+- `(` with `)` and `[` with `]` are matched pairs. Inside them, commas and semicolons do not separate anything, and a brace is an error.
+
+**Rules.** The content is a **rule list**. Each item of a rule list is either:
+
+- an **at-rule**: `@name` and its prelude, ending at a `;` (`@import url(a.css);`) or followed by a block in braces;
+- a **style rule**: a prelude, which is its **selector list**, followed by a block in braces.
+
+The block of a **grouping at-rule** (`@media`, `@supports`, `@container`, `@layer`, `@scope`, `@starting-style`, `@document`) is again a rule list. The block of any other at-rule (such as `@keyframes`, `@font-face`, `@page` or `@property`) is copied unchanged.
+
+Each item in the block of a style rule is a declaration, which ends at a `;` or at the end of the block, or, if a `{` comes before any `;`, a **nested rule** in CSS nesting syntax: an at-rule, read as above, or a nested style rule.
+
+**Scoping a selector list.** Every selector list of a style rule, including nested ones, is split at the commas that are not inside parentheses, brackets or strings. Each part, with its surrounding whitespace removed, is a **complex selector**:
+
+- If it is `:global(` *S* `)`, it is replaced by *S*, unscoped.
+- Otherwise, its **last compound selector** is the text after the last **combinator** (whitespace, `>`, `+` or `~`) that is not inside parentheses, brackets or strings. A `.` followed by the scope name is inserted into that compound: before its first pseudo-element (`::` followed by a name, or one of `:before`, `:after`, `:first-line`, `:first-letter`), or at its end if it has none.
+
+The parts are then joined with `, `.
+
+| Selector | Scoped (with scope name `jx-1`) |
+|---|---|
+| `.card` | `.card.jx-1` |
+| `ul > li:hover` | `ul > li:hover.jx-1` |
+| `.title::before` | `.title.jx-1::before` |
+| `a, b:not(.x, .y)` | `a.jx-1, b:not(.x, .y).jx-1` |
+| `:global(body)` | `body` |
+| `.dark .card` | `.dark .card.jx-1`: only the last compound is scoped, so `.dark` may match an element of another file |
+| `&:hover` (nested) | `&:hover.jx-1` |
+
+**Output.** Comments are removed. Then leading and trailing whitespace is removed from every line, empty lines are removed, and the remaining lines are joined with LF.
+
+**Errors.** The following are errors (JASX2014), located at the offending text in the `.jasx` file:
+
+- a comment, string, parenthesis, bracket or block that is not closed;
+- a `}` that closes nothing, or a brace inside parentheses or brackets;
+- a style rule with an empty selector list, or with an empty complex selector;
+- the text `</style` in any letter case, which would end an HTML `<style>` element early.
+
+### 10.5 Lowering
+
+A target that supports style blocks provides two more factory functions (§6.2):
+
+| Function | Purpose |
+|---|---|
+| `Object F.styleSheet(String scope, String css)` | Create a file's style sheet from its scope name and scoped CSS. |
+| `Element F.scoped(Object sheet, Element element)` | Mark an intrinsic element as written in a file with the style sheet `sheet`. |
+
+- The style block is replaced, starting at its position, by the field declaration `static final java.lang.Object jasx$styles = F.styleSheet("scope", "css");`, where `css` is the scoped CSS as a Java string literal. The field is a member of the class in whose body the style block appears, or of the file class. The lines of the style block after its first become empty lines (§6.5).
+- Every intrinsic element of the file lowers to `F.scoped(C.jasx$styles, e)`, where `e` is its lowering by §6.3 and `C` is the fully qualified name of the class that declares the field. A `key` is applied outside: `F.keyed(k, F.scoped(C.jasx$styles, e))`. Fragments and component calls are not wrapped.
+
+### 10.6 Target support
+
+A target supports style blocks if its descriptor has `"styles": "css"` (§7.2). A style block in a file compiled for any other target is an error (JASX2106).
+
+What a style sheet and a scoped element mean, and how the scoped CSS is delivered, is target-defined. A target **SHOULD** give each scoped element the scope name of its style sheet as a CSS class, so that the scoped CSS applies to it, and **SHOULD** make the scoped CSS of the elements it renders available to the application.

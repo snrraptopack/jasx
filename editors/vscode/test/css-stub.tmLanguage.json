@@ -1,0 +1,8 @@
+{
+  "comment": "A tiny stand-in for VS Code's built-in CSS grammar, used only by the tests: it marks class selectors and comments, enough to see that a style block's content is highlighted as CSS.",
+  "scopeName": "source.css",
+  "patterns": [
+    { "begin": "/\\*", "end": "\\*/", "name": "comment.block.css" },
+    { "match": "\\.[A-Za-z_-][\\w-]*", "name": "entity.other.attribute-name.class.css" }
+  ]
+}

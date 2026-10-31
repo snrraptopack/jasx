@@ -52,10 +52,18 @@
         "range": true, "loc": true,
         "specVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
         "sourceFile": { "type": ["string", "null"] },
-        "segments": { "type": "array", "items": { "$ref": "#/$defs/Segment" } }
+        "segments": { "type": "array", "items": { "$ref": "#/$defs/UnitSegment" } }
       },
       "patternProperties": { "^_": true },
       "additionalProperties": false
+    },
+    "UnitSegment": {
+      "oneOf": [
+        { "$ref": "#/$defs/JavaCode" },
+        { "$ref": "#/$defs/JasxElement" },
+        { "$ref": "#/$defs/JasxFragment" },
+        { "$ref": "#/$defs/JasxStyleBlock" }
+      ]
     },
     "Segment": {
       "oneOf": [
@@ -73,6 +81,18 @@
         "type": { "const": "JavaCode" },
         "range": true, "loc": true,
         "source": { "type": "string" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxStyleBlock": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["css"],
+      "properties": {
+        "type": { "const": "JasxStyleBlock" },
+        "range": true, "loc": true,
+        "css": { "type": "string" }
       },
       "patternProperties": { "^_": true },
       "additionalProperties": false

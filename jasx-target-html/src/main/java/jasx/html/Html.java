@@ -1,6 +1,9 @@
 package jasx.html;
 
 import java.lang.reflect.Array;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -10,9 +13,10 @@ import jasx.runtime.Element;
 /**
  * The factory class of the html reference target (semantics.md §6.2, targets/html.md).
  *
- * <p>Lowered markup calls {@link #h}, {@link #fragment}, {@link #keyed} and {@link #text}. Applications
- * call {@link #render} to turn the result into an HTML string, and {@link #rawHtml} to insert trusted
- * HTML without escaping.
+ * <p>Lowered markup calls {@link #h}, {@link #fragment}, {@link #keyed} and {@link #text}, and in files with a
+ * style block {@link #styleSheet} and {@link #scoped}. Applications call {@link #render} to turn the result
+ * into an HTML string, {@link #rawHtml} to insert trusted HTML without escaping, and {@link #styles} to place
+ * the CSS of the style blocks used on a page.
  */
 public final class Html {
     /** Elements that have no content and no closing tag (targets/html.md §3). */
@@ -50,6 +54,25 @@ public final class Html {
         return new HtmlElement.Text(value);
     }
 
+    /** The style sheet of a file with a style block, with its CSS already scoped (semantics.md §10.5). */
+    public static StyleSheet styleSheet(String scope, String css) {
+        return new StyleSheet(scope, css);
+    }
+
+    /** An element written in a file whose style sheet is {@code sheet}; it gets the sheet's scope class. */
+    public static Element scoped(Object sheet, Element element) {
+        return new HtmlElement.Scoped((StyleSheet) sheet, element);
+    }
+
+    /**
+     * Renders as a {@code <style>} element with the CSS of every style sheet used in the same
+     * {@link #render} call, or as nothing if none is used (targets/html.md §3.5). Put it in {@code <head>}:
+     * it is filled in after the rest of the page is rendered.
+     */
+    public static Element styles() {
+        return new HtmlElement.Styles();
+    }
+
     /** Inserts {@code html} without any escaping. Only use it for trusted content. */
     public static Element rawHtml(String html) {
         return new HtmlElement.Raw(html);
@@ -66,13 +89,22 @@ public final class Html {
     public static String render(Object value) {
         Renderer renderer = new Renderer();
         renderer.child(value);
+        renderer.insertStyles();
         return renderer.out.toString();
     }
 
-    /** Renders into one buffer. Inside {@code <script>} and {@code <style>}, text is not escaped. */
+    /**
+     * Renders into one buffer. Inside {@code <script>} and {@code <style>}, text is not escaped. It also
+     * collects the style sheets of the scoped elements it renders, for {@link #styles()}.
+     */
     private static final class Renderer {
         final StringBuilder out = new StringBuilder();
         boolean escapeText = true;
+
+        /** The style sheets used so far, in the order they were first used. */
+        final Set<StyleSheet> sheets = new LinkedHashSet<>();
+        /** Where the first {@code styles()} element is in {@link #out}, or -1 if there is none. */
+        int stylesAt = -1;
 
         /** The child value contract (semantics.md §3.4). */
         void child(Object value) {
@@ -107,14 +139,45 @@ public final class Html {
                 case HtmlElement.Keyed keyed -> child(keyed.element());
                 case HtmlElement.Text text -> text(text.value());
                 case HtmlElement.Raw raw -> out.append(raw.html());
+                case HtmlElement.Scoped scoped -> scoped(scoped);
+                case HtmlElement.Styles styles -> {
+                    if (stylesAt < 0) {
+                        stylesAt = out.length(); // filled in by insertStyles(), once everything is rendered
+                    }
+                }
             }
         }
 
-        void tag(HtmlElement.Tag tag) {
-            out.append('<').append(tag.tag());
-            if (tag.attributes() != null) {
-                attributes(tag.attributes());
+        /** A scoped element: its tag gets the scope class, and its style sheet is recorded (§3.5). */
+        void scoped(HtmlElement.Scoped scoped) {
+            sheets.add(scoped.sheet());
+            if (scoped.element() instanceof HtmlElement.Tag tag) {
+                tag(tag, scoped.sheet().scope());
+            } else {
+                child(scoped.element());
             }
+        }
+
+        /** Puts the CSS of the style sheets used at the place of the first {@code styles()} element. */
+        void insertStyles() {
+            if (stylesAt < 0 || sheets.isEmpty()) {
+                return;
+            }
+            List<String> css = new ArrayList<>();
+            for (StyleSheet sheet : sheets) {
+                css.add(sheet.css());
+            }
+            out.insert(stylesAt, "<style>" + String.join("\n", css) + "</style>");
+        }
+
+        void tag(HtmlElement.Tag tag) {
+            tag(tag, null);
+        }
+
+        /** An element; {@code scopeClass} is the class of its style sheet, or null if it isn't scoped. */
+        void tag(HtmlElement.Tag tag, String scopeClass) {
+            out.append('<').append(tag.tag());
+            attributes(tag.attributes(), scopeClass);
             out.append('>');
 
             if (VOID_ELEMENTS.contains(tag.tag())) {
@@ -154,24 +217,46 @@ public final class Html {
             }
         }
 
-        /** targets/html.md §3.1: true is written as the bare name, false and null are left out. */
-        void attributes(Attributes<?> attributes) {
-            for (int i = 0; i < attributes.size(); i++) {
+        /**
+         * targets/html.md §3.1: true is written as the bare name, false and null are left out. For a scoped
+         * element (§3.5), the scope class is appended to the class attribute, or written as one.
+         *
+         * @param attributes the attributes, or null if there are none
+         * @param scopeClass the scope class, or null if the element isn't scoped
+         */
+        void attributes(Attributes<?> attributes, String scopeClass) {
+            boolean scopeWritten = false;
+            int count = attributes != null ? attributes.size() : 0;
+            for (int i = 0; i < count; i++) {
+                String name = attributes.name(i);
                 Object value = attributes.value(i);
                 if (value == null || Boolean.FALSE.equals(value)) {
                     continue;
                 }
 
-                out.append(' ').append(attributes.name(i));
+                boolean isScopedClass = scopeClass != null && name.equals("class");
+                if (isScopedClass && Boolean.TRUE.equals(value)) {
+                    continue; // a bare "class" is replaced by class="scope" below
+                }
+
+                out.append(' ').append(name);
                 if (Boolean.TRUE.equals(value)) {
                     continue;
                 }
 
                 // Markup as an attribute value is rendered to HTML first, then escaped like any text.
                 String text = value instanceof Element ? render(value) : String.valueOf(value);
+                if (isScopedClass) {
+                    text = text + " " + scopeClass;
+                    scopeWritten = true;
+                }
                 out.append("=\"");
                 escape(text, true);
                 out.append('"');
+            }
+
+            if (scopeClass != null && !scopeWritten) {
+                out.append(" class=\"").append(scopeClass).append('"');
             }
         }
 

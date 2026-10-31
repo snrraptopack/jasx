@@ -23,6 +23,7 @@ import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxIdentifier;
 import jasx.parser.ast.Ast.JasxNamespacedName;
 import jasx.parser.ast.Ast.JasxStringLiteral;
+import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JasxText;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
@@ -114,6 +115,8 @@ final class Lowering {
     private final Resolver resolver;
     private final Emitter out;
     private final List<Diagnostic> diagnostics = new ArrayList<>();
+    /** The file's style block, or null. If set, every intrinsic element is scoped (semantics.md §10.5). */
+    private StyleBlocks.Plan styles;
 
     Lowering(SourceFile file, LineMap lines, Target target, Resolver resolver) {
         this.file = file;
@@ -146,8 +149,13 @@ final class Lowering {
         static final int CLASS_END = 3;
     }
 
-    /** Lowers the whole file, adding {@code insertions} to its Java code. */
-    GeneratedFile lower(JasxCompilationUnit unit, List<Insertion> insertions) {
+    /**
+     * Lowers the whole file, adding {@code insertions} to its Java code.
+     *
+     * @param styles how to lower the file's style block, or null if it has none
+     */
+    GeneratedFile lower(JasxCompilationUnit unit, List<Insertion> insertions, StyleBlocks.Plan styles) {
+        this.styles = styles;
         List<Insertion> pending = new ArrayList<>(insertions);
         pending.sort(Comparator.comparingInt(Insertion::offset).thenComparingInt(Insertion::order));
         int next = 0;
@@ -155,6 +163,10 @@ final class Lowering {
         for (Segment segment : unit.segments()) {
             if (segment instanceof Markup markup) {
                 markup(markup);
+                continue;
+            }
+            if (segment instanceof JasxStyleBlock block) {
+                styleBlock(block);
                 continue;
             }
 
@@ -179,6 +191,25 @@ final class Lowering {
         }
 
         return new GeneratedFile(file, file.javaPath(), out.text(), out.spans());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // The style block (semantics.md §10.5)
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * {@code <style>.a {}</style>}  →
+     * {@code static final java.lang.Object jasx$styles = F.styleSheet("jx-1a2b3c4d", ".a.jx-1a2b3c4d {}");}
+     *
+     * <p>The declaration is written on the style block's first line; its other lines stay empty.
+     */
+    private void styleBlock(JasxStyleBlock block) {
+        if (styles == null) {
+            return; // a style block with errors: JasxCompiler doesn't lower such a file
+        }
+        String declaration = "static final java.lang.Object " + StyleBlocks.Plan.FIELD + " = " + factory
+                + ".styleSheet(" + javaString(styles.scope()) + ", " + javaString(styles.css()) + ");";
+        out.emit(declaration, block.start());
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -298,6 +329,12 @@ final class Lowering {
             error("JASX2102", "<" + tag + "> is a void element and cannot have children", first.start(), first.end());
         }
 
+        // In a file with a style block, the element is scoped: F.scoped(C.jasx$styles, F.h(...)) (§10.5).
+        boolean scoped = styles != null;
+        if (scoped) {
+            out.emit(factory + ".scoped(" + styles.fieldReference() + ", ", element.start());
+        }
+
         // F.h("tag", attributes, children...)
         out.emit(factory + ".h(" + javaString(tag) + ", ", element.start());
         attributeBuilder(tag, spec, attributes, element.start());
@@ -305,7 +342,7 @@ final class Lowering {
             out.emit(", ", child.start());
             child(child);
         }
-        out.emit(")", closingAnchor(element));
+        out.emit(scoped ? "))" : ")", closingAnchor(element));
     }
 
     /**

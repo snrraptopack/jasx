@@ -38,6 +38,12 @@ public final class Ast {
 
     public record JavaCode(int start, int end, String source) implements Segment {}
 
+    /**
+     * A style block, {@code <style>css</style>} (grammar.md §7.3). Appears only in
+     * {@code JasxCompilationUnit.segments}. {@code css} is the text between the tags, exactly as written.
+     */
+    public record JasxStyleBlock(int start, int end, String css) implements Segment {}
+
     public record JavaExpression(int start, int end, List<Segment> segments) implements Expression {}
 
     public record JasxEmptyExpression(int start, int end, String source) implements Expression {}
