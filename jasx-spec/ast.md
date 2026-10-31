@@ -226,7 +226,7 @@ interface JasxEmptyExpression <: Node {
 }
 ```
 
-The container's `range` includes the braces. The range of its `expression` excludes them.
+The container's `range` includes the braces. The range of its `expression` excludes them. The closing `}` is scanned in Java mode, so it may be written as a Unicode escape (`grammar.md` §3); the container's range then ends after the whole escape.
 
 ---
 

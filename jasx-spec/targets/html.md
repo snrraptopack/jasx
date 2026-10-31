@@ -2,7 +2,7 @@
 
 **Spec version:** 1.0-draft
 
-The `html` target renders markup to an HTML string on the server. It is the first standard target, and it is the target used by the render conformance tests (`conformance.md` §4). It uses **factory lowering** (`semantics.md` §6) without changes.
+The `html` target renders markup to an HTML string. It is the **reference target** of the specification (`semantics.md` §7.6): the simplest useful meaning for markup, used by the render conformance tests (`conformance.md` §4) to check the core semantics. It uses **factory lowering** (`semantics.md` §6) without changes and is not reactive: every dynamic position (`semantics.md` §8) is evaluated once, when the markup expression is evaluated.
 
 It can be used with any Java web framework (Spring, Javalin, Helidon, plain servlets). Interactivity comes from attributes interpreted by the browser or by client libraries (`hx-*` for htmx, `x-*` for Alpine), never from Java lambdas.
 
@@ -18,7 +18,6 @@ It can be used with any Java web framework (Spring, Javalin, Helidon, plain serv
   "attributes": "jasx.html.attrs",
   "schema": "schemas/html.json",
   "lowering": "factory",
-  "reactive": false,
   "eventHandlers": "none"
 }
 ```

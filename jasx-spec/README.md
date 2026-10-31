@@ -8,7 +8,9 @@ JASX is Java with JSX-style markup expressions. This repository is the **normati
 
 The specification follows the model of the [JSX specification](https://facebook.github.io/jsx/), which extends ESTree with a small set of markup nodes rather than redefining JavaScript. JASX does the same for Java. It defines **only the markup constructs** and treats Java source between them as opaque spans.
 
-Like JSX, JASX is a language, not a framework. The core specification defines the syntax and a standard transform to calls on a **factory** supplied by a **target** library, just as JSX compiles to calls on React, Preact or another library chosen with `jsxImportSource`. Targets such as `html` (server-rendered HTML) and `live` (server-driven UI) are specified separately, and anyone can write a new target without changing the language.
+Like JSX, JASX is a language, not a framework. The core specification defines the syntax and a standard transform to calls on a **factory** supplied by a **target** library, just as JSX compiles to calls on React, Preact or another library chosen with `jsxImportSource`. Anyone can write a target without changing the language.
+
+**Current focus: the core language**, JASX as JSX is without React. The specification defines a single small reference target, `html`, so that core semantics can be tested. Further targets, including any reactive target, are **not decided yet** (`semantics.md` §7.6). `targets/live.md` only records ideas and is not normative.
 
 ---
 
@@ -19,10 +21,10 @@ Like JSX, JASX is a language, not a framework. The core specification defines th
 | [`grammar.md`](grammar.md) | Lexical and syntactic grammar, markup detection rule, early errors | Yes |
 | [`ast.md`](ast.md) | AST node definitions (ESTree-style interface notation), location conventions | Yes |
 | [`ast.schema.json`](ast.schema.json) | JSON Schema for the serialized AST | Yes |
-| [`semantics.md`](semantics.md) | Core semantics: name classification, text normalization, child value contract, component resolution, factory lowering, target interface | Yes |
+| [`semantics.md`](semantics.md) | Core semantics: name classification, text normalization, child value contract, component resolution, factory lowering, target interface, static and dynamic positions | Yes |
 | [`diagnostics.md`](diagnostics.md) | Diagnostic codes, severities and the diagnostic JSON format | Yes |
-| [`targets/html.md`](targets/html.md) | The `html` target: server-rendered HTML | Yes |
-| [`targets/live.md`](targets/live.md) | The `live` target: server-driven reactive UI (less mature) | Yes |
+| [`targets/html.md`](targets/html.md) | The `html` reference target: renders markup to HTML | Yes |
+| [`targets/live.md`](targets/live.md) | Ideas for a server-driven reactive target. **Deferred, not decided** | **No** |
 | [`conformance.md`](conformance.md) | How conformance is defined and how the test suite is structured | Yes |
 | [`tests/`](tests/) | Conformance test fixtures | Yes |
 | [`CHANGELOG.md`](CHANGELOG.md) | Changes between drafts | No |
@@ -48,11 +50,12 @@ Like JSX, JASX is a language, not a framework. The core specification defines th
 | **Intrinsic element** | An element whose name denotes a target-defined tag (e.g. `div`). |
 | **Component element** | An element whose name denotes a component method (e.g. `TodoItem`). |
 | **Component** | A static Java method that returns `jasx.runtime.Element` and is registered in the component index. |
-| **Target** | A library that gives markup its meaning: a descriptor, a factory class, attribute builders, a schema, and optionally a custom lowering (e.g. `html`, `live`). |
+| **Target** | A library that gives markup its meaning: a descriptor, a factory class, attribute builders, a schema, and optionally a custom lowering (e.g. `html`). |
 | **Factory** | The target class whose static functions (`h`, `fragment`, `keyed`, `text`) lowered markup calls. |
 | **Core** | Everything in this specification that does not depend on a target. |
 | **Lowering** | Rewriting markup into plain Java source. |
-| **Boundary** | A markup position whose Java expression is re-evaluated reactively (defined by reactive targets such as `live`). |
+| **Static / dynamic position** | Whether a value position in markup is fixed in the source (text, string literals) or computed by a Java expression (`semantics.md` §8). |
+| **Skeleton** | The static part of a markup tree, with holes for its dynamic positions (`semantics.md` §8). |
 | **Conforming implementation** | An implementation that passes the conformance suite at a given level (see `conformance.md`). |
 
 The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are used as described in RFC 2119.

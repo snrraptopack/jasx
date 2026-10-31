@@ -91,17 +91,19 @@ Codes are never renumbered or reused.
 | JASX2101 | Attribute not defined by the target schema | The attribute |
 | JASX2102 | Children on a void element | The first child |
 | JASX2103 | Java event handler on a target without event handlers | The attribute value |
-| JASX2104 | Reactive API used on a non-reactive target | The call |
+| JASX2104 | *Reserved* for reactive targets (not defined in 1.0) | — |
 | JASX2105 | Tag not defined by the target schema | The element name |
 
 ---
 
 ## 5. Warnings (JASX3xxx)
 
-| Code | Condition | Primary location | Defined by |
-|---|---|---|---|
-| JASX3001 | State read outside a reactive boundary | The `.get()` call | `targets/live.md` §7 |
-| JASX3002 | List produced inside markup without keys, on a target that reconciles lists | The expression container | `targets/live.md` §5 |
+No warnings are defined in 1.0. These codes are **reserved** for a possible reactive target (`targets/live.md`, deferred, not decided), and implementations **MUST NOT** report them:
+
+| Code | Reserved for |
+|---|---|
+| JASX3001 | A state read outside a reactive position |
+| JASX3002 | A list produced inside markup without keys, on a target that reconciles lists |
 
 ---
 
@@ -109,4 +111,4 @@ Codes are never renumbered or reused.
 
 Errors that javac reports on generated code are not JASX diagnostics. A conforming compiler **MUST** remap their positions to the `.jasx` source (`semantics.md` §6.6) and **MUST** report them with javac's own message and the prefix `javac:` in place of a JASX code.
 
-When a javac error is caused by the shape of the generated code rather than by the user's Java (for example a lambda capture inside a `live` boundary, `targets/live.md` §3.3), the compiler **MUST** attach a related note that explains the cause in terms of the `.jasx` source.
+When a javac error is caused by the shape of the generated code rather than by the user's Java (for example, an "effectively final" error caused by a lambda that a target's custom lowering introduced), the compiler **MUST** attach a related note that explains the cause in terms of the `.jasx` source.

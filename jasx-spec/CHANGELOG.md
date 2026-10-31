@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0-draft, revision 3
+
+This revision narrows the current scope to the core language, JASX as JSX is without React, and adds tests written while implementing the reference parser. No AST node changed.
+
+### Changed
+
+- **The `live` target is deferred and not decided.** `targets/live.md` is no longer normative; it only records ideas. Nothing in the core depends on it (`semantics.md` §7.6).
+- **`html` is the reference target**, used to test core semantics through the render tests (`targets/html.md`, `semantics.md` §7.6).
+- **Target descriptor** (`semantics.md` §7.2): the `reactive` field is removed. `eventHandlers` is `"none"` or `"java"` (formerly `"none"`, `"server"` or `"local"`); where a handler runs is target-defined. Unknown descriptor fields are ignored.
+- **Diagnostics** JASX2104, JASX3001 and JASX3002 are reserved and must not be reported (`diagnostics.md` §4, §5).
+- **Keys** (`semantics.md` §6.4) no longer refer to `live`.
+
+### Added
+
+- **Static and dynamic positions** (`semantics.md` §8). The core classifies every value position as static, dynamic child, dynamic attribute, handler, prop or key, and defines the static skeleton. This is target-neutral: it says which parts of markup are computed, not when they are re-evaluated.
+- `ast.md` §6.6: a closing `}` written as a Unicode escape is included entirely in the container's range.
+- Parser conformance tests `010-character-references`, `011-comments-and-text-blocks`, `012-lambda-and-switch` and `013-empty-file`.
+- Diagnostic conformance tests `007-unclosed-element` (JASX1002), `008-invalid-attribute-value` (JASX1005), `009-unexpected-token` (JASX1006), `010-unknown-character-reference` (JASX1010), `011-identifier-ends-with-dash` (JASX1011) and `012-brace-in-text` (JASX1009 for `}`).
+
 ## 1.0-draft, revision 2
 
 This revision makes JASX a target-neutral language, like JSX, with targets as libraries, and fixes errors found in review of the first draft. No AST node changed.

@@ -2,7 +2,7 @@
 
 **Spec version:** 1.0-draft
 
-This document defines what JASX markup **means** independently of any target. It covers how element names are classified, how text and attributes are normalized, how components are resolved and called, the standard **factory lowering**, and the **target interface** through which targets plug in.
+This document defines what JASX markup **means** independently of any target. It covers how element names are classified, how text and attributes are normalized, how components are resolved and called, the standard **factory lowering**, the **target interface** through which targets plug in, and the classification of **static and dynamic positions**.
 
 JASX relates to its targets the way JSX relates to React, Preact or Solid. The language defines syntax and a standard transform to calls on a factory supplied by a library. A target is that library. It supplies the factory and an attribute schema and, optionally, its own lowering. Target-specific behaviour is specified separately, under [`targets/`](targets/).
 
@@ -306,7 +306,7 @@ A tag the schema doesn't define is an error (JASX2105). An attribute the schema 
 
 ### 6.4 Keys
 
-`key={k}` on any element lowers to `F.keyed(k, <lowered element>)`. Keys have no meaning in the core language. A target that reconciles element lists (such as `live`) defines what they mean. A target without reconciliation ignores them.
+`key={k}` on any element lowers to `F.keyed(k, <lowered element>)`. Keys have no meaning in the core language. A target that reconciles element lists (as React does with JSX keys) defines what they mean. A target without reconciliation ignores them.
 
 ### 6.5 Line preservation
 
@@ -352,7 +352,6 @@ The build selects one target per source set by its `id`. All targets share the g
   "attributes": "jasx.html.attrs",
   "schema": "schemas/html.json",
   "lowering": "factory",
-  "reactive": false,
   "eventHandlers": "none"
 }
 ```
@@ -365,8 +364,9 @@ The build selects one target per source set by its `id`. All targets share the g
 | `attributes` | package name | Package of the generated attribute builders (§6.3). |
 | `schema` | resource path | Element and attribute schema (§7.3). |
 | `lowering` | `"factory"` or a class name | Factory lowering (§6), or the class implementing a custom lowering (§7.4). |
-| `reactive` | `true` / `false` | Whether the target defines reactive boundaries (see the target's own document). |
-| `eventHandlers` | `"none"`, `"server"`, `"local"` | Whether event attributes accept Java lambdas, and where they run. |
+| `eventHandlers` | `"none"` or `"java"` | Whether event attributes accept Java expressions (such as lambdas) as handlers. Where and when a handler runs is defined by the target. |
+
+A descriptor **MAY** contain other fields, which a compiler that doesn't know them ignores. Fields for reactive targets (such as a `reactive` flag) are not defined in 1.0 (§7.6).
 
 ### 7.3 Schema
 
@@ -396,15 +396,37 @@ The interface through which the compiler loads a custom lowering is defined by t
 | An attribute not in the schema or its extensions | JASX2101 |
 | Children on a void element | JASX2102 |
 | A Java expression as the value of an event attribute on a target with `eventHandlers: "none"` | JASX2103 |
-| A call to a reactive API on a target with `reactive: false` | JASX2104 |
 | A tag not in the schema | JASX2105 |
 
-### 7.6 Standard targets
+JASX2104 is reserved for reactive targets, which are not defined in 1.0.
 
-| Target | `reactive` | `eventHandlers` | Lowering | Specification |
-|---|---|---|---|---|
-| `html` | `false` | `"none"` | factory | [`targets/html.md`](targets/html.md) |
-| `live` | `true` | `"server"` | custom (skeleton + slots) | [`targets/live.md`](targets/live.md) |
-| `javafx` | `true` | `"local"` | custom | Defined in a later version |
+### 7.6 Targets in this specification
 
-Third-party targets are expected. A target needs no change to the language or the compiler, only a descriptor, a factory, builders and a schema.
+The current goal is the **core language**: JASX as JSX is without React. The specification therefore defines only one target, `html`, as a small **reference target**. It is the simplest useful meaning for markup, and the render conformance tests use it to check core semantics (children normalization, the child value contract, component calls).
+
+| Target | Status | Lowering | Specification |
+|---|---|---|---|
+| `html` | Normative reference target | factory | [`targets/html.md`](targets/html.md) |
+| `live` | **Deferred, not decided.** Ideas only; not normative | custom | [`targets/live.md`](targets/live.md) |
+| `javafx` | Idea only | custom | — |
+
+Which further targets JASX will have, including whether there will be a reactive target, will be decided after the core language is complete. Third-party targets are expected: a target needs no change to the language or the compiler, only a descriptor, a factory, builders and a schema, and optionally a custom lowering.
+
+---
+
+## 8. Static and dynamic positions
+
+Every value position in markup is **static** or **dynamic**. This classification is purely syntactic and part of the core, so that every target, reactive or not, uses the same terms. The core says nothing about *when* or *how often* a dynamic position is evaluated. Factory lowering evaluates each one once, when the markup expression is evaluated, like any Java expression. A target with a custom lowering defines its own evaluation (for example, a reactive target could re-evaluate dynamic children when data changes).
+
+| Position | Kind |
+|---|---|
+| A text child value (§3.1) | **static** |
+| A string-literal attribute value, a shorthand attribute | **static** |
+| An element or fragment, as a child or attribute value | static in itself; its own positions are classified separately |
+| An expression child value (§3.2) | **dynamic child** |
+| An expression container as the value of an intrinsic attribute whose schema kind is not `event` | **dynamic attribute** |
+| An expression container as the value of an intrinsic attribute of schema kind `event` | **handler** |
+| An expression container as the value of a component prop | **prop** |
+| An expression container as the value of `key` | **key** |
+
+The **static skeleton** of a markup tree is its intrinsic elements and fragments, their static attributes and its static text, with each dynamic position marked as a hole. A target **MAY** use the skeleton to render or send static content once (for example, the `html` target could pre-render it to a constant string). Using the skeleton **MUST NOT** change the result of rendering.

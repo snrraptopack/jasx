@@ -1,10 +1,11 @@
-# Target: `live`
+# Target: `live` (deferred, not decided)
 
 **Spec version:** 1.0-draft
+**Status:** **Deferred. Not normative. Not part of current work.**
 
-The `live` target is a server-driven UI, in the same family as Phoenix LiveView, Laravel Livewire and Datastar. Components run on the server, event handlers are Java lambdas executed on the server, and the browser receives fine-grained patches.
+> Nothing in this document has been decided. It records ideas carried over from the design proposal so that they aren't lost. The current goal is the core language: JASX as JSX is without React (`semantics.md`). Whether JASX will have a `live` target, and what it would look like, will be decided after the core language is finished. Implementations **MUST NOT** treat this document as a requirement, and the core specification **MUST NOT** depend on it.
 
-It uses a **custom lowering** (`semantics.md` §7.4). It is the main goal of the JASX project, but it is specified after the core language and the `html` target, and this document is **less mature** than the core specification. The transport, patch protocol and session model are not yet specified.
+The idea is a server-driven UI, in the same family as Phoenix LiveView, Laravel Livewire and Datastar. Components would run on the server, event handlers would be Java lambdas executed on the server, and the browser would receive fine-grained patches. Such a target would use a **custom lowering** (`semantics.md` §7.4), which shows that the target interface can support it. The transport, patch protocol and session model are not specified.
 
 ---
 
@@ -18,10 +19,12 @@ It uses a **custom lowering** (`semantics.md` §7.4). It is the main goal of the
   "attributes": "jasx.live.attrs",
   "schema": "schemas/html-live.json",
   "lowering": "jasx.live.compiler.LiveLowering",
-  "reactive": true,
-  "eventHandlers": "server"
+  "eventHandlers": "java",
+  "reactive": true
 }
 ```
+
+(`reactive` is not a core descriptor field; a compiler that doesn't know it ignores it, `semantics.md` §7.2.)
 
 The schema is the HTML schema of `targets/html.md`, with event attributes (`onClick`, `onInput`, `onSubmit`, …) of kind `event` that accept Java handlers such as `Consumer<jasx.event.ClickEvent>`.
 
@@ -47,6 +50,8 @@ The factory class adds:
 The compiler does not determine which state a boundary reads. When a boundary runs, the runtime records every `State` and `Computed` read during its execution and subscribes the boundary to them.
 
 ### 3.1 Which positions are boundaries
+
+Boundaries would be exactly the core's **dynamic children** and **dynamic attributes** (`semantics.md` §8). Handlers, props and keys are evaluated once.
 
 | Position | Boundary? |
 |---|---|
