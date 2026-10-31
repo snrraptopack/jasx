@@ -11,11 +11,19 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.networknt.schema.JsonSchema;
 import com.networknt.schema.JsonSchemaFactory;
 import com.networknt.schema.SpecVersion;
+import jasx.compiler.CompilationResult;
+import jasx.compiler.CompilerDiagnostic;
+import jasx.compiler.JasxCompiler;
+import jasx.compiler.JavacRunner;
+import jasx.compiler.SourceFile;
+import jasx.compiler.Target;
+import jasx.html.Html;
 import jasx.parser.AstJson;
 import jasx.parser.JasxParser;
 import jasx.parser.LineMap;
 import jasx.parser.ParseResult;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,9 +38,8 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
 /**
- * The conformance suite of jasx-spec/conformance.md, one dynamic test per fixture. Implemented levels:
- * Parser (tests/parse) and Diagnostics (tests/errors). The HTML target level (tests/render) needs the
- * compiler and is not implemented yet.
+ * The conformance suite of jasx-spec/conformance.md, one dynamic test per fixture: Parser (tests/parse),
+ * Diagnostics (tests/errors), and the html reference target (tests/render).
  */
 class ConformanceTest {
     private static final Path TESTS = Path.of(System.getProperty("jasx.spec.dir"), "tests");
@@ -90,6 +97,36 @@ class ConformanceTest {
                 assertTrue(actual.contains(e), () -> "missing diagnostic " + e + "\nreported: " + actual);
             }
         }));
+    }
+
+    /**
+     * conformance.md §4: lower with the html target, compile, render {@code Test()}, and compare with the
+     * expected HTML (minus its trailing newline).
+     */
+    @TestFactory
+    Stream<DynamicTest> htmlTarget() throws IOException {
+        Target html = Target.load("html", ConformanceTest.class.getClassLoader());
+        return fixtures("render", ".html").map(name -> DynamicTest.dynamicTest(name, () -> {
+            String source = read("render", name + ".jasx");
+            CompilationResult result = new JasxCompiler(html).compile(List.of(new SourceFile(name + ".jasx", source)));
+            assertTrue(result.diagnostics().isEmpty(), () -> "unexpected diagnostics:\n" + lines(result.diagnostics()));
+
+            String generated = result.files().get(0).content();
+            JavacRunner.Result compiled = JavacRunner.compile(result.files(), List.of(), System.getProperty("java.class.path"));
+            assertTrue(compiled.success(), () -> "javac failed:\n" + lines(compiled.diagnostics()) + "\ngenerated:\n" + generated);
+
+            Method test = compiled.classLoader(ConformanceTest.class.getClassLoader()).loadClass("T").getDeclaredMethod("Test");
+            test.setAccessible(true);
+            String expected = read("render", name + ".html");
+            if (expected.endsWith("\n")) {
+                expected = expected.substring(0, expected.length() - 1);
+            }
+            assertEquals(expected, Html.render(test.invoke(null)), () -> "generated:\n" + generated);
+        }));
+    }
+
+    private static String lines(List<CompilerDiagnostic> diagnostics) {
+        return diagnostics.stream().map(CompilerDiagnostic::format).collect(Collectors.joining("\n"));
     }
 
     private static Stream<String> fixtures(String level, String expectedSuffix) throws IOException {

@@ -1,0 +1,9 @@
+{
+  "id": "html",
+  "specVersion": "1.0",
+  "factory": "jasx.html.Html",
+  "attributes": "jasx.html.attrs",
+  "schema": "schemas/html.json",
+  "lowering": "factory",
+  "eventHandlers": "none"
+}

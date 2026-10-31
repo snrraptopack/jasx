@@ -41,6 +41,7 @@ public final class JasxParser {
 
     private final String src;
     private final int len;
+    private final JavaLexer lexer;
     private final List<Diagnostic> diagnostics = new ArrayList<>();
     private LineMap lines;
     /** Only the innermost construct reports reaching end of input; enclosing ones stay quiet. */
@@ -50,6 +51,7 @@ public final class JasxParser {
     private JasxParser(String src) {
         this.src = src;
         this.len = src.length();
+        this.lexer = new JavaLexer(src);
     }
 
     public static ParseResult parse(String source, String sourceFile) {
@@ -75,6 +77,8 @@ public final class JasxParser {
     private static final Tok CONTAINER_OPEN = Tok.of("{jasx");
     /** A complete markup expression, which is an operand. */
     private static final Tok MARKUP_OPERAND = Tok.of("<jasx>");
+    /** A string, character, text-block or number literal. */
+    private static final Tok LITERAL = Tok.of("0");
 
     private record Bracket(char kind, boolean arrayInit) {}
 
@@ -87,13 +91,6 @@ public final class JasxParser {
             "=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", ">>>=",
             "->", "?", ":", "&&", "||",
             CONTAINER_OPEN.text());
-
-    /** Multi-character operators, longest first. */
-    private static final String[] OPERATORS = {
-        ">>>=", "<<=", ">>=", ">>>", "...",
-        "->", "::", "++", "--", "&&", "||", "==", "!=", "<=", ">=",
-        "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>",
-    };
 
     private static boolean introducesMarkup(Tok t) {
         return switch (t.text()) {
@@ -115,8 +112,8 @@ public final class JasxParser {
         int chunk = from;
         pos = from;
         while (true) {
-            pos = skipJavaTrivia(pos);
-            int c = javaChar(pos);
+            pos = lexer.skipTrivia(pos);
+            int c = lexer.charAt(pos);
             if (c < 0) {
                 addJavaCode(segments, chunk, len);
                 return new JavaScan(segments, len, empty, false);
@@ -145,76 +142,34 @@ public final class JasxParser {
         }
     }
 
-    /** Lexes one significant token at {@code pos} and advances past it. */
+    /** Lexes one significant token at {@code pos}, tracks brackets, and advances past it. */
     private Tok lexJavaToken(Deque<Bracket> brackets, Tok prev) {
-        int c = javaChar(pos);
-        if (Character.isJavaIdentifierStart(c)) {
-            StringBuilder id = new StringBuilder();
-            while (pos < len && Character.isJavaIdentifierPart(javaChar(pos))) {
-                id.append((char) javaChar(pos));
-                pos = javaNext(pos);
-            }
-            String text = id.toString();
+        JavaLexer.Token t = lexer.lex(pos);
+        pos = t.end();
+        String text = t.text();
+        if (t.kind() == JavaLexer.Kind.IDENTIFIER) {
             return text.equals("yield") ? new Tok(text, false, beginsStatement(prev, brackets)) : Tok.of(text);
         }
-        if (isAsciiDigit(c) || (c == '.' && isAsciiDigit(javaChar(javaNext(pos))))) {
-            int last = 0;
-            while (pos < len) {
-                int d = javaChar(pos);
-                boolean exponentSign = (d == '+' || d == '-')
-                        && (last == 'e' || last == 'E' || last == 'p' || last == 'P');
-                if (!(Character.isLetterOrDigit(d) || d == '_' || d == '.' || exponentSign)) {
-                    break;
-                }
-                last = d;
-                pos = javaNext(pos);
-            }
-            return Tok.of("0");
+        if (t.isLiteral()) {
+            return LITERAL;
         }
-        if (c == '"') {
-            if (javaChar(javaNext(pos)) == '"' && javaChar(javaNext(javaNext(pos))) == '"') {
-                skipTextBlock();
-            } else {
-                skipQuoted('"');
-            }
-            return Tok.of("\"\"");
-        }
-        if (c == '\'') {
-            skipQuoted('\'');
-            return Tok.of("''");
-        }
-        switch (c) {
-            case '{' -> {
+        switch (text) {
+            case "{" -> {
                 String p = prev.text();
                 boolean arrayInit = p.equals("=") || p.equals("]")
                         || ((p.equals("{") || p.equals(",")) && !brackets.isEmpty() && brackets.peek().arrayInit());
                 brackets.push(new Bracket('{', arrayInit));
-                pos = javaNext(pos);
                 return new Tok("{", arrayInit, false);
             }
-            case '(', '[' -> {
-                brackets.push(new Bracket((char) c, false));
-                pos = javaNext(pos);
-                return Tok.of(String.valueOf((char) c));
-            }
-            case ')', ']', '}' -> {
+            case "(", "[" -> brackets.push(new Bracket(text.charAt(0), false));
+            case ")", "]", "}" -> {
                 if (!brackets.isEmpty()) {
                     brackets.pop();
                 }
-                pos = javaNext(pos);
-                return Tok.of(String.valueOf((char) c));
             }
             default -> {}
         }
-        for (String op : OPERATORS) {
-            int end = javaMatch(pos, op);
-            if (end >= 0) {
-                pos = end;
-                return Tok.of(op);
-            }
-        }
-        pos = javaNext(pos);
-        return Tok.of(String.valueOf((char) c));
+        return Tok.of(text);
     }
 
     /** Whether a 'yield' preceded by {@code prev} begins a statement (grammar.md §4.3). */
@@ -227,130 +182,6 @@ public final class JasxParser {
         };
     }
 
-    /** Skips a string or character literal, stopping at the end of the line if it is unterminated. */
-    private void skipQuoted(char quote) {
-        pos = javaNext(pos);
-        while (pos < len) {
-            int c = javaChar(pos);
-            if (c == '\\') {
-                pos = javaNext(javaNext(pos));
-            } else if (c == quote) {
-                pos = javaNext(pos);
-                return;
-            } else if (c == '\n' || c == '\r') {
-                return;
-            } else {
-                pos = javaNext(pos);
-            }
-        }
-    }
-
-    private void skipTextBlock() {
-        pos = javaNext(javaNext(javaNext(pos)));
-        while (pos < len) {
-            int c = javaChar(pos);
-            if (c == '\\') {
-                pos = javaNext(javaNext(pos));
-            } else if (c == '"' && javaChar(javaNext(pos)) == '"' && javaChar(javaNext(javaNext(pos))) == '"') {
-                pos = javaNext(javaNext(javaNext(pos)));
-                return;
-            } else {
-                pos = javaNext(pos);
-            }
-        }
-    }
-
-    private int skipJavaTrivia(int p) {
-        while (p < len) {
-            int c = javaChar(p);
-            if (c == ' ' || c == '\t' || c == '\f' || c == '\n' || c == '\r') {
-                p = javaNext(p);
-            } else if (c == '/' && javaChar(javaNext(p)) == '/') {
-                while (p < len && javaChar(p) != '\n' && javaChar(p) != '\r') {
-                    p = javaNext(p);
-                }
-            } else if (c == '/' && javaChar(javaNext(p)) == '*') {
-                p = javaNext(javaNext(p));
-                while (p < len && !(javaChar(p) == '*' && javaChar(javaNext(p)) == '/')) {
-                    p = javaNext(p);
-                }
-                p = p < len ? javaNext(javaNext(p)) : len;
-            } else {
-                break;
-            }
-        }
-        return p;
-    }
-
-    /** Returns the offset after {@code text} if the Java-mode characters at {@code p} spell it, else -1. */
-    private int javaMatch(int p, String text) {
-        for (int i = 0; i < text.length(); i++) {
-            if (javaChar(p) != text.charAt(i)) {
-                return -1;
-            }
-            p = javaNext(p);
-        }
-        return p;
-    }
-
-    /** The Java-mode character at {@code p}, with Unicode escapes decoded (JLS §3.3), or -1 at end. */
-    private int javaChar(int p) {
-        if (p >= len) {
-            return -1;
-        }
-        char c = src.charAt(p);
-        if (c == '\\') {
-            int end = unicodeEscapeEnd(p);
-            if (end > 0) {
-                return Integer.parseInt(src, end - 4, end, 16);
-            }
-        }
-        return c;
-    }
-
-    /** The offset of the Java-mode character after the one at {@code p}. */
-    private int javaNext(int p) {
-        if (p >= len) {
-            return len;
-        }
-        if (src.charAt(p) == '\\') {
-            int end = unicodeEscapeEnd(p);
-            if (end > 0) {
-                return end;
-            }
-        }
-        return p + 1;
-    }
-
-    /**
-     * If a Unicode escape starts at {@code p}, returns the offset after it, otherwise -1. A backslash
-     * starts an escape only if it is preceded by an even number of contiguous backslashes.
-     */
-    private int unicodeEscapeEnd(int p) {
-        int q = p + 1;
-        if (q >= len || src.charAt(q) != 'u') {
-            return -1;
-        }
-        int backslashes = 0;
-        for (int k = p - 1; k >= 0 && src.charAt(k) == '\\'; k--) {
-            backslashes++;
-        }
-        if (backslashes % 2 != 0) {
-            return -1;
-        }
-        while (q < len && src.charAt(q) == 'u') {
-            q++;
-        }
-        if (q + 4 > len) {
-            return -1;
-        }
-        for (int i = q; i < q + 4; i++) {
-            if (Character.digit(src.charAt(i), 16) < 0 || src.charAt(i) > 'f') {
-                return -1;
-            }
-        }
-        return q + 4;
-    }
 
     // ---------------------------------------------------------------------------------------------
     // Markup mode (grammar.md §5, §6)
@@ -693,7 +524,7 @@ public final class JasxParser {
         int end;
         if (scan.closed()) {
             // The closing '}' is a Java-mode character, so it may be written as a Unicode escape.
-            end = javaNext(scan.end());
+            end = lexer.next(scan.end());
         } else {
             reportEof("JASX1003", "unclosed expression container", lbrace, lbrace + 1);
             end = len;
@@ -827,14 +658,16 @@ public final class JasxParser {
         return false;
     }
 
-    static String nameText(ElementName name) {
+    /** The source text of an element name: {@code div}, {@code Ui.Card}. */
+    public static String nameText(ElementName name) {
         return switch (name) {
             case JasxIdentifier id -> id.name();
             case JasxQualifiedName q -> nameText(q.qualifier()) + "." + q.name().name();
         };
     }
 
-    static String attributeNameText(AttributeName name) {
+    /** The source text of an attribute name: {@code class}, {@code xlink:href}. */
+    public static String attributeNameText(AttributeName name) {
         return switch (name) {
             case JasxIdentifier id -> id.name();
             case JasxNamespacedName ns -> ns.namespace().name() + ":" + ns.name().name();

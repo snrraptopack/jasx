@@ -2,6 +2,8 @@
 
 dependencies {
     testImplementation(project(":jasx-parser"))
+    testImplementation(project(":jasx-compiler"))
+    testImplementation(project(":jasx-target-html"))
     testImplementation("com.fasterxml.jackson.core:jackson-databind:2.18.2")
     testImplementation("com.networknt:json-schema-validator:1.5.6")
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
