@@ -31,7 +31,33 @@ Early development. The specification is a draft.
 
 - [`jasx-spec/`](jasx-spec/README.md): the language specification and its conformance tests.
 - Parser, compiler and `html` target: implemented, and passing the whole conformance suite.
-- Gradle plugin and editor support: not yet. For now, use the compiler from the command line or as a library.
+- Gradle plugin, annotation processor and VS Code syntax highlighting: implemented.
+- Not yet: published artifacts, error reporting in the editor (a language server).
+
+## Using JASX in a Gradle project
+
+Apply the plugin and add a target:
+
+```kotlin
+plugins {
+    java
+    id("dev.jasx")
+}
+
+dependencies {
+    implementation("dev.jasx:jasx-target-html:0.1.0")   // the html reference target
+}
+```
+
+Put `.jasx` files next to your `.java` files (`src/main/java`) or in `src/main/jasx`. The `compileJasx` task turns them into Java before `compileJava` runs, and JASX errors fail the build with their `.jasx` file, line and column.
+
+The artifacts are not published yet. Until they are, build this repository and use the plugin from a local build.
+
+For libraries, add `jasx-processor` as an annotation processor. It writes `META-INF/jasx/components.json` into your jar, so other projects can use your components from markup.
+
+## Editor support
+
+[`editors/vscode`](editors/vscode/README.md) is a VS Code extension that highlights `.jasx` files.
 
 ## Building
 
@@ -53,7 +79,10 @@ The second command prints the Java generated for a sample file.
 | `jasx-compiler/` | Compiler: resolves components and lowers markup to Java |
 | `jasx-runtime/` | `Element` and the component annotations |
 | `jasx-target-html/` | The `html` reference target |
+| `jasx-processor/` | Annotation processor that publishes a library's components |
+| `jasx-gradle-plugin/` | Gradle plugin `dev.jasx` |
 | `jasx-conformance/` | Runs the conformance tests |
+| `editors/vscode/` | VS Code extension (syntax highlighting) |
 | `JASX-update1.md` | The original design proposal (historical) |
 
 Contributors and coding agents: see [`AGENTS.md`](AGENTS.md).

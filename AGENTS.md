@@ -23,7 +23,12 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 
 - `jasx-spec/` is the **normative source of truth**. `JASX-update1.md` is the **historical** design proposal: don't implement from it.
 - **Milestones 1 and 2 are done.** The parser passes the parse and error conformance tests, and the compiler with the `html` reference target passes the render tests: `.jasx` compiles to Java, javac compiles it, and it renders the expected HTML.
-- Next is milestone 3: the annotation processor (`components.json` for jars), the Gradle plugin, and editor support.
+- **Milestone 3 is mostly done:** the annotation processor, the Gradle plugin and VS Code syntax highlighting exist and are tested. Still missing: publishing artifacts, javac error remapping inside Gradle builds (see Known gaps), and a language server.
+
+## Known gaps
+
+- **javac errors in Gradle builds** point at the generated file (`build/generated/sources/jasx/main/...java`), not the `.jasx` file. Line numbers match because lowering preserves lines, but the path and column don't. `diagnostics.md` §6 requires remapping, and `JavacRunner` does it, but Gradle's `compileJava` runs javac itself.
+- **Nothing is published yet**, so a project can't depend on `dev.jasx:*` artifacts. The plugin's functional tests use local jar files.
 
 ## Repository layout
 
@@ -44,7 +49,10 @@ jasx-compiler/             declaration scanner, component index, resolver, facto
                            in-memory javac runner with diagnostic remapping, CLI
 jasx-target-html/          html reference target: descriptor, schemas/html.json, factory jasx.html.Html,
                            renderer; attribute builders jasx.html.attrs.* generated from the schema
+jasx-processor/            annotation processor: writes META-INF/jasx/components.json
+jasx-gradle-plugin/        Gradle plugin id "dev.jasx": compileJasx task per source set
 jasx-conformance/          JUnit runner for jasx-spec/tests (all levels)
+editors/vscode/            VS Code extension: TextMate grammar + Node tests (npm test)
 ```
 
 ## Implementation plan
@@ -60,10 +68,11 @@ These decisions are already made. Follow them unless the user changes them.
 | `jasx-compiler` | declaration scanner, component index, name resolution, normalization, factory lowering, line preservation, span maps, javac diagnostic remapping, target loading, CLI | done |
 | `jasx-target-html` | `html` reference target: descriptor, schema, factory, renderer, generated attribute builders | done |
 | `jasx-conformance` | runner for `jasx-spec/tests`: parse, errors, AST schema, render | done |
-| `jasx-processor` | annotation processor that writes `META-INF/jasx/components.json` | next |
-| `jasx-gradle-plugin` | compiles `.jasx` to generated sources | next |
+| `jasx-processor` | annotation processor that writes `META-INF/jasx/components.json` (Gradle aggregating incremental processor) | done |
+| `jasx-gradle-plugin` | `dev.jasx` plugin: `compileJasx` per source set, output added to the Java sources; TestKit functional tests | done |
+| `editors/vscode` | TextMate grammar injected into VS Code's Java grammar; tests with `vscode-textmate` | done |
 
-  Later: TextMate grammar, LSP, IntelliJ plugin. Other targets are undecided.
+  Later: publishing, LSP, IntelliJ plugin. Other targets are undecided.
 - The Java package root is `jasx` (`jasx.parser`, `jasx.runtime`, `jasx.html`, …), matching the names the spec uses.
 - `jasx-parser`, `jasx-runtime` and `jasx-compiler` must stay free of third-party runtime dependencies (the compiler has its own small JSON reader). Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
 - The compiler never references a target at compile time. It loads the target's descriptor and schema from the classpath (`Target.load`).
@@ -72,7 +81,7 @@ These decisions are already made. Follow them unless the user changes them.
 
 1. **Parser** (done): `tests/parse` and `tests/errors` pass, and every AST validates against `ast.schema.json`.
 2. **Compiler and `html` reference target** (done): factory lowering, component index, line preservation, diagnostic remapping. `tests/render` passes.
-3. **Tooling:** annotation processor, Gradle plugin, TextMate grammar, then LSP.
+3. **Tooling** (mostly done): annotation processor, Gradle plugin and TextMate grammar are done; publishing, javac remapping in Gradle builds, and an LSP remain.
 4. **Targets:** to be decided after the core is complete.
 
 ### How the compiler works
@@ -92,6 +101,8 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew :jasx-parser:test              # parser unit tests only
 ./gradlew :jasx-conformance:test         # conformance suite only
 ./gradlew :jasx-compiler:test            # compiler unit tests only
+./gradlew :jasx-gradle-plugin:test       # plugin functional tests (runs real Gradle builds; slow)
+(cd editors/vscode && npm install && npm test)   # grammar tests (Node)
 ./gradlew -q :jasx-parser:run --args="--dump-ast ../jasx-spec/tests/parse/001-element.jasx"
 ./gradlew -q :jasx-compiler:run --args="../jasx-spec/tests/render/001-basic.jasx"
                                          # prints the generated Java; --out DIR writes files
@@ -119,6 +130,11 @@ When running Java directly on Windows, separate classpath entries with `;`, not 
 - `range` and `column` are in **UTF-16 code units**: `range` is `[start, end)`, `line` is 1-based and `column` is 0-based.
 - Every `*.ast.json` must validate against `ast.schema.json` (the conformance runner checks this) and every `loc` must agree with its `range`.
 - Expected diagnostics compare only `code`, `severity`, `range` and `loc`. Messages are free text.
+
+### Code style
+
+- **The user reads this code.** Write it to be read: a header comment on every class saying what it does and where it fits, named intermediate values instead of long boolean chains, small methods with clear names, and comments that explain *why*. Cite the spec section a rule comes from (`semantics.md §5.2`).
+- Prefer clarity over brevity, while keeping the style consistent with the surrounding code.
 
 ### Implementation invariants
 
