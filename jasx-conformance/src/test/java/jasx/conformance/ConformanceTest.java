@@ -100,15 +100,15 @@ class ConformanceTest {
     }
 
     /**
-     * conformance.md §4: lower with the html target, compile, render {@code Test()}, and compare with the
-     * expected HTML (minus its trailing newline).
+     * conformance.md §4: compile the test as {@code T.jasx}, lower it with the html target, compile it with
+     * javac, render {@code T.Test()}, and compare with the expected HTML (minus its trailing newline).
      */
     @TestFactory
     Stream<DynamicTest> htmlTarget() throws IOException {
         Target html = Target.load("html", ConformanceTest.class.getClassLoader());
         return fixtures("render", ".html").map(name -> DynamicTest.dynamicTest(name, () -> {
             String source = read("render", name + ".jasx");
-            CompilationResult result = new JasxCompiler(html).compile(List.of(new SourceFile(name + ".jasx", source)));
+            CompilationResult result = new JasxCompiler(html).compile(List.of(new SourceFile("T.jasx", source)));
             assertTrue(result.diagnostics().isEmpty(), () -> "unexpected diagnostics:\n" + lines(result.diagnostics()));
 
             String generated = result.files().get(0).content();

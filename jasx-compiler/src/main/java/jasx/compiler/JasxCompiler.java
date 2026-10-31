@@ -25,10 +25,13 @@ import jasx.parser.ast.Ast.Segment;
  * <p>All files must be scanned before any is lowered, because markup in one file can use a component
  * declared in another file.
  *
+ * <p>A {@code .jasx} file with fields or methods at its top level is also wrapped in its <em>file class</em>,
+ * named after the file (semantics.md §9, {@link FileClass}).
+ *
  * <p>{@code .java} files are only scanned (for {@code @jasx.Component} methods). They are never rewritten;
  * the build compiles them as they are.
  *
- * <p>See jasx-spec/semantics.md §5 (components) and §6 (lowering).
+ * <p>See jasx-spec/semantics.md §5 (components), §6 (lowering) and §9 (file classes).
  */
 public final class JasxCompiler {
     private final Target target;
@@ -57,8 +60,10 @@ public final class JasxCompiler {
             /** The parse result, or null for a {@code .java} file. */
             ParseResult parsed,
             JavaStructure structure,
-            /** Offsets at which to insert {@code @jasx.Component} in the generated Java (semantics.md §5.1). */
-            List<Integer> annotationOffsets) {}
+            /** Text to insert into the Java code: {@code @jasx.Component}, and the file class (§5.1, §9.4). */
+            List<Lowering.Insertion> insertions,
+            /** True if the file can't be lowered because of an error found while scanning it. */
+            boolean unlowerable) {}
 
     /** Compiles {@code sources}. Diagnostics of every file are collected; nothing is thrown for errors. */
     public CompilationResult compile(List<SourceFile> sources) {
@@ -102,14 +107,20 @@ public final class JasxCompiler {
             markupRanges = topLevelMarkupRanges(parsed);
         }
 
-        // Read the declarations. The scanner skips markup, so braces in markup can't confuse it.
-        JavaStructure structure = JavaStructure.scan(file.content(), markupRanges);
+        // Read the declarations. The scanner skips markup, so braces in markup can't confuse it. Only a
+        // .jasx file can have a file class (semantics.md §9).
+        String fileClassName = file.isJasx() ? file.baseName() : null;
+        JavaStructure structure = JavaStructure.scan(file.content(), markupRanges, fileClassName);
 
         // Find the components and add them to the shared index.
         ComponentScanner.Result found = ComponentScanner.scan(file, structure);
         report(diagnostics, file, lines, found.errors());
 
-        List<Integer> annotationOffsets = new ArrayList<>();
+        List<Lowering.Insertion> insertions = new ArrayList<>();
+        List<Diagnostic> fileClassErrors = FileClass.check(file, structure);
+        report(diagnostics, file, lines, fileClassErrors);
+        insertions.addAll(FileClass.insertions(file, structure));
+
         for (ComponentScanner.FoundComponent c : found.components()) {
             boolean added = components.add(c.component());
             if (!added) {
@@ -121,11 +132,11 @@ public final class JasxCompiler {
                         c.nameStart(), c.nameEnd());
                 report(diagnostics, file, lines, List.of(overloaded));
             } else if (c.needsAnnotation()) {
-                annotationOffsets.add(c.headerStart());
+                insertions.add(new Lowering.Insertion(c.headerStart(), Lowering.Insertion.ANNOTATION, "@jasx.Component "));
             }
         }
 
-        return new ScannedFile(file, lines, parsed, structure, annotationOffsets);
+        return new ScannedFile(file, lines, parsed, structure, insertions, !fileClassErrors.isEmpty());
     }
 
     /** The {@code [start, end)} ranges of the markup segments at the top level of a parsed file. */
@@ -150,13 +161,13 @@ public final class JasxCompiler {
             return null;
         }
         // A file with syntax errors has no reliable AST to lower. Its errors were reported in pass 1.
-        if (scanned.parsed().hasErrors()) {
+        if (scanned.parsed().hasErrors() || scanned.unlowerable()) {
             return null;
         }
 
         Resolver resolver = new Resolver(scanned.structure(), components);
         Lowering lowering = new Lowering(scanned.file(), scanned.lines(), target, resolver);
-        GeneratedFile generated = lowering.lower(scanned.parsed().unit(), scanned.annotationOffsets());
+        GeneratedFile generated = lowering.lower(scanned.parsed().unit(), scanned.insertions());
         report(diagnostics, scanned.file(), scanned.lines(), lowering.diagnostics());
 
         // Code generated around an error (an unknown component, say) is not meaningful, so don't return it.

@@ -1,0 +1,28 @@
+import jasx.runtime.Element;
+import java.util.List;
+import java.util.function.Function;
+
+// No class: the top-level declarations become static members of the file class T.
+
+record Item(String name, int quantity) {}
+
+final String TITLE = "Shopping";
+
+Element Row(Item item) {
+  return <li>{item.name()} &times; {item.quantity()}</li>;
+}
+
+<I> Element ListOf(List<I> items, Function<I, Element> render) {
+  return <ul>{items.stream().map(render).toList()}</ul>;
+}
+
+Element Test() {
+  List<Item> items = List.of(new Item("apples", 3), new Item("pears", 2));
+  return (
+    <section>
+      <h2>{TITLE}</h2>
+      <ListOf items={items} render={item -> <Row item={item} />} />
+      <T.Row item={new Item("plums", 1)} />
+    </section>
+  );
+}

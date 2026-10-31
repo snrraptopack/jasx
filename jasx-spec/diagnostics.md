@@ -88,6 +88,8 @@ Codes are never renumbered or reused.
 | JASX2009 | Invalid `key` value (not a string literal or expression) | The attribute |
 | JASX2010 | `@jasx.Component` on a method that is not static, does not return `Element`, or has a name starting with a lowercase letter | The annotation |
 | JASX2011 | `@jasx.Default` value is not a single Java literal | The annotation value |
+| JASX2012 | A file with top-level declarations has a name that is not a Java identifier, so it cannot name its file class (`semantics.md` §9.2) | The first top-level field or method |
+| JASX2013 | A constructor or an initializer block at the top level of a file (`semantics.md` §9.2) | The declaration, up to its `{` |
 | JASX2101 | Attribute not defined by the target schema | The attribute |
 | JASX2102 | Children on a void element | The first child |
 | JASX2103 | Java event handler on a target without event handlers | The attribute value |

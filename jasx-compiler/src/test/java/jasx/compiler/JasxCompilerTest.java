@@ -573,4 +573,148 @@ class JasxCompilerTest {
             assertEquals(List.of(), r.diagnostics());
         }
     }
+
+    /** semantics.md §9: files with top-level fields and methods are wrapped in their file class. */
+    @Nested
+    class FileClasses {
+        @Test
+        void topLevelComponentsAreUsedFromAnotherPackage() {
+            SourceFile ui = new SourceFile("app/ui/Ui.jasx", """
+                    package app.ui;
+
+                    import jasx.runtime.Element;
+                    import java.util.List;
+
+                    public Element Card(String title, List<Element> children) {
+                      return <section><h2>{title}</h2>{children}</section>;
+                    }
+                    """);
+            SourceFile page = new SourceFile("app/Page.jasx", """
+                    package app;
+
+                    import jasx.runtime.Element;
+                    import static app.ui.Ui.*;
+
+                    class Page {
+                      static Element Test() { return <Card title="T"><p>body</p></Card>; }
+                    }
+                    """);
+            assertEquals("<section><h2>T</h2><p>body</p></section>", render("app.Page", List.of(ui, page), List.of()));
+        }
+
+        @Test
+        void everyTopLevelDeclarationBecomesStatic() {
+            // Each of these would fail to compile if it weren't static: Test() uses all of them.
+            assertEquals("<p>3 ok x</p>", render("T", List.of(new SourceFile("T.jasx", """
+                    import jasx.runtime.Element;
+
+                    int[] NUMBERS = {1, 2, 3};
+                    java.util.function.Supplier<String> OK = () -> { return "ok"; };
+                    enum Mode { X }
+                    class Holder { static String name(Mode m) { return m.name().toLowerCase(); } }
+
+                    Element Test() {
+                      return <p>{NUMBERS.length} {OK.get()} {Holder.name(Mode.X)}</p>;
+                    }
+                    """)), List.of()));
+        }
+
+        @Test
+        void staticIsNotAddedTwice() {
+            CompilationResult r = compile(new SourceFile("T.jasx", """
+                    import jasx.runtime.Element;
+                    public static Element A() { return <p/>; }
+                    """));
+            String java = r.files().get(0).content();
+            assertTrue(java.contains("@jasx.Component public static Element A()"), java);
+            assertFalse(java.contains("static static"), java);
+        }
+
+        @Test
+        void linesArePreserved() {
+            String source = """
+                    package app;
+
+                    import jasx.runtime.Element;
+
+                    /** A component. */
+                    public Element Badge(String text) {
+                      return <span class="badge">{text}</span>;
+                    }
+
+                    private String helper() { return "x"; }
+                    """;
+            CompilationResult r = compile(new SourceFile("app/Ui.jasx", source));
+            String[] sourceLines = source.split("\n");
+            String[] javaLines = r.files().get(0).content().split("\n");
+            assertTrue(javaLines[2].endsWith("public final class Ui { private Ui() {} "), javaLines[2]);
+            assertEquals("/** A component. */", javaLines[4]);
+            assertTrue(javaLines[5].contains("Badge(String text) {"), javaLines[5]);
+            assertTrue(javaLines[6].contains("jasx.html.Html.h(\"span\""), javaLines[6]);
+            assertEquals("private static String helper() { return \"x\"; }", javaLines[9]);
+            assertEquals("}", javaLines[sourceLines.length]);
+        }
+
+        @Test
+        void topLevelTypesAreNestedInTheFileClass() {
+            CompilationResult r = compile(new SourceFile("app/Ui.jasx", """
+                    package app;
+                    import jasx.runtime.Element;
+                    class Icons { static Element Star() { return <i/>; } }
+                    Element Button() { return <button/>; }
+                    """));
+            assertEquals(List.of(), r.diagnostics());
+            List<String> classes = r.index().all().stream().map(c -> c.className() + "." + c.method()).toList();
+            assertEquals(List.of("app.Ui.Icons.Star", "app.Ui.Button"), classes);
+        }
+
+        @Test
+        void aFileWithoutTopLevelMembersIsUnchanged() {
+            SourceFile plain = file("static Element A() { return <p/>; }");
+            String java = compile(plain).files().get(0).content();
+            assertFalse(java.contains("public final class"), java);
+        }
+
+        @Test
+        void theFileNameMustBeAClassName() {
+            CompilationResult r = compile(new SourceFile("my-page.jasx", """
+                    import jasx.runtime.Element;
+                    Element Page() { return <p/>; }
+                    """));
+            assertEquals(List.of("JASX2012"), r.diagnostics().stream().map(CompilerDiagnostic::code).toList());
+            assertEquals("my-page.jasx:2:1: error: this file declares fields or methods at the top level, so it needs"
+                    + " a file class named after the file, but 'my-page' is not a valid Java class name [JASX2012]",
+                    r.diagnostics().get(0).format());
+            assertEquals(List.of(), r.files());
+        }
+
+        @Test
+        void constructorsAndInitializersAreNotAllowedAtTheTopLevel() {
+            CompilationResult r = compile(new SourceFile("T.jasx", """
+                    import jasx.runtime.Element;
+                    T() {}
+                    static { System.out.println(); }
+                    Element A() { return <p/>; }
+                    """));
+            assertEquals(List.of("T.jasx:2:1", "T.jasx:3:1"), r.diagnostics().stream()
+                    .map(d -> d.format().substring(0, d.format().indexOf(": ")))
+                    .toList());
+            assertEquals(List.of("JASX2013", "JASX2013"), r.diagnostics().stream().map(CompilerDiagnostic::code).toList());
+            assertEquals(List.of(), r.files());
+        }
+
+        @Test
+        void javacErrorsInTopLevelCodeAreRemapped() {
+            CompilationResult r = compile(new SourceFile("T.jasx", """
+                    import jasx.runtime.Element;
+
+                    Element A() {
+                      return <p>{missing}</p>;
+                    }
+                    """));
+            JavacRunner.Result compiled = JavacRunner.compile(r.files(), List.of(), CLASSPATH);
+            assertEquals("T.jasx:4:14: error: javac: cannot find symbol",
+                    compiled.diagnostics().get(0).format().lines().findFirst().orElseThrow());
+        }
+    }
 }

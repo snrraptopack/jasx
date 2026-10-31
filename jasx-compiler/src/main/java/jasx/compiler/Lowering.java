@@ -1,6 +1,7 @@
 package jasx.compiler;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -133,13 +134,23 @@ final class Lowering {
     // ---------------------------------------------------------------------------------------------
 
     /**
-     * Lowers the whole file.
-     *
-     * @param annotationOffsets sorted offsets of component method headers, where {@code @jasx.Component}
-     *     is inserted (semantics.md §5.1)
+     * Text inserted into the Java code at a source offset: {@code @jasx.Component} before a component
+     * (semantics.md §5.1), and the parts of a file class (§9.4). Insertions at the same offset are written
+     * in the order of their {@code order}, so that, for example, the file class header comes before the
+     * first member's {@code @jasx.Component}, which comes before its {@code static}.
      */
-    GeneratedFile lower(JasxCompilationUnit unit, List<Integer> annotationOffsets) {
-        int nextAnnotation = 0;
+    record Insertion(int offset, int order, String text) {
+        static final int CLASS_HEADER = 0;
+        static final int ANNOTATION = 1;
+        static final int MODIFIER = 2;
+        static final int CLASS_END = 3;
+    }
+
+    /** Lowers the whole file, adding {@code insertions} to its Java code. */
+    GeneratedFile lower(JasxCompilationUnit unit, List<Insertion> insertions) {
+        List<Insertion> pending = new ArrayList<>(insertions);
+        pending.sort(Comparator.comparingInt(Insertion::offset).thenComparingInt(Insertion::order));
+        int next = 0;
 
         for (Segment segment : unit.segments()) {
             if (segment instanceof Markup markup) {
@@ -147,19 +158,24 @@ final class Lowering {
                 continue;
             }
 
-            // A Java segment: copy it, inserting @jasx.Component before each component method in it.
+            // A Java segment: copy it, writing each insertion that falls inside it at its place.
             int copiedUpTo = segment.start();
-            while (nextAnnotation < annotationOffsets.size() && annotationOffsets.get(nextAnnotation) < segment.end()) {
-                int insertAt = annotationOffsets.get(nextAnnotation);
-                nextAnnotation++;
-                if (insertAt < copiedUpTo) {
-                    continue;
+            while (next < pending.size() && pending.get(next).offset() < segment.end()) {
+                Insertion insertion = pending.get(next);
+                next++;
+                if (insertion.offset() < copiedUpTo) {
+                    continue; // inside markup that came before this segment: can't happen for valid input
                 }
-                out.copy(copiedUpTo, insertAt);
-                out.emit("@jasx.Component ", insertAt);
-                copiedUpTo = insertAt;
+                out.copy(copiedUpTo, insertion.offset());
+                out.emit(insertion.text(), insertion.offset());
+                copiedUpTo = insertion.offset();
             }
             out.copy(copiedUpTo, segment.end());
+        }
+
+        // Insertions at the very end of the file, such as the file class's closing brace.
+        for (; next < pending.size(); next++) {
+            out.emit(pending.get(next).text(), pending.get(next).offset());
         }
 
         return new GeneratedFile(file, file.javaPath(), out.text(), out.spans());

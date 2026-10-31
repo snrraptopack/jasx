@@ -10,7 +10,12 @@ This document defines the syntax of JASX. It extends the *Java Language Specific
 
 A JASX source file is a Java compilation unit in which **markup** may appear wherever a Java *primary expression* may appear. Markup is either an element (`<div>…</div>`, `<br />`) or a fragment (`<>…</>`).
 
-JASX adds exactly one extension point to the Java grammar:
+JASX extends the Java grammar in two places:
+
+- **Markup expressions** (below, §4–§6), the main extension.
+- **The compilation unit** (§7): a `.jasx` file may declare fields and methods at the top level, outside any class (§7.2).
+
+Markup is added as a new kind of primary expression:
 
 ```
 Primary:
@@ -274,6 +279,8 @@ A container whose content is empty, or contains only whitespace and comments, is
 
 ## 7. Compilation unit
 
+### 7.1 Segments
+
 ```
 JasxCompilationUnit:
     JasxUnitSegment*
@@ -285,6 +292,26 @@ JasxUnitSegment:
 ```
 
 `JavaCode` is a maximal run of source text scanned in Java mode that contains no markup. A JASX source file containing no markup is a single `JavaCode` segment and is a valid Java compilation unit.
+
+### 7.2 Top-level members
+
+In Java, the top level of a compilation unit (after the package and import declarations) holds only type declarations. In a `.jasx` file it may also hold field and method declarations:
+
+```
+TopLevelClassOrInterfaceDeclaration:
+    ClassDeclaration
+    InterfaceDeclaration
+    ;
+    JasxTopLevelMember
+
+JasxTopLevelMember:
+    FieldDeclaration
+    MethodDeclaration
+```
+
+Top-level members are Java source. The parser does not recognize them: they are part of `JavaCode` segments, and only the compiler's declaration scan finds them. What they mean (they become static members of the file's **file class**) is defined in `semantics.md` §9. Constructors and initializer blocks are not top-level members.
+
+Markup detection (§4) is unchanged at the top level. `;` and `}` are not in **S**, so a generic method declared without modifiers (`<T> Element ListView(...)`) is Java, exactly as it is at the start of a type body.
 
 ---
 

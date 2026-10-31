@@ -58,11 +58,13 @@ An implementation **MAY** report additional diagnostics after the first error (e
 ## 4. HTML target tests
 
 ```
-tests/render/NNN-name.jasx       input; declares a component named Test with no parameters
+tests/render/NNN-name.jasx       input; declares a component T.Test with no parameters
 tests/render/NNN-name.html       expected output of rendering <Test />
 ```
 
-**Pass condition:** the implementation lowers the file with the `html` target, compiles it, renders `Test()` to a string, and the output is identical to the expected HTML after both are normalized as follows:
+The input is compiled as if its file name were `T.jasx`, in the unnamed package. A test either declares `Test` in a class named `T`, or declares it at the top level, so that it is in the file class `T` (`semantics.md` §9).
+
+**Pass condition:** the implementation lowers the file with the `html` target, compiles it, renders `T.Test()` to a string, and the output is identical to the expected HTML after both are normalized as follows:
 
 - remove the trailing newline of the expected file, if any.
 

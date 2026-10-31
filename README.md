@@ -3,25 +3,28 @@
 JASX lets you write markup directly in Java, the way JSX does for JavaScript:
 
 ```java
+// app/Todos.jasx
+package app;
+
 import jasx.runtime.Element;
 import java.util.List;
 
-class Todos {
-  static Element Item(String title, boolean done) {
-    return <li class={done ? "done" : "todo"}>{title}</li>;
-  }
+Element Item(String title, boolean done) {
+  return <li class={done ? "done" : "todo"}>{title}</li>;
+}
 
-  static Element Page(List<String> titles) {
-    return (
-      <ul>
-        {titles.stream().map(t -> <Item title={t} done={false} />).toList()}
-      </ul>
-    );
-  }
+Element Page(List<String> titles) {
+  return (
+    <ul>
+      {titles.stream().map(t -> <Item title={t} done={false} />).toList()}
+    </ul>
+  );
 }
 ```
 
 A `.jasx` file is ordinary Java plus markup expressions. The JASX compiler rewrites only the markup, into plain method calls, and javac type-checks the result. Components are plain static methods, attributes are checked at compile time, and every Java feature works inside `{...}`.
+
+Methods and fields can be written at the top level of a `.jasx` file, as above. They become static members of a class named after the file (`app.Todos`), so other files use them with `import static app.Todos.*;`, or as `<Todos.Item ... />`. Without an access modifier they have package access, as in Java; declare them `public` to use them from other packages. Files with an ordinary `class` work too.
 
 Like JSX, JASX is **a language, not a framework**. What markup turns into is decided by a **target** library. The current focus is the core language. It ships with one small reference target, `html`, which renders markup to an HTML string. Other targets are not decided yet.
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0-draft, revision 6
+
+### Added
+
+- **Top-level members and file classes** (`grammar.md` §7.2, `semantics.md` §9). A `.jasx` file may declare fields and methods at the top level, outside any class. Such a file is wrapped in its *file class*, a `public final` class named after the file, and every top-level declaration (including types) becomes a static member of it. Components no longer need a holder class: `public Element Card(...)` at the top level of `Ui.jasx` is the component `Ui.Card`. This is the second extension of the Java grammar, next to markup.
+- Diagnostics JASX2012 (the file name is not a valid class name) and JASX2013 (a constructor or initializer block at the top level).
+- Render conformance test `009-top-level-components`.
+
+### Changed
+
+- **Render tests are compiled as `T.jasx`** (`conformance.md` §4), so that a test can declare `Test` at the top level. Existing tests declare class `T` and are unaffected.
+
 ## 1.0-draft, revision 5
 
 ### Changed

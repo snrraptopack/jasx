@@ -88,8 +88,8 @@ These decisions are already made. Follow them unless the user changes them.
 ### How the compiler works
 
 1. Parse each `.jasx` file (`JasxParser`).
-2. Scan each source with `JavaStructure` (tokens only, markup skipped) for the package, imports, named types and method headers, and build the component index. Problems here are JASX2006, JASX2010 and JASX2011.
-3. Lower each `.jasx` file without syntax errors (`Lowering`, writing through `Emitter`). Java code is copied verbatim; markup becomes `F.h(...)`, `F.fragment(...)`, `F.keyed(...)` and direct component calls. `Emitter` only adds line breaks to catch up with the source line, and records a `SpanMap`.
+2. Scan each source with `JavaStructure` (tokens only, markup skipped) for the package, imports, named types, method headers and top-level declarations, and build the component index. If a `.jasx` file has top-level fields or methods, `JavaStructure` creates its **file class** (`semantics.md` §9) and `FileClass` computes the text that wraps the file in it. Problems here are JASX2006, JASX2010–JASX2013.
+3. Lower each `.jasx` file without syntax errors (`Lowering`, writing through `Emitter`). Java code is copied verbatim, except for **insertions** (`Lowering.Insertion`) on the same line: `@jasx.Component` before components, and for a file class its header after the imports, `static` in each top-level declaration, and `}` after the end of the file. Markup becomes `F.h(...)`, `F.fragment(...)`, `F.keyed(...)` and direct component calls. `Emitter` only adds line breaks to catch up with the source line, and records a `SpanMap`.
 4. `JavacRunner` compiles the generated Java in memory and remaps javac's diagnostics through the span maps (code `javac`).
 
 ## Commands
@@ -145,7 +145,7 @@ When running Java directly on Windows, separate classpath entries with `;`, not 
 - The parser **never builds a Java syntax tree**. It only tokenizes Java (`grammar.md` §3).
 - Markup detection is the exact rule in `grammar.md` §4: the previous significant token must be in set **S**, braces are tracked by kind, and `yield` counts only at the start of a statement. Don't add heuristics.
 - After an error, the parser recovers and keeps going. Only the innermost construct reports reaching end of input, so one missing `}` doesn't cascade into several errors.
-- `JavaCode` segments are emitted **byte for byte**. Lowering must not add or remove lines in them, and generated code starts on the same line as its markup (`semantics.md` §6.5).
+- `JavaCode` segments are emitted **byte for byte**, apart from the insertions the spec defines (`@jasx.Component`, `semantics.md` §5.1, and the file class, §9.4), which never contain a line break. Lowering must not add or remove lines in them, and generated code starts on the same line as its markup (`semantics.md` §6.5).
 - Generated code uses fully qualified names. Each child is passed to `h`/`fragment` as exactly one variadic argument, cast to `Object` (`semantics.md` §6.7).
 - Components are called directly and positionally, with arguments in **parameter order**. Only names that don't start with a lowercase letter are components.
 - Markup errors are reported by JASX with `.jasx` locations **before** javac sees generated code. javac errors are remapped and prefixed `javac:`.
@@ -156,6 +156,7 @@ When running Java directly on Windows, separate classpath entries with `;`, not 
 - **javac also processes Unicode escapes in comments.** A backslash-`u` followed by non-hex text in a Java comment is a compile error, so never write one in Java source.
 - In Java mode, Unicode escapes **are** significant: the escape backslash-`u007D` is a real `}` to javac, so it can close an expression container (and the container's range then includes the whole escape). In markup, they are not processed.
 - `Boolean` children render as `true`/`false`. JASX doesn't hide them as JSX does, and `&&` is not a rendering idiom.
+- A `.jasx` file with a top-level field or method is wrapped in a `public final` class named after the file (`semantics.md` §9), and its top-level types become nested types. The file name must therefore be a valid class name. Render tests are compiled as `T.jasx` (`conformance.md` §4).
 - A cast directly on markup (`(Element) <div/>`) is not supported, by design.
 - Character references are decoded in text only. Attribute strings use Java escapes, so `title="a&amp;b"` keeps `&amp;` literally.
 

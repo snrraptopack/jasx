@@ -16,7 +16,7 @@
   },
   "repository": {
     "markup-in-java": {
-      "comment": "Markup that starts in Java code: '<' after ( [ , = ? : { -> && || return yield, or at the start of a line.",
+      "comment": "Markup that starts in Java code: '<' after ( [ , = ? : { -> && || return yield, or at the start of a line. A '<' followed by what looks like a generic method header ('<T> Element ListOf(') is Java, not markup: top-level methods (jasx-spec/semantics.md §9) often start a line that way.",
       "patterns": [
         {
           "name": "meta.tag.jasx",
@@ -34,7 +34,7 @@
         },
         {
           "name": "meta.tag.jasx",
-          "begin": "(?<=^|[(\\[,=?:{]|->|&&|\\|\\||\\breturn|\\byield)\\s*(<)\\s*([A-Za-z_$][\\w$.:-]*)(?=[\\s/>{]|$)",
+          "begin": "(?<=^|[(\\[,=?:{]|->|&&|\\|\\||\\breturn|\\byield)\\s*(?!<\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?(?:\\s*,\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?)*\\s*>\\s*[A-Za-z_$][\\w$.]*(?:\\s*<[^()]*?>)?(?:\\s*\\[\\])*\\s+[A-Za-z_$][\\w$]*\\s*\\()(<)\\s*([A-Za-z_$][\\w$.:-]*)(?=[\\s/>{]|$)",
           "beginCaptures": {
             "1": { "name": "punctuation.definition.tag.begin.jasx" },
             "2": { "patterns": [{ "include": "#tag-name" }] }

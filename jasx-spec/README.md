@@ -21,7 +21,7 @@ Like JSX, JASX is a language, not a framework. The core specification defines th
 | [`grammar.md`](grammar.md) | Lexical and syntactic grammar, markup detection rule, early errors | Yes |
 | [`ast.md`](ast.md) | AST node definitions (ESTree-style interface notation), location conventions | Yes |
 | [`ast.schema.json`](ast.schema.json) | JSON Schema for the serialized AST | Yes |
-| [`semantics.md`](semantics.md) | Core semantics: name classification, text normalization, child value contract, component resolution, factory lowering, target interface, static and dynamic positions | Yes |
+| [`semantics.md`](semantics.md) | Core semantics: name classification, text normalization, child value contract, component resolution, factory lowering, target interface, static and dynamic positions, file classes | Yes |
 | [`diagnostics.md`](diagnostics.md) | Diagnostic codes, severities and the diagnostic JSON format | Yes |
 | [`targets/html.md`](targets/html.md) | The `html` reference target: renders markup to HTML | Yes |
 | [`targets/live.md`](targets/live.md) | Ideas for a server-driven reactive target. **Deferred, not decided** | **No** |
@@ -33,7 +33,7 @@ Like JSX, JASX is a language, not a framework. The core specification defines th
 
 ## Design principles
 
-1. **Markup is an expression.** JASX adds one new kind of primary expression to Java. It adds nothing else.
+1. **Markup is an expression.** JASX's main addition to Java is one new kind of primary expression. Its only other addition is at the level of the file: fields and methods may be declared at the top level, and are then placed in a class named after the file (`semantics.md` §9), so that a file of components needs no holder class.
 2. **Java semantics are not changed.** No operator, statement or type rule of Java behaves differently in a `.jasx` file.
 3. **Java is opaque to the spec.** A conforming parser never needs to parse Java expressions, only to tokenize Java well enough to find markup. Tools that need a Java AST parse the `JavaCode` spans with a Java parser of their choice.
 4. **The language is target-neutral; targets are libraries.** All targets share the grammar, the AST, children normalization and component resolution. A target supplies a factory, attribute builders and a schema, and may supply its own lowering. Using an attribute, event or feature that the selected target doesn't support is a compile-time error.
@@ -49,6 +49,7 @@ Like JSX, JASX is a language, not a framework. The core specification defines th
 | **Markup** | A `JasxElement` or `JasxFragment`. |
 | **Intrinsic element** | An element whose name denotes a target-defined tag (e.g. `div`). |
 | **Component element** | An element whose name denotes a component method (e.g. `TodoItem`). |
+| **File class** | The class, named after the file, that holds the top-level fields and methods of a `.jasx` file (`semantics.md` §9). |
 | **Component** | A static Java method that returns `jasx.runtime.Element` and is registered in the component index. |
 | **Target** | A library that gives markup its meaning: a descriptor, a factory class, attribute builders, a schema, and optionally a custom lowering (e.g. `html`). |
 | **Factory** | The target class whose static functions (`h`, `fragment`, `keyed`, `text`) lowered markup calls. |

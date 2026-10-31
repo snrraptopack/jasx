@@ -37,7 +37,13 @@ import jasx.parser.JavaLexer.Token;
  * </ul>
  *
  * <p>Parentheses are counted too, so that braces inside an annotation argument ({@code @A({1, 2})}) or a
- * record header don't count as bodies.
+ * record header don't count as bodies. Braces inside a field initializer (an array initializer, a lambda
+ * body, an anonymous class) are skipped like blocks, but they don't end the field.
+ *
+ * <p><b>File classes</b> (semantics.md §9). In a {@code .jasx} file, fields and methods may be declared at
+ * the top level. The scan records every top-level declaration, and if there is a top-level field or
+ * method, it creates the file's <em>file class</em>: a {@link TypeDecl} named after the file that contains
+ * all top-level declarations. Types declared at the top level of such a file become nested in it.
  */
 final class JavaStructure {
     record Import(boolean isStatic, String name, boolean onDemand) {}
@@ -52,12 +58,17 @@ final class JavaStructure {
     record Method(TypeDecl owner, List<Annotation> annotations, Set<String> modifiers, String returnType,
             String name, int nameStart, int nameEnd, List<Param> params, int headerStart) {}
 
-    /** A named type, with the offsets of its body braces. Nested types point to their enclosing type. */
+    /**
+     * A named type, with the offsets of its body braces. Nested types point to their enclosing type.
+     *
+     * <p>{@code parent} and {@code qualifiedName} are only final after the scan: a type declared at the top
+     * level of a file is nested in the file class, which may only be discovered by a later declaration.
+     */
     static final class TypeDecl {
         final String name;
-        final TypeDecl parent;
+        TypeDecl parent;
         /** The source-style name used by the component index: {@code app.Page.Inner}. */
-        final String qualifiedName;
+        String qualifiedName;
         final int bodyStart;
         /** Set when the closing brace is found; the end of the file if it never is. */
         int bodyEnd;
@@ -71,11 +82,36 @@ final class JavaStructure {
         }
     }
 
+    /** What a top-level declaration is. Only fields, methods and types are allowed (semantics.md §9.2). */
+    enum TopLevelKind {
+        FIELD,
+        METHOD,
+        TYPE,
+        CONSTRUCTOR,
+        INITIALIZER
+    }
+
+    /**
+     * A declaration at the top level of a {@code .jasx} file.
+     *
+     * @param start the offset of its first token (an annotation, a modifier, or the declaration itself)
+     * @param end the end of its header: the last token before its body or {@code ;}, or its keyword
+     * @param staticAt where {@code static} goes: after the annotations and modifiers (semantics.md §9.4)
+     * @param isStatic whether it is already declared {@code static}
+     */
+    record TopLevelDecl(TopLevelKind kind, int start, int end, int staticAt, boolean isStatic) {}
+
     /** The text of the opaque token that stands for a markup expression. */
     private static final String MARKUP = "<jasx>";
 
     /** The stack entry for a brace that is not a type body. */
     private static final Object BLOCK = new Object();
+
+    /**
+     * The stack entry for a brace inside a field initializer: {@code int[] xs = {1, 2};}, a lambda body, an
+     * anonymous class. Skipped like a block, but the field continues after it.
+     */
+    private static final Object INITIALIZER_BRACE = new Object();
 
     private static final Set<String> MODIFIERS = Set.of(
             "public", "protected", "private", "static", "final", "abstract", "synchronized", "native",
@@ -85,15 +121,25 @@ final class JavaStructure {
 
     private final List<Token> tokens;
     private final int fileLength;
+    /** The name a file class would have, or null if the file can't have one (a {@code .java} file). */
+    private final String fileClassName;
 
     String packageName = "";
     final List<Import> imports = new ArrayList<>();
     final List<TypeDecl> types = new ArrayList<>();
     final List<Method> methods = new ArrayList<>();
 
-    private JavaStructure(List<Token> tokens, int fileLength) {
+    /** The declarations at the top level of a {@code .jasx} file, in source order. */
+    final List<TopLevelDecl> topLevel = new ArrayList<>();
+    /** The file class, or null if the file has no top-level field or method (semantics.md §9.1). */
+    TypeDecl fileClass;
+    /** The end of the last package or import declaration, where the file class starts (semantics.md §9.4). */
+    int afterImports;
+
+    private JavaStructure(List<Token> tokens, int fileLength, String fileClassName) {
         this.tokens = tokens;
         this.fileLength = fileLength;
+        this.fileClassName = fileClassName;
     }
 
     /**
@@ -101,11 +147,20 @@ final class JavaStructure {
      *
      * @param markupRanges the {@code [start, end)} range of each top-level markup expression, in order;
      *     each becomes one opaque token, so that braces and {@code <} inside markup are never seen as Java
+     * @param fileClassName the name of the file class if the file turns out to need one (the file name
+     *     without {@code .jasx}), or null for a {@code .java} file, whose top-level declarations are not
+     *     recorded
      */
-    static JavaStructure scan(String source, List<int[]> markupRanges) {
-        JavaStructure structure = new JavaStructure(tokenize(source, markupRanges), source.length());
+    static JavaStructure scan(String source, List<int[]> markupRanges, String fileClassName) {
+        JavaStructure structure = new JavaStructure(tokenize(source, markupRanges), source.length(), fileClassName);
         structure.walk();
+        structure.nestTopLevelTypesInFileClass();
         return structure;
+    }
+
+    /** Scans a file that can't have a file class. */
+    static JavaStructure scan(String source, List<int[]> markupRanges) {
+        return scan(source, markupRanges, null);
     }
 
     private static List<Token> tokenize(String source, List<int[]> markupRanges) {
@@ -162,13 +217,15 @@ final class JavaStructure {
             Token t = tokens.get(i);
 
             // Inside a block: only track braces until the block closes.
-            if (braces.peek() == BLOCK) {
+            if (isSkipped(braces.peek())) {
                 if (t.is("{")) {
                     braces.push(BLOCK);
                 } else if (t.is("}")) {
-                    braces.pop();
-                    boolean backInTypeBody = braces.peek() != BLOCK;
-                    if (backInTypeBody) {
+                    Object closed = braces.pop();
+                    boolean backInTypeBody = !isSkipped(braces.peek());
+                    // A method body or an initializer block ends its member. The braces of a field
+                    // initializer don't: the field goes on until its ';'.
+                    if (backInTypeBody && closed == BLOCK) {
                         memberStart = i + 1;
                         parenDepth = 0;
                     }
@@ -193,24 +250,40 @@ final class JavaStructure {
 
             if (owner == null && t.is("package")) {
                 i = readPackage(i);
+                afterImports = tokens.get(i).end();
                 memberStart = i + 1;
             } else if (owner == null && t.is("import")) {
                 i = readImport(i);
+                afterImports = tokens.get(i).end();
                 memberStart = i + 1;
             } else if (isTypeDeclaration(i)) {
                 int bodyBrace = findTypeBodyBrace(i + 2);
                 if (bodyBrace < 0) {
                     continue;
                 }
+                if (owner == null) {
+                    recordTopLevelType(memberStart, i);
+                }
                 TypeDecl type = declareType(tokens.get(i + 1).text(), owner, bodyBrace);
                 braces.push(type);
                 i = bodyBrace;
                 memberStart = i + 1;
             } else if (t.is("{")) {
-                // A body starts: the member before it may be a method header.
-                recordMethodIfHeader(memberStart, i, owner);
-                braces.push(BLOCK);
+                if (hasInitializer(memberStart, i)) {
+                    braces.push(INITIALIZER_BRACE); // inside a field's initializer, not a body
+                } else {
+                    // A body starts: the member before it may be a method header.
+                    if (owner == null) {
+                        recordTopLevelBody(memberStart, i);
+                    } else {
+                        recordMethodIfHeader(memberStart, i, owner);
+                    }
+                    braces.push(BLOCK);
+                }
             } else if (t.is(";")) {
+                if (owner == null) {
+                    recordTopLevelMemberWithoutBody(memberStart, i);
+                }
                 memberStart = i + 1;
             } else if (t.is("}")) {
                 // The end of a type body.
@@ -222,6 +295,139 @@ final class JavaStructure {
             }
         }
     }
+
+    /** Whether a brace-stack entry is skipped over: a block, or a brace inside a field initializer. */
+    private static boolean isSkipped(Object braceEntry) {
+        return braceEntry == BLOCK || braceEntry == INITIALIZER_BRACE;
+    }
+
+    /**
+     * Whether the member tokens {@code [from, to)} contain a {@code =} outside annotations, that is,
+     * whether they are a field with an initializer. ({@code =} inside parentheses, as in
+     * {@code @A(value = 1)}, never reaches here: the walk skips parenthesized tokens, but they are still in
+     * the member's token range, so they are skipped again here.)
+     */
+    private boolean hasInitializer(int from, int to) {
+        int depth = 0;
+        for (int j = from; j < to; j++) {
+            Token t = tokens.get(j);
+            if (t.is("(")) {
+                depth++;
+            } else if (t.is(")")) {
+                depth--;
+            } else if (depth == 0 && t.is("=")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Top-level declarations and the file class (semantics.md §9)
+    // ---------------------------------------------------------------------------------------------
+
+    /** A type declared at the top level; {@code keyword} is the index of {@code class}, {@code record}, ... */
+    private void recordTopLevelType(int from, int keyword) {
+        if (fileClassName == null) {
+            return;
+        }
+        // For @interface, the declaration starts at the '@'.
+        int declarationStart = keyword > from && tokens.get(keyword - 1).is("@") ? keyword - 1 : keyword;
+        Modifiers modifiers = readModifiers(from, declarationStart);
+        int start = tokens.get(from < declarationStart ? from : declarationStart).start();
+        topLevel.add(new TopLevelDecl(TopLevelKind.TYPE, start, tokens.get(keyword).end(),
+                tokens.get(declarationStart).start(), modifiers.names().contains("static")));
+    }
+
+    /**
+     * The member {@code [from, to)} before a {@code {} at the top level: a method, or a constructor or an
+     * initializer block, which are not allowed there.
+     */
+    private void recordTopLevelBody(int from, int to) {
+        if (fileClassName == null) {
+            return;
+        }
+        Modifiers modifiers = readModifiers(from, to);
+        int start = tokens.get(from < to ? from : to).start();
+        int headerEnd = from < to ? tokens.get(to - 1).end() : tokens.get(to).end();
+        boolean isStatic = modifiers.names().contains("static");
+
+        // Nothing but modifiers before the '{': {...} or static {...}.
+        if (modifiers.next() >= to) {
+            topLevel.add(new TopLevelDecl(TopLevelKind.INITIALIZER, start, headerEnd, start, isStatic));
+            return;
+        }
+
+        int staticAt = tokens.get(modifiers.next()).start();
+        boolean isMethod = recordMethodIfHeader(from, to, fileClass());
+        TopLevelKind kind = isMethod ? TopLevelKind.METHOD : TopLevelKind.CONSTRUCTOR;
+        topLevel.add(new TopLevelDecl(kind, start, headerEnd, staticAt, isStatic));
+    }
+
+    /** The member {@code [from, to)} before a {@code ;} at the top level: a field, or a method without a body. */
+    private void recordTopLevelMemberWithoutBody(int from, int to) {
+        if (fileClassName == null || from >= to) {
+            return; // an empty declaration, ';', is allowed anywhere
+        }
+        Modifiers modifiers = readModifiers(from, to);
+        if (modifiers.next() >= to) {
+            return; // only modifiers: not a declaration javac would accept, so leave it to javac
+        }
+        boolean isField = hasInitializer(from, to) || !containsToken(from, to, "(");
+        fileClass();
+        topLevel.add(new TopLevelDecl(isField ? TopLevelKind.FIELD : TopLevelKind.METHOD,
+                tokens.get(from).start(), tokens.get(to - 1).end(),
+                tokens.get(modifiers.next()).start(), modifiers.names().contains("static")));
+    }
+
+    /** The file class, created when the first top-level field or method is found. */
+    private TypeDecl fileClass() {
+        if (fileClass == null) {
+            String qualifiedName = packageName.isEmpty() ? fileClassName : packageName + "." + fileClassName;
+            fileClass = new TypeDecl(fileClassName, null, qualifiedName, afterImports, fileLength);
+            types.add(fileClass);
+        }
+        return fileClass;
+    }
+
+    /**
+     * After the scan: if the file has a file class, the types declared at its top level are nested in it
+     * (semantics.md §9.2), so their qualified names gain the file class's name: {@code app.Theme} becomes
+     * {@code app.Layout.Theme}.
+     */
+    private void nestTopLevelTypesInFileClass() {
+        if (fileClass == null) {
+            return;
+        }
+        for (TypeDecl type : types) {
+            if (type != fileClass && type.parent == null) {
+                type.parent = fileClass;
+            }
+        }
+        for (TypeDecl type : types) {
+            type.qualifiedName = qualifiedNameOf(type);
+        }
+    }
+
+    private String qualifiedNameOf(TypeDecl type) {
+        if (type.parent != null) {
+            return qualifiedNameOf(type.parent) + "." + type.name;
+        }
+        return packageName.isEmpty() ? type.name : packageName + "." + type.name;
+    }
+
+    private boolean containsToken(int from, int to, String text) {
+        for (int j = from; j < to; j++) {
+            if (tokens.get(j).is(text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Package and imports
+    // ---------------------------------------------------------------------------------------------
 
     /** {@code package a.b;} at index {@code i}; returns the index of the {@code ;}. */
     private int readPackage(int i) {
@@ -304,30 +510,24 @@ final class JavaStructure {
      * </pre>
      *
      * Constructors (no return type), fields with initializers ({@code = ...}), initializer blocks and
-     * enum constants don't match and are ignored.
+     * enum constants don't match and are ignored. Returns whether a method was recorded.
+     *
+     * <p>A method directly in the file class is a top-level method, which is static even when it isn't
+     * declared so (semantics.md §9.2).
      */
-    private void recordMethodIfHeader(int from, int to, TypeDecl owner) {
+    private boolean recordMethodIfHeader(int from, int to, TypeDecl owner) {
         if (owner == null || from >= to) {
-            return;
+            return false;
         }
 
         // Leading annotations and modifiers.
-        List<Annotation> annotations = new ArrayList<>();
-        Set<String> modifiers = new LinkedHashSet<>();
-        int k = from;
-        while (k < to) {
-            Token t = tokens.get(k);
-            if (isAnnotationStart(k, to)) {
-                k = readAnnotation(k, to, annotations);
-            } else if (t.kind() == Kind.IDENTIFIER && MODIFIERS.contains(t.text())) {
-                modifiers.add(t.text());
-                k++;
-            } else if (isNonSealed(k, to)) {
-                k += 3; // "non", "-", "sealed"
-            } else {
-                break;
-            }
+        Modifiers leading = readModifiers(from, to);
+        List<Annotation> annotations = leading.annotations();
+        Set<String> modifiers = new LinkedHashSet<>(leading.names());
+        if (owner == fileClass) {
+            modifiers.add("static");
         }
+        int k = leading.next();
 
         // Type parameters of a generic method: <T>
         if (k < to && tokens.get(k).is("<")) {
@@ -341,7 +541,7 @@ final class JavaStructure {
         for (int j = k; j < to; j++) {
             Token t = tokens.get(j);
             if (t.is("=")) {
-                return;
+                return false;
             }
             angleDepth += angleBracketDelta(t);
             if (angleDepth <= 0 && t.is("(")) {
@@ -350,7 +550,7 @@ final class JavaStructure {
             }
         }
         if (openParen < 0) {
-            return;
+            return false;
         }
 
         // The name is the identifier before '('; the return type is everything between the modifiers and
@@ -359,12 +559,12 @@ final class JavaStructure {
         boolean hasName = nameIndex >= k && tokens.get(nameIndex).kind() == Kind.IDENTIFIER;
         boolean hasReturnType = nameIndex > k;
         if (!hasName || !hasReturnType) {
-            return;
+            return false;
         }
 
         int closeParen = matchingParen(openParen, to);
         if (closeParen < 0) {
-            return;
+            return false;
         }
 
         Token name = tokens.get(nameIndex);
@@ -378,6 +578,7 @@ final class JavaStructure {
                 name.end(),
                 readParams(openParen + 1, closeParen),
                 tokens.get(from).start()));
+        return true;
     }
 
     /** Splits the tokens of a parameter list at the commas that are not nested in brackets. */
@@ -454,6 +655,34 @@ final class JavaStructure {
         boolean nameFollows = k + 1 < limit && tokens.get(k + 1).kind() == Kind.IDENTIFIER;
         boolean isAnnotationTypeDeclaration = nameFollows && tokens.get(k + 1).is("interface");
         return isAt && nameFollows && !isAnnotationTypeDeclaration;
+    }
+
+    /**
+     * The annotations and modifiers at the start of a declaration.
+     *
+     * @param next the index of the first token after them
+     */
+    private record Modifiers(List<Annotation> annotations, Set<String> names, int next) {}
+
+    /** Reads the annotations and modifiers that start the tokens {@code [from, to)}. */
+    private Modifiers readModifiers(int from, int to) {
+        List<Annotation> annotations = new ArrayList<>();
+        Set<String> names = new LinkedHashSet<>();
+        int k = from;
+        while (k < to) {
+            Token t = tokens.get(k);
+            if (isAnnotationStart(k, to)) {
+                k = readAnnotation(k, to, annotations);
+            } else if (t.kind() == Kind.IDENTIFIER && MODIFIERS.contains(t.text())) {
+                names.add(t.text());
+                k++;
+            } else if (isNonSealed(k, to)) {
+                k += 3; // "non", "-", "sealed"
+            } else {
+                break;
+            }
+        }
+        return new Modifiers(annotations, names, k);
     }
 
     private boolean isNonSealed(int k, int limit) {

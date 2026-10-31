@@ -19,7 +19,7 @@ On older VS Code versions, copy or link this folder into `~/.vscode/extensions/j
 
 The JASX specification decides whether `<` starts markup from the token before it (jasx-spec/grammar.md §4). A TextMate grammar can only approximate that with regular expressions. Here, `<` followed by a name or `>` starts markup when it comes after `(`, `[`, `,`, `=`, `?`, `:`, `{`, `->`, `&&`, `||`, `return` or `yield` on the same line, or at the start of a line.
 
-Known imperfection: a generic method with no modifiers whose declaration starts a line (`<T> void m()`) is highlighted as markup. Adding a modifier (`static <T> void m()`) avoids it.
+Known imperfection: a generic method with no modifiers whose declaration starts a line is recognized by its shape (`<T> Element ListOf(`), which covers type parameters with simple bounds (`<T extends Number>`). With a nested generic bound (`<T extends Comparable<T>> void sort(`) it is highlighted as markup. Adding a modifier (`static <T ...>`) avoids it.
 
 ## Tests
 

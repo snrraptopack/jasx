@@ -149,6 +149,22 @@ test("text after the markup is Java again", () => {
   assertNoScope(source, "x < y", "meta.tag.jasx");
 });
 
+test("a generic method at the start of a line is Java, not markup", () => {
+  const source = [
+    "<I> Element ListOf(List<I> items) {",
+    "  return <ul/>;",
+    "}",
+    "<K, V extends Number> Map<K, V> sorted(Map<K, V> m) {}",
+  ].join("\n");
+  assertNoScope(source, "Element ListOf", "meta.tag.jasx");
+  assertNoScope(source, "sorted", "meta.tag.jasx");
+  assertScope(source, "ul", "entity.name.tag.jasx");
+});
+
+test("an element at the start of a line is still markup", () => {
+  assertScope(["return (", "<Row item={x} />", ");"].join("\n"), "Row", "support.class.component.jasx");
+});
+
 // --- Run -------------------------------------------------------------------------------------------
 
 let failed = 0;

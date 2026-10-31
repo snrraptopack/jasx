@@ -2,7 +2,7 @@
 
 **Spec version:** 1.0-draft
 
-This document defines what JASX markup **means** independently of any target. It covers how element names are classified, how text and attributes are normalized, how components are resolved and called, the standard **factory lowering**, the **target interface** through which targets plug in, and the classification of **static and dynamic positions**.
+This document defines what JASX markup **means** independently of any target. It covers how element names are classified, how text and attributes are normalized, how components are resolved and called, the standard **factory lowering**, the **target interface** through which targets plug in, the classification of **static and dynamic positions**, and **file classes** for top-level declarations.
 
 JASX relates to its targets the way JSX relates to React, Preact or Solid. The language defines syntax and a standard transform to calls on a factory supplied by a library. A target is that library. It supplies the factory and an attribute schema and, optionally, its own lowering. Target-specific behaviour is specified separately, under [`targets/`](targets/).
 
@@ -125,7 +125,7 @@ A `key` attribute value **MUST** be an expression container or a string literal 
 
 A **component** is a Java method that:
 
-1. is `static`,
+1. is `static` (methods at the top level of a `.jasx` file are, §9),
 2. has return type `jasx.runtime.Element`,
 3. has a name whose first character is **not** a lowercase letter (the same test as §2, so that a component can be named by a tag),
 4. is declared in a `.jasx` file, or is annotated with `@jasx.Component` in a `.java` file,
@@ -434,3 +434,61 @@ Every value position in markup is **static** or **dynamic**. This classification
 | An expression container as the value of `key` | **key** |
 
 The **static skeleton** of a markup tree is its intrinsic elements and fragments, their static attributes and its static text, with each dynamic position marked as a hole. A target **MAY** use the skeleton to render or send static content once (for example, the `html` target could pre-render it to a constant string). Using the skeleton **MUST NOT** change the result of rendering.
+
+---
+
+## 9. File classes
+
+Java requires every field and method to belong to a class, so a file of components needs a class whose only job is to hold them. A `.jasx` file may leave that class out and declare its fields and methods at the top level (`grammar.md` §7.2). The compiler then puts them in a class named after the file, its **file class**, much as Kotlin puts top-level functions in a class named after their file.
+
+```java
+// hello/ui/Layout.jasx
+package hello.ui;
+
+import jasx.runtime.Element;
+
+public Element Badge(String text) {
+  return <span class="badge">{text}</span>;
+}
+```
+
+is the same as
+
+```java
+package hello.ui;
+
+import jasx.runtime.Element;
+
+public final class Layout {
+  private Layout() {}
+
+  public static Element Badge(String text) {
+    return <span class="badge">{text}</span>;
+  }
+}
+```
+
+### 9.1 Which files have a file class
+
+A `.jasx` file has a file class if and only if its top level contains at least one field or method declaration. A file without one is an ordinary Java compilation unit and is lowered as in §6.
+
+### 9.2 The file class
+
+- Its simple name is the file name without the `.jasx` extension (`Layout.jasx` → `Layout`). That name **MUST** be a Java identifier and not a keyword (JASX2012).
+- It is in the package of the file, and it is `public` and `final`.
+- It has a `private` constructor without parameters, and no members other than the file's top-level declarations.
+- **Every** top-level declaration of the file becomes a member of the file class, in source order: fields, methods, and also class, interface, enum, record and annotation type declarations, which become nested types (`Layout.Theme`).
+- Every member is `static`. Access modifiers are kept as written: a member without one has package access, as anywhere in Java, so a component meant for other packages is declared `public`.
+- A constructor or an initializer block (`{ ... }` or `static { ... }`) at the top level is an error (JASX2013).
+
+### 9.3 Components in a file class
+
+A top-level method is static (§9.2), so it is a component when it returns `Element` and its name does not start with a lowercase letter (§5.1). Its class in the component index (§5.3) is the file class: `Badge` in `hello/ui/Layout.jasx` is indexed with `"class": "hello.ui.Layout"`. Other files use it like any other component, with `import static hello.ui.Layout.*;` and `<Badge text="new" />`, or as `<Layout.Badge text="new" />`.
+
+### 9.4 Lowering
+
+The compiler turns the file into its file class by inserting text into the `JavaCode` segments. None of the insertions adds a line break before the end of the file, so line preservation (§6.5) holds:
+
+1. `public final class N { private N() {} `, where `N` is the file class name, is inserted directly after the `;` of the last package or import declaration, or at the start of the file if there is none.
+2. `static ` is inserted into each top-level declaration that is not already `static`, after its annotations and modifiers and before the rest of the declaration (the type parameters, the type, or the `class`, `interface`, `enum`, `record` or `@interface` keyword).
+3. A line terminator, if the file does not end with one, and `}` are appended at the end of the file.
