@@ -1,10 +1,8 @@
 package jasx.compiler;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -86,9 +84,8 @@ public final class ComponentIndex {
         try {
             Enumeration<URL> resources = loader.getResources(RESOURCE);
             while (resources.hasMoreElements()) {
-                try (InputStream in = resources.nextElement().openStream()) {
-                    fromJson(new String(in.readAllBytes(), StandardCharsets.UTF_8)).all().forEach(index::add);
-                }
+                String json = Resources.read(resources.nextElement());
+                fromJson(json).all().forEach(index::add);
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);

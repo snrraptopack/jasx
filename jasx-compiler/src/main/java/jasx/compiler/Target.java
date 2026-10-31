@@ -1,10 +1,8 @@
 package jasx.compiler;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
@@ -57,8 +55,6 @@ public record Target(String id, String factory, String attributesPackage, Schema
     }
 
     private static String read(URL url) throws IOException {
-        try (InputStream in = url.openStream()) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        return Resources.read(url);
     }
 }
