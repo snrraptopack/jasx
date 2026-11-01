@@ -409,6 +409,24 @@ class JasxCompilerTest {
         }
 
         @Test
+        void theBuildsOwnCompilerOptionsArePassedOnButNotThoseTheCheckSets() {
+            List<String> build = List.of("-parameters", "-d", "out", "-classpath", "x.jar", "-Werror", "-Xlint:all",
+                    "-Amapstruct.verbose=true", "--release", "17", "-proc:none", "--enable-preview", "-g");
+            assertEquals(List.of("-parameters", "-Amapstruct.verbose=true", "-proc:none", "--enable-preview"),
+                    JavacRunner.forwardedArguments(build));
+        }
+
+        @Test
+        void enablePreviewWithoutAReleaseChecksForTheRunningJdk(@TempDir Path work) throws IOException {
+            // javac refuses --enable-preview without --release (or -source); the check supplies the JDK's own.
+            SourceFile f = file("static Element Test() { return <p>{List.of(1).size()}</p>; }");
+            JavacRunner.BuildOptions options = new JavacRunner.BuildOptions(CLASSPATH, "", null, work,
+                    List.of("--enable-preview"));
+            List<CompilerDiagnostic> diagnostics = JavacRunner.typeCheck(compile(f).files(), List.of(), options);
+            assertTrue(diagnostics.stream().noneMatch(CompilerDiagnostic::isError), () -> format(diagnostics));
+        }
+
+        @Test
         void typeCheckCompilesForTheGivenRelease(@TempDir Path work) throws IOException {
             // List.getFirst() is new in Java 21.
             SourceFile f = file("static Element Test() { return <p>{List.of(1).getFirst()}</p>; }");

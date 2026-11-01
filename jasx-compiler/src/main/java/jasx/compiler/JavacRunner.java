@@ -15,6 +15,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 import javax.tools.DiagnosticCollector;
 import javax.tools.FileObject;
@@ -78,8 +79,50 @@ public final class JavacRunner {
      * @param release       the {@code --release} to compile for, or {@code null} for the running JDK's
      * @param workDirectory a directory for the files annotation processors write (generated sources and
      *                      resources); its contents are replaced
+     * @param compilerArgs  the build's other javac options ({@code -parameters}, {@code --enable-preview},
+     *                      {@code -proc:none}, {@code -Akey=value}, ...); see {@link #forwardedArguments} for
+     *                      the ones the check leaves out
      */
-    public record BuildOptions(String classpath, String processorPath, Integer release, Path workDirectory) {}
+    public record BuildOptions(String classpath, String processorPath, Integer release, Path workDirectory,
+            List<String> compilerArgs) {
+
+        /** Options without other javac options. */
+        public BuildOptions(String classpath, String processorPath, Integer release, Path workDirectory) {
+            this(classpath, processorPath, release, workDirectory, List.of());
+        }
+    }
+
+    /**
+     * The options that set what the check itself sets, with the value that follows each: where class files
+     * and generated sources go, the classpaths, the release and the encoding.
+     */
+    private static final Set<String> OPTIONS_SET_BY_THE_CHECK = Set.of("-d", "-s", "-h", "-classpath", "-cp",
+            "--class-path", "-processorpath", "--processor-path", "--release", "-source", "--source", "-target",
+            "--target", "-sourcepath", "--source-path", "-encoding");
+
+    /**
+     * The build's javac options that the type check passes on: all but those it sets itself
+     * ({@link #OPTIONS_SET_BY_THE_CHECK}), and those about warnings and output ({@code -Werror}, {@code -Xlint},
+     * {@code -nowarn}, {@code -g}, {@code -verbose}, {@code -implicit}), since the check reports only errors and
+     * writes nothing the build keeps.
+     */
+    static List<String> forwardedArguments(List<String> compilerArgs) {
+        List<String> forwarded = new ArrayList<>();
+        for (int i = 0; i < compilerArgs.size(); i++) {
+            String argument = compilerArgs.get(i);
+            if (OPTIONS_SET_BY_THE_CHECK.contains(argument)) {
+                i++; // and its value
+                continue;
+            }
+            boolean aboutWarningsOrOutput = argument.equals("-Werror") || argument.startsWith("-Xlint")
+                    || argument.equals("-nowarn") || argument.startsWith("-g") || argument.equals("-verbose")
+                    || argument.startsWith("-implicit");
+            if (!aboutWarningsOrOutput) {
+                forwarded.add(argument);
+            }
+        }
+        return forwarded;
+    }
 
     /**
      * Compiles generated files together with plain Java sources, in memory. Annotation processors don't run.
@@ -135,9 +178,15 @@ public final class JavacRunner {
         } else {
             arguments.addAll(List.of("-processorpath", options.processorPath()));
         }
-        if (options.release() != null) {
-            arguments.addAll(List.of("--release", options.release().toString()));
+        List<String> forwarded = forwardedArguments(options.compilerArgs());
+        Integer release = options.release();
+        if (release == null && forwarded.contains("--enable-preview")) {
+            release = Runtime.version().feature(); // javac takes --enable-preview only with a release
         }
+        if (release != null) {
+            arguments.addAll(List.of("--release", release.toString()));
+        }
+        arguments.addAll(forwarded);
 
         DiagnosticCollector<JavaFileObject> collector = new DiagnosticCollector<>();
         try (StandardJavaFileManager files = javac.getStandardFileManager(collector, Locale.ROOT, StandardCharsets.UTF_8)) {

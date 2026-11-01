@@ -32,6 +32,7 @@
       <threadSafe>true</threadSafe>
       <parameters>
         <parameter><name>project</name><type>org.apache.maven.project.MavenProject</type><required>true</required><editable>false</editable><description>The project.</description></parameter>
+        <parameter><name>session</name><type>org.apache.maven.execution.MavenSession</type><required>true</required><editable>false</editable><description>The build session.</description></parameter>
         <parameter><name>scope</name><type>java.lang.String</type><required>true</required><editable>false</editable><description>main</description></parameter>
         <parameter><name>target</name><type>java.lang.String</type><required>true</required><editable>true</editable><description>The id of the JASX target.</description></parameter>
         <parameter><name>typeCheck</name><type>boolean</type><required>false</required><editable>true</editable><description>Whether to type-check the generated Java with javac.</description></parameter>
@@ -39,11 +40,18 @@
       </parameters>
       <configuration>
         <project implementation="org.apache.maven.project.MavenProject" default-value="${project}"/>
+        <session implementation="org.apache.maven.execution.MavenSession" default-value="${session}"/>
         <scope implementation="java.lang.String" default-value="main"/>
         <target implementation="java.lang.String" default-value="html">${jasx.target}</target>
         <typeCheck implementation="boolean" default-value="true">${jasx.typeCheck}</typeCheck>
         <release implementation="java.lang.String">${maven.compiler.release}</release>
-      </configuration>
+            </configuration>
+      <requirements>
+        <requirement>
+          <role>org.eclipse.aether.RepositorySystem</role>
+          <field-name>repositorySystem</field-name>
+        </requirement>
+      </requirements>
     </mojo>
 
     <mojo>
@@ -59,6 +67,7 @@
       <threadSafe>true</threadSafe>
       <parameters>
         <parameter><name>project</name><type>org.apache.maven.project.MavenProject</type><required>true</required><editable>false</editable><description>The project.</description></parameter>
+        <parameter><name>session</name><type>org.apache.maven.execution.MavenSession</type><required>true</required><editable>false</editable><description>The build session.</description></parameter>
         <parameter><name>scope</name><type>java.lang.String</type><required>true</required><editable>false</editable><description>test</description></parameter>
         <parameter><name>target</name><type>java.lang.String</type><required>true</required><editable>true</editable><description>The id of the JASX target.</description></parameter>
         <parameter><name>typeCheck</name><type>boolean</type><required>false</required><editable>true</editable><description>Whether to type-check the generated Java with javac.</description></parameter>
@@ -66,11 +75,18 @@
       </parameters>
       <configuration>
         <project implementation="org.apache.maven.project.MavenProject" default-value="${project}"/>
+        <session implementation="org.apache.maven.execution.MavenSession" default-value="${session}"/>
         <scope implementation="java.lang.String" default-value="test"/>
         <target implementation="java.lang.String" default-value="html">${jasx.target}</target>
         <typeCheck implementation="boolean" default-value="true">${jasx.typeCheck}</typeCheck>
         <release implementation="java.lang.String">${maven.compiler.release}</release>
-      </configuration>
+            </configuration>
+      <requirements>
+        <requirement>
+          <role>org.eclipse.aether.RepositorySystem</role>
+          <field-name>repositorySystem</field-name>
+        </requirement>
+      </requirements>
     </mojo>
 
     <mojo>

@@ -138,6 +138,50 @@ class MavenPluginFunctionalTest {
     }
 
     @Test
+    void theTypeCheckRunsTheCompilersAnnotationProcessorPaths() throws Exception {
+        // MapStruct's processor is only in the compiler's annotationProcessorPaths, not on the classpath, as
+        // MapStruct recommends. It generates PersonMapperImpl, which the page uses.
+        String pom = Files.readString(project.resolve("pom.xml"));
+        pom = pom.replace("  </dependencies>", """
+                    <dependency>
+                      <groupId>org.mapstruct</groupId>
+                      <artifactId>mapstruct</artifactId>
+                      <version>1.6.3</version>
+                    </dependency>
+                  </dependencies>""");
+        pom = pom.replace("    <plugins>", """
+                    <plugins>
+                      <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <version>3.13.0</version>
+                        <configuration>
+                          <annotationProcessorPaths>
+                            <path>
+                              <groupId>org.mapstruct</groupId>
+                              <artifactId>mapstruct-processor</artifactId>
+                              <version>1.6.3</version>
+                            </path>
+                          </annotationProcessorPaths>
+                        </configuration>
+                      </plugin>""");
+        Files.writeString(project.resolve("pom.xml"), pom);
+        Path sources = project.resolve("src/main/java/example");
+        Files.writeString(sources.resolve("Person.java"), "package example;\npublic record Person(String name) {}\n");
+        Files.writeString(sources.resolve("PersonView.java"), "package example;\npublic record PersonView(String name) {}\n");
+        Files.writeString(sources.resolve("PersonMapper.java"),
+                "package example;\n@org.mapstruct.Mapper\npublic interface PersonMapper { PersonView view(Person person); }\n");
+        editPages("Hello, {name}!", "Hello, {new PersonMapperImpl().view(new Person(name)).name()}!");
+
+        Run run = maven("compile");
+
+        // Without the processor, the type check would report "cannot find symbol: PersonMapperImpl" in Pages.jasx.
+        assertEquals(0, run.exitCode(), run.output());
+        String info = Files.readString(project.resolve("target/jasx/editor/main.json"));
+        assertTrue(info.contains("mapstruct-processor"), "the editor file names the processor path: " + info);
+    }
+
+    @Test
     void theTypeCheckCanBeTurnedOff() throws Exception {
         editPages("Hello, {name}!", "Hello, {nme}!");
 

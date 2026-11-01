@@ -13,6 +13,8 @@ dependencies {
     compileOnly("org.apache.maven:maven-plugin-api:3.9.9")
     compileOnly("org.apache.maven:maven-core:3.9.9")
     testImplementation(project(":jasx-compiler"))
+    // CompilerConfigurationTest reads POM configuration with Maven's own XML classes.
+    testImplementation("org.apache.maven:maven-core:3.9.9")
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
