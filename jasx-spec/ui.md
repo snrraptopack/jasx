@@ -95,7 +95,7 @@ Each event attribute gives its handler the most specific **kind** of event it ha
 | `InputEvent` | `input`, `beforeinput`, `change`, `select`, `invalid`, `focus`, `blur` | `value()`, `checked()`, `values()` |
 | `KeyEvent` (an `InputEvent`) | `keydown`, `keyup`, `keypress` | `key()`, `ctrl()`, `shift()`, `alt()`, `meta()`, and the field's value |
 | `MouseEvent` | `click`, `dblclick`, `auxclick`, `contextmenu`, `mousedown`, `mouseup`, `mousemove`, `mouseover`, `mouseout`, `mouseenter`, `mouseleave`, `wheel`, `drag`, `dragstart`, `dragend`, `dragenter`, `dragleave`, `dragover`, `drop` | `button()`, `x()`, `y()`, `ctrl()`, `shift()`, `alt()`, `meta()` |
-| `FormEvent` | `submit` | `field(name)`, `fields(name)`, `fieldNames()`, `resetForm()`, `as(type)` |
+| `FormEvent` | `submit` | `field(name)`, `fields(name)`, `fieldNames()`, `files(name)`, `file(name)`, `resetForm()`, `as(type)` |
 
 So `onclick={e -> e.field("title")}` is a compile-time error (a `MouseEvent` has no fields), reported by javac at its `.jasx` location.
 
@@ -103,6 +103,7 @@ So `onclick={e -> e.field("title")}` is a compile-time error (a `MouseEvent` has
 - `key()` is the key as the platform names it (`"Enter"`, `"a"`, `"ArrowUp"`).
 - `button()` is 0 for the main button, 1 for the middle and 2 for the secondary; `x()` and `y()` are the pointer's position in the window's content area.
 - `field(name)` is the first value of a form field, or `""`; `fields(name)` all its values in form order; `fieldNames()` the names of the fields that have a value.
+- `files(name)` are the files chosen in a file field, in order (several for `multiple`), and `file(name)` the first, if any. Each is an `UploadedFile`: `name()` (without folders), `contentType()`, `size()`, `open()`, `bytes()`, `saveTo(path)`. Its content is available while the handler runs. For a file field, `field(name)` and `fields(name)` give the file names. A target without files gives none.
 - `resetForm()` returns the form's fields to their initial values once the event's other changes are applied. Typed text belongs to the user's side, so setting state can't clear it.
 
 ### 4.1 Values the user types
@@ -120,5 +121,7 @@ Text being typed belongs to the user's side until the application asks for it. A
 | primitive numbers and `char` | parsed; an empty or absent field is an error |
 | boxed numbers, `Character`, `BigDecimal`, `BigInteger`, enums (by constant name), `LocalDate`, `LocalTime`, `LocalDateTime`, `UUID` | parsed; `null` if empty or absent |
 | `List<T>` of any of these | every value of the field, each converted; an empty list if absent |
+| `UploadedFile` | `file(name)`; `null` if no file was chosen |
+| `List<UploadedFile>` | `files(name)` |
 
 A value that can't be converted is an `IllegalArgumentException` naming its field. An exception thrown by the record's constructor (its own validation) is let through.

@@ -118,6 +118,28 @@ class TestPageTest {
     }
 
     @Test
+    void attachedFilesAreUploadedWithTheSubmit() {
+        try (TestPage page = TestPage.render(() -> {
+            State<String> shown = Web.state("");
+            return Web.h("div", null,
+                    Web.h("form", Form.create().onsubmit(e -> {
+                                StringBuilder names = new StringBuilder();
+                                for (var file : e.files("photos")) {
+                                    names.append(file.name()).append('=').append(file.size()).append(' ');
+                                }
+                                shown.set(names.toString().strip());
+                            }),
+                            Web.h("input", Input.create().type("file").name("photos").multiple(true))),
+                    Web.h("p", null, Web.dynamic(() -> shown.get())));
+        })) {
+            page.attach("input[type=file]", "a.png", "image/png", new byte[] {1, 2, 3})
+                    .attach("input[type=file]", "b.txt", "text/plain", new byte[] {4})
+                    .submit("form");
+            assertEquals("a.png=3 b.txt=1", page.text("p"));
+        }
+    }
+
+    @Test
     void navigationIsRecorded() {
         try (TestPage page = TestPage.render(() -> Web.h("button", Button.create().onclick(() -> Web.navigate("/done")), "Go"))) {
             page.click("button");

@@ -178,6 +178,27 @@ A handler can throw. The error is logged and the page stays usable; changes made
   .jx-loading { opacity: .6; cursor: progress; }
   ```
 
+### Files
+
+A form's file fields work as you'd expect: when the form is submitted, the browser uploads the chosen files first, then sends the event, and the handler gets them with `e.file(name)`, `e.files(name)`, or a record component of type `UploadedFile`:
+
+```java
+record NewPhoto(String caption, UploadedFile image) {}
+
+<form onsubmit={e -> {
+    NewPhoto photo = e.as(NewPhoto.class);
+    if (photo.image() != null) {
+        photo.image().saveTo(storage.resolve(photo.image().name()));
+    }
+}}>
+    <input name="caption" />
+    <input type="file" name="image" accept="image/*" />
+    <button>Upload</button>
+</form>
+```
+
+An `UploadedFile` has `name()`, `contentType()`, `size()`, `open()`, `bytes()` and `saveTo(path)`. Its content is there while the handler runs and is deleted after it, so save what you need in the handler. A file may be up to 10 MiB (`WebApp.Limits`, or `jasx.web.max-upload-bytes` in Spring). The name comes from the user's computer: never use it as a path without checking it.
+
 ## Lists
 
 A statement child loops in markup:
@@ -302,6 +323,7 @@ jasx.web.page-timeout=2m
 jasx.web.first-connect-timeout=30s
 jasx.web.max-event-bytes=1048576
 jasx.web.max-pages-per-session=50
+jasx.web.max-upload-bytes=10485760
 ```
 
 [`examples/web-spring`](../examples/web-spring) is a complete application: `./gradlew -p examples/web-spring run`.
@@ -375,6 +397,7 @@ class BoardTest {
 | `change(selector, value)` | chooses a select's option, or sets a field (fires `input` and `change`) |
 | `submit(selector)`, `submit(selector, fields)` | fills the named fields of the form (or of the form holding the element), then submits it |
 | `keydown(selector, key)`, `fire(selector, type)` | a key press; any event |
+| `attach(selector, name, type, bytes)` | chooses a file in a file field; the next submit uploads it |
 | `find`, `findAll`, `has`, `text`, `html` | read the page; an element gives `text()`, `attribute(name)`, `hasClass(name)`, `value()`, `checked()` |
 | `await(() -> ...)` | repeats an assertion until it passes, for what the server pushes from elsewhere |
 | `navigatedTo()` | where `navigate(url)` sent the browser |

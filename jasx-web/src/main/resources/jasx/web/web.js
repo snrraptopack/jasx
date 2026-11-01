@@ -578,7 +578,7 @@
     const revisions = revisionsOf(element, form);
     remember(seq, { form: form || element.form || null, revisions });
     busy(element, +1);
-    queue.push({ element, payload, revisions });
+    queue.push({ element, payload, revisions, uploads: form ? chosenFiles(form, payload.fields) : [] });
     pump();
   }
 
@@ -624,15 +624,55 @@
     return payload;
   }
 
+  // The form's fields, as FormData gives them, without its file fields: chosenFiles adds those.
   function formFields(form, submitter) {
     let data;
     try { data = new FormData(form, submitter); } catch (e) { data = new FormData(form); }
     const fields = {};
     for (const [name, value] of data) {
-      (fields[name] ||= []).push(typeof value === "string" ? value : value.name);
+      if (typeof value === "string") (fields[name] ||= []).push(value);
     }
     return fields;
   }
+
+  // Uploads (§8.1): each file chosen in the form's file fields is uploaded before the event is sent, and the
+  // event's field carries its token in place of the file. Here each file gets its place in `fields`, filled
+  // in once its upload is done.
+  function chosenFiles(form, fields) {
+    const uploads = [];
+    for (const input of form.querySelectorAll("input[type=file][name]")) {
+      if (input.disabled || !input.files || input.files.length === 0) continue;
+      const values = (fields[input.name] ||= []);
+      for (const file of input.files) {
+        uploads.push({ name: input.name, index: values.length, file });
+        values.push("");
+      }
+    }
+    return uploads;
+  }
+
+  async function uploadFiles(item) {
+    for (const upload of item.uploads) {
+      const response = await fetch(base + "/upload" + query, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Jasx-Name": encodeURIComponent(upload.file.name),
+          "X-Jasx-Type": upload.file.type || "application/octet-stream",
+        },
+        body: upload.file,
+      });
+      if (response.status === 410) throw new Gone();
+      if (response.status !== 200) {
+        console.error("jasx: the upload of " + upload.file.name + " failed with status " + response.status);
+        continue; // the event goes without this file
+      }
+      const answer = await response.json();
+      item.payload.fields[upload.name][upload.index] = "jx-upload:" + answer.upload;
+    }
+  }
+
+  class Gone extends Error {}
 
   async function pump() {
     if (sending) return;
@@ -641,6 +681,7 @@
       const item = queue.shift();
       markSent(item.revisions);
       try {
+        await uploadFiles(item);
         const response = await fetch(base + "/event" + query, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -650,6 +691,7 @@
         if (response.status === 200) receive(await response.json());
         else if (response.status !== 204) console.error("jasx: event failed with status " + response.status);
       } catch (error) {
+        if (error instanceof Gone) { reload(); return; }
         // The handler may have run although its answer was lost: the server still has the batch, and
         // a reconnection fetches it (§6.1).
         console.error("jasx: event failed", error);

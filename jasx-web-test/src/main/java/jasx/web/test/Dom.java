@@ -39,6 +39,8 @@ final class Dom {
         Boolean checked;
         /** For an option: whether it is selected once changed (null: what its markup says). */
         Boolean selected;
+        /** For a file field: the files chosen with {@code TestPage.attach}. */
+        final List<Attached> files = new ArrayList<>();
 
         Element(String tag) {
             this.tag = tag;
@@ -57,6 +59,9 @@ final class Dom {
             children.add(child);
         }
     }
+
+    /** A file chosen in a file field. */
+    record Attached(String name, String contentType, byte[] content) {}
 
     static final class Text extends Node {
         String text;

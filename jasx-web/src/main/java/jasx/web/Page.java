@@ -6,7 +6,14 @@ import jasx.ui.Effect;
 import jasx.ui.Event;
 import jasx.ui.Handler;
 import jasx.ui.Scheduler;
+import jasx.ui.UploadedFile;
+import java.io.FilterOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -244,7 +251,14 @@ final class Page implements Scheduler {
             if (handler == null) {
                 return null; // its hole re-ran since the browser rendered it (§8.3)
             }
-            WebEvent event = WebEvent.fromJson(json);
+            List<Upload> used = new ArrayList<>();
+            WebEvent event = WebEvent.fromJson(json, token -> {
+                Upload upload = uploads.remove(token);
+                if (upload != null) {
+                    used.add(upload);
+                }
+                return upload;
+            });
             // Reads in a handler subscribe nothing; what it creates belongs to the page.
             Computation.runWithOwner(root, () -> {
                 try {
@@ -252,11 +266,99 @@ final class Page implements Scheduler {
                 } catch (Exception | AssertionError e) {
                     // The page stays usable: what the handler changed before failing is still sent.
                     LOG.log(System.Logger.Level.ERROR, "event handler failed (" + event + ")", e);
+                } finally {
+                    used.forEach(Upload::delete); // the handler has saved what it needed (ui.md §4)
                 }
                 return null;
             });
             return flush(true);
         });
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Uploads (targets/web.md §8.1): files kept until the event that names them has been handled
+    // ---------------------------------------------------------------------------------------------
+
+    /** At most this many uploads wait for their event at once. */
+    static final int MAX_PENDING_UPLOADS = 10;
+
+    /** A file uploaded for a coming event, kept in a temporary file. */
+    record Upload(String name, String contentType, long size, Path path) implements UploadedFile {
+        @Override
+        public InputStream open() throws IOException {
+            return Files.newInputStream(path);
+        }
+
+        void delete() {
+            try {
+                Files.deleteIfExists(path);
+            } catch (IOException e) {
+                LOG.log(System.Logger.Level.WARNING, "could not delete the upload " + path, e);
+            }
+        }
+    }
+
+    private final Map<String, Upload> uploads = new ConcurrentHashMap<>();
+
+    /** What {@link #addUpload} can answer besides a token. */
+    enum UploadRefusal { TOO_LARGE, TOO_MANY }
+
+    /**
+     * Keeps a file the browser uploads for an event it is about to send: {@code body} is copied to a temporary file,
+     * up to {@code maxBytes}.
+     *
+     * @return the upload's token, or an {@link UploadRefusal}
+     */
+    Object addUpload(String name, String contentType, InputStream body, long maxBytes, String token)
+            throws IOException {
+        touch();
+        if (uploads.size() >= MAX_PENDING_UPLOADS) {
+            return UploadRefusal.TOO_MANY;
+        }
+        Path file = Files.createTempFile("jasx-upload-", ".bin");
+        long size;
+        try (OutputStream out = Files.newOutputStream(file)) {
+            size = body.transferTo(new LimitedOutputStream(out, maxBytes));
+        } catch (LimitedOutputStream.TooLarge e) {
+            Files.deleteIfExists(file);
+            return UploadRefusal.TOO_LARGE;
+        }
+        uploads.put(token, new Upload(name, contentType, size, file));
+        return token;
+    }
+
+    /** Writes through to another stream, and fails once more than {@code max} bytes come. */
+    private static final class LimitedOutputStream extends FilterOutputStream {
+        static final class TooLarge extends IOException {
+            private static final long serialVersionUID = 1L;
+        }
+
+        private final long max;
+        private long written;
+
+        LimitedOutputStream(OutputStream out, long max) {
+            super(out);
+            this.max = max;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            count(1);
+            out.write(b);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            count(length);
+            out.write(bytes, offset, length);
+        }
+
+        private void count(int length) throws TooLarge {
+            written += length;
+            if (written > max) {
+                throw new TooLarge();
+            }
+        }
     }
 
     /**
@@ -419,6 +521,8 @@ final class Page implements Scheduler {
             dirty.clear();
             return null;
         });
+        uploads.values().forEach(Upload::delete); // uploads whose event never came
+        uploads.clear();
     }
 
     // ---------------------------------------------------------------------------------------------

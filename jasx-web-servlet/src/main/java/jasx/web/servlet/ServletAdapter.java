@@ -58,6 +58,10 @@ public final class ServletAdapter {
                 if (!method.equals("POST")) return false;
                 send(response, app.ping(request(request)));
             }
+            case "/upload" -> {
+                if (!method.equals("POST")) return false;
+                send(response, app.upload(request(request), request.getInputStream()));
+            }
             default -> {
                 return false;
             }

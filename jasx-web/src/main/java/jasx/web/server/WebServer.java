@@ -103,6 +103,8 @@ public final class WebServer {
                 event(exchange, request);
             } else if (path.equals(base + "/stream") && method.equals("GET")) {
                 stream(exchange, request);
+            } else if (path.equals(base + "/upload") && method.equals("POST")) {
+                send(exchange, app.upload(request, exchange.getRequestBody()));
             } else if (path.equals(base + "/ping") && method.equals("POST")) {
                 exchange.getRequestBody().readNBytes(1024);
                 send(exchange, app.ping(request));

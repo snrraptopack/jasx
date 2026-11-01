@@ -46,7 +46,7 @@ public class JasxWebAutoConfiguration {
     public WebApp jasxWebApp(JasxWebProperties properties, @Value("${server.servlet.context-path:}") String contextPath) {
         String context = contextPath.endsWith("/") ? contextPath.substring(0, contextPath.length() - 1) : contextPath;
         return new WebApp(context + properties.basePath(), properties.pageTimeout(), properties.firstConnectTimeout(),
-                new WebApp.Limits(properties.maxEventBytes(), properties.maxPagesPerSession()));
+                new WebApp.Limits(properties.maxEventBytes(), properties.maxPagesPerSession(), properties.maxUploadBytes()));
     }
 
     /** The runtime's own requests, at {@code <base path>/*} within the application. */

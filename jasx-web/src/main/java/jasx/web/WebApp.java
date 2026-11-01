@@ -3,6 +3,7 @@ package jasx.web;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -29,6 +30,7 @@ import java.util.function.Supplier;
  *   <li>{@code POST <basePath>/event?page=ID}: {@link #event};
  *   <li>{@code GET <basePath>/stream?pages=ID:N,ID:N}: {@link #stream}, one connection for every tab;
  *   <li>{@code POST <basePath>/ping?page=ID}: {@link #ping};
+ *   <li>{@code POST <basePath>/upload?page=ID}: {@link #upload}, a file for a form's coming event;
  * </ul>
  *
  * and serves {@link #clientScript()} at {@code GET <basePath>/web.js}. The adapter sends each {@link Response}
@@ -91,9 +93,15 @@ public final class WebApp implements AutoCloseable {
      * @param maxEventBytes      the largest event body accepted; adapters stop reading there, and answer 413
      * @param maxPagesPerSession the most pages one browser session keeps alive; rendering one more discards its
      *                           oldest, so a script requesting pages in a loop can't fill the server's memory
+     * @param maxUploadBytes     the largest file accepted from a form's file field (§8.1, uploads)
      */
-    public record Limits(int maxEventBytes, int maxPagesPerSession) {
-        public static final Limits DEFAULT = new Limits(1024 * 1024, 50);
+    public record Limits(int maxEventBytes, int maxPagesPerSession, long maxUploadBytes) {
+        public static final Limits DEFAULT = new Limits(1024 * 1024, 50, 10L * 1024 * 1024);
+
+        /** Limits with the default upload size (10 MiB). */
+        public Limits(int maxEventBytes, int maxPagesPerSession) {
+            this(maxEventBytes, maxPagesPerSession, 10L * 1024 * 1024);
+        }
     }
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -241,6 +249,51 @@ public final class WebApp implements AutoCloseable {
             return Response.FORBIDDEN;
         }
         return ping(pageFor(request.query("page"), sessionOf(request)));
+    }
+
+    /**
+     * Handles {@code POST <basePath>/upload?page=ID} (targets/web.md §8.1): one file the user chose in a form's file
+     * field, sent before the form's event, which names it by the token answered here. The body is the file itself;
+     * the {@code X-Jasx-Name} header (required, URL-encoded) gives its name and {@code X-Jasx-Type} its media type.
+     * The file is kept in a temporary file until that event has been handled, or the page is discarded.
+     *
+     * @return {@code {"upload": TOKEN}} (200); 400 without {@code X-Jasx-Name}; 403 for a request from another site;
+     *         410 if the page is unknown to this browser; 413 for a file over {@link Limits#maxUploadBytes}, or when
+     *         too many uploads are waiting for their event
+     */
+    public Response upload(Request request, InputStream body) throws IOException {
+        if (isFromAnotherSite(request)) {
+            return Response.FORBIDDEN;
+        }
+        // A custom header: a page on another site can't send one without the browser asking the server first.
+        String encodedName = request.header("X-Jasx-Name");
+        if (encodedName == null) {
+            return Response.BAD_REQUEST;
+        }
+        Page page = pageFor(request.query("page"), sessionOf(request));
+        if (page == null) {
+            return Response.GONE;
+        }
+        String name = fileName(encodedName);
+        String type = request.header("X-Jasx-Type");
+        String contentType = type == null || type.isBlank() ? "application/octet-stream" : type;
+        Object answer = page.addUpload(name, contentType, body, limits.maxUploadBytes(), newId());
+        if (answer instanceof Page.UploadRefusal) {
+            return Response.TOO_LARGE;
+        }
+        return Response.json("{\"upload\":" + Json.write(answer) + "}");
+    }
+
+    /** The file's name as the browser sent it, without any folders. */
+    private static String fileName(String encoded) {
+        String name;
+        try {
+            name = URLDecoder.decode(encoded, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            name = encoded;
+        }
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        return slash >= 0 ? name.substring(slash + 1) : name;
     }
 
     /**

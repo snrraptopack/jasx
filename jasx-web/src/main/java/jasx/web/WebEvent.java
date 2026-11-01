@@ -3,11 +3,13 @@ package jasx.web;
 import jasx.ui.FormEvent;
 import jasx.ui.KeyEvent;
 import jasx.ui.MouseEvent;
+import jasx.ui.UploadedFile;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * An event sent by the browser (targets/web.md §7, §8.3), as every kind of {@code jasx.ui} event at once. A
@@ -28,10 +30,12 @@ final class WebEvent implements FormEvent, KeyEvent, MouseEvent {
     private final double x;
     private final double y;
     private final Map<String, List<String>> fields;
+    /** The files chosen in file fields, by field name (§8.3: their values are upload tokens). */
+    private final Map<String, List<UploadedFile>> files;
     /** The browser's number for this event, so that a reset patch can name the form it answers (§8.4). */
     private final long seq;
 
-    private WebEvent(Map<String, Object> json) {
+    private WebEvent(Map<String, Object> json, Function<String, UploadedFile> uploads) {
         this.type = string(json, "type");
         this.value = string(json, "value");
         this.checked = flag(json, "checked");
@@ -44,13 +48,20 @@ final class WebEvent implements FormEvent, KeyEvent, MouseEvent {
         this.button = (int) number(json, "button");
         this.x = number(json, "x");
         this.y = number(json, "y");
-        this.fields = fields(json.get("fields"));
+        Map<String, List<String>> sent = fields(json.get("fields"));
+        this.files = filesOf(sent, uploads);
+        this.fields = withFileNames(sent, files);
         this.seq = (long) number(json, "seq");
     }
 
     /** Reads an event sent by the browser client (§8.3). Missing members are empty. */
     static WebEvent fromJson(Map<String, Object> json) {
-        return new WebEvent(json);
+        return new WebEvent(json, token -> null);
+    }
+
+    /** Reads an event whose file fields name uploads, which {@code uploads} gives by token (null if unknown). */
+    static WebEvent fromJson(Map<String, Object> json, Function<String, UploadedFile> uploads) {
+        return new WebEvent(json, uploads);
     }
 
     // Event
@@ -140,6 +151,11 @@ final class WebEvent implements FormEvent, KeyEvent, MouseEvent {
         return fields.keySet();
     }
 
+    @Override
+    public List<UploadedFile> files(String name) {
+        return files.getOrDefault(name, List.of());
+    }
+
     /**
      * Asks the browser to reset the form the event came from, after the event's other changes (§7, the
      * {@code reset} patch of §8.4).
@@ -199,6 +215,39 @@ final class WebEvent implements FormEvent, KeyEvent, MouseEvent {
         if (object instanceof Map<?, ?> map) {
             map.forEach((name, values) -> result.put(String.valueOf(name), strings(values)));
         }
+        return result;
+    }
+
+    /** What the client sends for a chosen file: its upload's token after this prefix (§8.3). */
+    static final String UPLOAD_PREFIX = "jx-upload:";
+
+    /** The uploaded files the fields name, by field name; a token the page doesn't know gives no file. */
+    private static Map<String, List<UploadedFile>> filesOf(Map<String, List<String>> fields,
+            Function<String, UploadedFile> uploads) {
+        Map<String, List<UploadedFile>> result = new LinkedHashMap<>();
+        fields.forEach((name, values) -> {
+            for (String value : values) {
+                if (value.startsWith(UPLOAD_PREFIX)) {
+                    UploadedFile file = uploads.apply(value.substring(UPLOAD_PREFIX.length()));
+                    if (file != null) {
+                        result.computeIfAbsent(name, k -> new ArrayList<>()).add(file);
+                    }
+                }
+            }
+        });
+        return result;
+    }
+
+    /** The fields, with each file field's tokens replaced by its files' names, as a browser form would give them. */
+    private static Map<String, List<String>> withFileNames(Map<String, List<String>> fields,
+            Map<String, List<UploadedFile>> files) {
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        fields.forEach((name, values) -> {
+            boolean hasUploads = values.stream().anyMatch(value -> value.startsWith(UPLOAD_PREFIX));
+            result.put(name, hasUploads
+                    ? files.getOrDefault(name, List.of()).stream().map(UploadedFile::name).toList()
+                    : values);
+        });
         return result;
     }
 }

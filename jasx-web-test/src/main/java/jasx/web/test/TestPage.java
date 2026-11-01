@@ -252,6 +252,21 @@ public final class TestPage implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Chooses a file in the file field that matches {@code selector}, as a user picking it would (add several to a
+     * {@code multiple} field). The form's submit uploads it first, as the browser client does (targets/web.md §8.1).
+     */
+    public TestPage attach(String selector, String fileName, String contentType, byte[] content) {
+        Element field = field(selector);
+        if (!Fields.type(field).equals("file")) {
+            throw new AssertionError("\"" + selector + "\" is not a file field: " + Dom.html(field));
+        }
+        synchronized (this) {
+            field.files.add(new Dom.Attached(fileName, contentType, content));
+        }
+        return this;
+    }
+
     /** Presses a key in the element that matches {@code selector}: a {@code keydown} event with that key. */
     public TestPage keydown(String selector, String key) {
         Map<String, Object> details = new LinkedHashMap<>();
@@ -346,13 +361,45 @@ public final class TestPage implements AutoCloseable {
         }
         Element form = element.tag.equals("form") ? element : (type.equals("submit") ? formOf(element) : null);
         if (form != null) {
-            payload.put("fields", Fields.submitted(form, submitter));
+            Map<String, List<String>> fields = Fields.submitted(form, submitter);
+            uploadChosenFiles(form, fields);
+            payload.put("fields", fields);
         }
         Element formToReset = form != null ? form : formOf(element);
         if (formToReset != null) {
             formsOfEvents.put(seq, formToReset);
         }
         return JsonWriter.write(payload);
+    }
+
+    /** Uploads the files chosen in the form's file fields, and puts their tokens in the fields (§8.1). */
+    private void uploadChosenFiles(Element form, Map<String, List<String>> fields) {
+        Dom.eachElement(form, element -> {
+            boolean chosen = element.tag.equals("input") && Fields.type(element).equals("file")
+                    && element.attribute("name") != null && !element.files.isEmpty() && !element.hasAttribute("disabled");
+            if (!chosen) {
+                return;
+            }
+            for (Dom.Attached file : element.files) {
+                fields.computeIfAbsent(element.attribute("name"), k -> new ArrayList<>()).add("jx-upload:" + upload(file));
+            }
+        });
+    }
+
+    private String upload(Dom.Attached file) {
+        Map<String, String> headers = Map.of(
+                "x-jasx-name", java.net.URLEncoder.encode(file.name(), java.nio.charset.StandardCharsets.UTF_8),
+                "x-jasx-type", file.contentType());
+        try {
+            WebApp.Response response = app.upload(request(Map.of("page", pageId), session, headers),
+                    new java.io.ByteArrayInputStream(file.content()));
+            if (response.status() != 200) {
+                throw new AssertionError("the upload of " + file.name() + " answered " + response.status());
+            }
+            return (String) JsonReader.object(JsonReader.read(response.body())).get("upload");
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
     }
 
     private void send(String payload) {
@@ -647,6 +694,11 @@ public final class TestPage implements AutoCloseable {
 
     /** What a request from this page's browser looks like to {@link WebApp}. */
     private static WebApp.Request request(Map<String, String> query, String session) {
+        return request(query, session, Map.of());
+    }
+
+    /** The same, with {@code extra} headers (lower-case names). */
+    private static WebApp.Request request(Map<String, String> query, String session, Map<String, String> extra) {
         return new WebApp.Request() {
             @Override
             public String query(String name) {
@@ -655,7 +707,11 @@ public final class TestPage implements AutoCloseable {
 
             @Override
             public String header(String name) {
-                return switch (name.toLowerCase(Locale.ROOT)) {
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (extra.containsKey(lower)) {
+                    return extra.get(lower);
+                }
+                return switch (lower) {
                     case "cookie" -> session == null ? null : "jasx_session=" + session;
                     case "content-type" -> "application/json";
                     case "sec-fetch-site" -> "same-origin";

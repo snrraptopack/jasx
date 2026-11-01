@@ -200,11 +200,14 @@ The runtime serves its client script, events and streams under a base path, `/_j
 | `GET /_jasx/web.js` | the client script |
 | `POST /_jasx/event?page=ID` | an event (§8.3); answers a batch, or `204` if nothing changed |
 | `POST /_jasx/ping?page=ID` | a hidden tab keeping its page alive (§6); answers `204`, or `410` for an unknown page |
+| `POST /_jasx/upload?page=ID` | a file chosen in a form's file field, sent before the form's event (below): the body is the file, `X-Jasx-Name` (required, URL-encoded) its name and `X-Jasx-Type` its media type; answers `{"upload": TOKEN}`, or `400`, `403`, `410`, or `413` for a file over `maxUploadBytes` (10 MiB by default) or more than 10 uploads waiting |
 | `GET /_jasx/stream?pages=ID:N,ID:N` | the stream of the pages of a browser's tabs, each after its version `N` (§6.1, §6.2): `text/event-stream`, a comment `: connected` once the stream is live, one frame per `data:` line, and a comment every 25 seconds to keep the connection open. A missing or malformed `N` reads as 0 |
 
 Each stream frame is `{"page": "ID", "batch": B}`, where `B` is a batch, a merged batch (§8.4), or `{"reload": true}`.
 
-A request body that isn't valid JSON, or an event without a numeric `handler`, answers `400`. An event whose body isn't declared as `application/json` answers `415`, one over the size limit `413`, and an event, ping or stream from another site `403` (§6.3). A page request without a session cookie sets one (§6.3).
+A request body that isn't valid JSON, or an event without a numeric `handler`, answers `400`. An event whose body isn't declared as `application/json` answers `415`, one over the size limit `413`, and an event, ping, upload or stream from another site `403` (§6.3). A page request without a session cookie sets one (§6.3).
+
+**Uploads.** When an event carries a form's fields and the form has file fields with chosen files, the client first uploads each file (`POST /_jasx/upload`), one at a time, and the event's field holds `"jx-upload:"` followed by each upload's token in place of the file. A file whose upload fails is left out, and the event is sent without it. The server keeps each upload in a temporary file, bound to its page, until the event that names it has been handled (its handler reads it through `FormEvent.files`, `ui.md` §4), then deletes it; uploads whose event never comes are deleted with the page. An upload must carry the `X-Jasx-Name` header, which a page on another site can't send without the browser asking the server first.
 
 ### 8.2 Markup
 
@@ -241,7 +244,7 @@ Each item of a keyed list (§4.3) has markers of its own, `<!--jx:I-->` … `<!-
 | `key` | for a keyboard event | `KeyEvent` |
 | `button`, `x`, `y` | for a mouse event (`clientX`, `clientY`) | `MouseEvent` |
 | `ctrl`, `shift`, `alt`, `meta` | for a keyboard or mouse event | `KeyEvent`, `MouseEvent` |
-| `fields` | for a submit, or any event on a form: each field's values, by name, in form order | `FormEvent` |
+| `fields` | for a submit, or any event on a form: each field's values, by name, in form order; a chosen file is `"jx-upload:"` followed by its upload's token | `FormEvent` |
 
 A member that is not sent reads as empty (`""`, `false`, `0`, no fields). An event for a handler that no longer exists (its hole re-ran) is ignored.
 

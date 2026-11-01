@@ -40,8 +40,14 @@ final class FormBinding {
     private static Object componentValue(FormEvent form, RecordComponent component) {
         String name = component.getName();
         Class<?> type = component.getType();
+        if (type == UploadedFile.class) {
+            return form.file(name).orElse(null); // the file chosen in a file field, if any
+        }
         if (type == List.class) {
             Class<?> elementType = listElementType(component.getGenericType(), name);
+            if (elementType == UploadedFile.class) {
+                return form.files(name);
+            }
             List<Object> values = new ArrayList<>();
             for (String value : form.fields(name)) {
                 values.add(convert(name, value, elementType));

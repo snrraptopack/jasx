@@ -13,6 +13,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *   jasx.web.first-connect-timeout=30s        # how long a page waits for its browser to connect
  *   jasx.web.max-event-bytes=1048576          # the largest event body accepted (targets/web.md §6.3)
  *   jasx.web.max-pages-per-session=50         # the most pages one browser keeps alive
+ *   jasx.web.max-upload-bytes=10485760        # the largest file a form may upload
  * </pre>
  *
  * <p>The base path is within the application: with {@code server.servlet.context-path=/shop}, the browser
@@ -24,4 +25,5 @@ public record JasxWebProperties(
         @DefaultValue("2m") Duration pageTimeout,
         @DefaultValue("30s") Duration firstConnectTimeout,
         @DefaultValue("1048576") int maxEventBytes,
-        @DefaultValue("50") int maxPagesPerSession) {}
+        @DefaultValue("50") int maxPagesPerSession,
+        @DefaultValue("10485760") long maxUploadBytes) {}

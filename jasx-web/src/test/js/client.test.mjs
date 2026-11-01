@@ -37,6 +37,7 @@ async function page(body, answer = () => null, scriptAttributes = "", { id = "P1
   const sent = [];
   const streams = [];
   const pings = [];
+  const uploads = [];
   const dom = new JSDOM(
     `<!DOCTYPE html><html><head></head><body>${body}<script src="/_jasx/web.js" data-jx-page="${id}" ${scriptAttributes} defer></script></body></html>`,
     {
@@ -51,6 +52,10 @@ async function page(body, answer = () => null, scriptAttributes = "", { id = "P1
           if (url.includes("/ping")) {
             pings.push(url);
             return { status: 204 };
+          }
+          if (url.includes("/upload")) {
+            uploads.push({ url, headers: init.headers, size: init.body.size });
+            return { status: 200, json: async () => ({ upload: "T" + uploads.length }) };
           }
           const payload = JSON.parse(init.body);
           sent.push({ url, payload });
@@ -86,7 +91,7 @@ async function page(body, answer = () => null, scriptAttributes = "", { id = "P1
   await new Promise((resolve) => dom.window.addEventListener("load", resolve));
   const window = dom.window;
   openWindows.push(window);
-  return { window, document: window.document, sent, streams, pings };
+  return { window, document: window.document, sent, streams, pings, uploads };
 }
 
 /**
@@ -695,4 +700,25 @@ test("old saved values are not restored", async () => {
   const { document } = await page(FORM, () => null, "",
     { storage: { "jx-forms:/page": JSON.stringify({ at: Date.now() - 10 * 60 * 1000, values }) } });
   assert.equal(document.querySelector("[name=title]").value, "");
+});
+
+// -------------------------------------------------------------------------------------------------
+// Uploads (targets/web.md §8.1)
+// -------------------------------------------------------------------------------------------------
+
+test("a submit uploads the chosen files first, and the event names them by token", async () => {
+  const { window, document, sent, uploads } = await page(
+    `<form data-jx-on="submit:2"><input name="title" value="Holiday"><input type="file" name="photos" multiple>`
+    + `<input type="file" name="empty"></form>`,
+  );
+  const photos = [new window.File(["abc"], "beach.png", { type: "image/png" }), new window.File(["de"], "sun.jpg")];
+  Object.defineProperty(document.querySelector("[name=photos]"), "files", { value: photos });
+  fire(window, document.querySelector("form"), "submit");
+  await wait();
+  assert.equal(uploads.length, 2);
+  assert.equal(uploads[0].url, "/_jasx/upload?page=P1");
+  assert.equal(uploads[0].headers["X-Jasx-Name"], "beach.png");
+  assert.equal(uploads[0].headers["X-Jasx-Type"], "image/png");
+  assert.equal(uploads[1].headers["X-Jasx-Type"], "application/octet-stream");
+  assert.deepEqual(sent[0].payload.fields, { title: ["Holiday"], photos: ["jx-upload:T1", "jx-upload:T2"] });
 });

@@ -754,6 +754,74 @@ class WebTest {
             }
         }
 
+        /** The form's fields, a record with a file: e.as(Post.class) fills both. */
+        record Post(String title, jasx.ui.UploadedFile photo) {}
+
+        @Test
+        void aFileIsUploadedThenGivenToTheFormsHandlerAndDeletedAfterIt() throws Exception {
+            List<java.nio.file.Path> kept = new ArrayList<>();
+            WebApp.Response rendered = app.render(pageRequest(null), () -> {
+                State<String> shown = Web.state("none");
+                return Web.h("div", null,
+                        Web.h("form", jasx.web.attrs.Form.create().onsubmit(e -> {
+                            Post post = e.as(Post.class);
+                            jasx.ui.UploadedFile photo = post.photo();
+                            try {
+                                shown.set(post.title() + ":" + photo.name() + ":" + photo.size() + ":"
+                                        + new String(photo.bytes(), java.nio.charset.StandardCharsets.UTF_8) + ":" + e.field("photo"));
+                            } catch (java.io.IOException failure) {
+                                throw new java.io.UncheckedIOException(failure);
+                            }
+                            if (photo instanceof Page.Upload upload) {
+                                kept.add(upload.path());
+                            }
+                        })),
+                        Web.h("p", null, Web.dynamic(() -> shown.get())));
+            });
+            String html = rendered.body();
+            String session = find(rendered.headers().get("Set-Cookie"), "jasx_session=([^;]+)");
+
+            WebApp.Response uploaded = app.upload(uploadRequest(pageId(html), session, "trip%2Fbeach.png"),
+                    new java.io.ByteArrayInputStream("abc".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            assertEquals(200, uploaded.status(), uploaded.body());
+            String token = find(uploaded.body(), "\"upload\":\"([^\"]+)\"");
+
+            String event = "{\"handler\":" + handler(html, "submit", 1) + ",\"type\":\"submit\",\"fields\":"
+                    + "{\"title\":[\"Trip\"],\"photo\":[\"jx-upload:" + token + "\"]}}";
+            String answer = app.event(eventRequest(pageId(html), session), event).body();
+            assertTrue(answer.contains("Trip:beach.png:3:abc:beach.png"), "folders dropped, the field gives the name: " + answer);
+            assertFalse(java.nio.file.Files.exists(kept.get(0)), "the file is deleted once the handler is done");
+        }
+
+        @Test
+        void uploadsAreRefusedFromOtherSitesOtherBrowsersWithoutTheirHeaderOrWhenTooLarge() throws Exception {
+            try (WebApp small = new WebApp("/_jasx", Duration.ofMinutes(2), Duration.ofSeconds(30), new WebApp.Limits(1024, 50, 10))) {
+                String[] page = renderForNewBrowser(small);
+                String id = pageId(page[0]);
+                String other = renderForNewBrowser(small)[1];
+                assertEquals(200, small.upload(uploadRequest(id, page[1], "a.txt"), bytes("0123456789")).status());
+                assertEquals(413, small.upload(uploadRequest(id, page[1], "a.txt"), bytes("0123456789!")).status());
+                assertEquals(410, small.upload(uploadRequest(id, other, "a.txt"), bytes("x")).status());
+                assertEquals(400, small.upload(eventRequest(id, page[1]), bytes("x")).status(), "no X-Jasx-Name");
+                FakeRequest crossSite = new FakeRequest(Map.of("page", id), Map.of("Cookie", "jasx_session=" + page[1],
+                        "X-Jasx-Name", "a.txt", "Sec-Fetch-Site", "cross-site"), false);
+                assertEquals(403, small.upload(crossSite, bytes("x")).status());
+            }
+        }
+
+        private static java.io.InputStream bytes(String text) {
+            return new java.io.ByteArrayInputStream(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        private static FakeRequest uploadRequest(String pageId, String session, String encodedName) {
+            return new FakeRequest(Map.of("page", pageId), Map.of(
+                    "Cookie", "jasx_session=" + session,
+                    "Sec-Fetch-Site", "same-origin",
+                    "Content-Type", "application/octet-stream",
+                    "X-Jasx-Name", encodedName,
+                    "X-Jasx-Type", "image/png"), false);
+        }
+
         @Test
         void onlyCookieValuesWebAppIssuesAreRead() {
             assertEquals("abcdefghijklmnopqrstuv", SessionCookie.read("a=1; jasx_session=abcdefghijklmnopqrstuv; b=2"));

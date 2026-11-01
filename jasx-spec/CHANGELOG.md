@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0-draft, revision 23
+
+### Added
+
+- `ui.md` §4, §4.2, **files**: `FormEvent.files(name)` and `file(name)` give the files chosen in a file field as `UploadedFile`s (name, media type, size, content); a record component of type `UploadedFile` or `List<UploadedFile>` binds them.
+- `targets/web.md` §8.1, §8.3, **uploads**: `POST /_jasx/upload` takes one chosen file before the form's event, which names it by token (`"jx-upload:TOKEN"`); the file is kept until that event has been handled. `maxUploadBytes` limits a file (10 MiB by default), and at most 10 uploads wait per page.
+
 ## 1.0-draft, revision 22
 
 ### Added
