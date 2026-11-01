@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0-draft, revision 13
+
+### Added
+
+- **The `web` target** (`targets/web.md`, draft), which replaces the non-normative ideas of `targets/live.md`. It is server-driven, like Phoenix LiveView. Components run on the server, and every dynamic position (`semantics.md` §8) becomes a reactive hole. Event handlers are Java lambdas run on the server. The browser receives patches for the holes that changed: event answers over HTTP, and pushed batches over server-sent events. Input belongs to the browser: `oninput` is debounced by default, forms send their fields on submit, and a field being typed in is never overwritten. The draft also defines the state API (`state`, `derived`, `effect`), the page lifecycle and the protocol.
+
+### Changed
+
+- `semantics.md` §7.6: the targets table lists `web` as a draft instead of `live` as deferred.
+- `conformance.md`: `tests/web/` is the reserved directory name for the `web` target, instead of `tests/live/`.
+- `diagnostics.md` §5: JASX3001 and JASX3002 stay reserved, now for reactive targets such as `web`.
+
 ## 1.0-draft, revision 12
 
 ### Clarified

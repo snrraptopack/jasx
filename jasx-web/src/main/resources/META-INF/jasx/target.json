@@ -1,0 +1,10 @@
+{
+  "id": "web",
+  "specVersion": "1.0",
+  "factory": "jasx.web.Web",
+  "attributes": "jasx.web.attrs",
+  "schema": "schemas/web.json",
+  "lowering": "jasx.web.compiler.WebLowering",
+  "eventHandlers": "java",
+  "styles": "css"
+}

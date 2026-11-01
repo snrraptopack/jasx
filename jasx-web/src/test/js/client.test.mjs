@@ -1,0 +1,222 @@
+// Tests of the web target's browser client (src/main/resources/jasx/web/web.js, targets/web.md §6–§8).
+//
+// Each test loads a page in jsdom with the client, a fake server that answers its events, and a fake stream
+// the test can push batches on.
+//
+// Run with: npm install && npm test   (from jasx-web/src/test/js)
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { JSDOM, ResourceLoader } from "jsdom";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const CLIENT = fs.readFileSync(path.join(here, "..", "..", "main", "resources", "jasx", "web", "web.js"), "utf8");
+
+/** Serves the client script at /_jasx/web.js, as the server does. */
+class ClientLoader extends ResourceLoader {
+  fetch(url, options) {
+    if (url.endsWith("/_jasx/web.js")) return Promise.resolve(Buffer.from(CLIENT));
+    return null;
+  }
+}
+
+/**
+ * A page whose body is `body`, with the client running. `answer(payload)` plays the server: it returns the
+ * batch for an event, null for "nothing changed", or "gone"; it may return a promise.
+ */
+async function page(body, answer = () => null) {
+  const sent = [];
+  const streams = [];
+  const dom = new JSDOM(
+    `<!DOCTYPE html><html><head></head><body>${body}<script src="/_jasx/web.js" data-jx-page="P1" defer></script></body></html>`,
+    {
+      url: "http://localhost/page",
+      runScripts: "dangerously",
+      resources: new ClientLoader(),
+      beforeParse(window) {
+        window.fetch = async (url, init) => {
+          const payload = JSON.parse(init.body);
+          sent.push({ url, payload });
+          const batch = await answer(payload);
+          if (batch === "gone") return { status: 410 };
+          return batch ? { status: 200, json: async () => batch } : { status: 204 };
+        };
+        window.EventSource = class {
+          static CLOSED = 2;
+          constructor(url) {
+            this.url = url;
+            this.readyState = 1;
+            streams.push(this);
+          }
+          push(batch) {
+            this.onmessage({ data: JSON.stringify(batch) });
+          }
+        };
+      },
+    },
+  );
+  await new Promise((resolve) => dom.window.addEventListener("load", resolve));
+  const window = dom.window;
+  return { window, document: window.document, sent, streams };
+}
+
+const wait = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function fire(window, element, type, init = {}) {
+  const event = type === "click"
+    ? new window.MouseEvent(type, { bubbles: true, cancelable: true, ...init })
+    : new window.Event(type, { bubbles: true, cancelable: true, ...init });
+  element.dispatchEvent(event);
+  return event;
+}
+
+function type(window, input, text) {
+  input.value = text;
+  fire(window, input, "input");
+}
+
+// -------------------------------------------------------------------------------------------------
+
+test("a click sends its handler and applies the answer", async () => {
+  const { window, document, sent, streams } = await page(
+    `<button data-jx-on="click:3"><span>+</span></button><p><!--jx:4-->0<!--/jx:4--></p>`,
+    () => ({ version: 1, patches: [{ op: "html", id: 4, html: "<b>1</b>" }] }),
+  );
+  assert.equal(streams[0].url, "/_jasx/stream?page=P1");
+
+  fire(window, document.querySelector("span"), "click"); // on a child: the button's handler
+  await wait();
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].url, "/_jasx/event?page=P1");
+  assert.deepEqual(sent[0].payload, { handler: 3, type: "click", value: null, checked: false, key: null, fields: null });
+  assert.equal(document.querySelector("p").innerHTML, "<!--jx:4--><b>1</b><!--/jx:4-->");
+});
+
+test("new content is live: its holes can be patched and its handlers fire", async () => {
+  let version = 0;
+  const { window, document, sent } = await page(
+    `<button data-jx-on="click:1">go</button><div><!--jx:2--><!--/jx:2--></div>`,
+    (payload) => {
+      version++;
+      return payload.handler === 1
+        ? { version, patches: [{ op: "html", id: 2, html: `<i data-jx-on="dblclick:5"><!--jx:6-->a<!--/jx:6--></i>` }] }
+        : { version, patches: [{ op: "html", id: 6, html: "b" }] };
+    },
+  );
+  fire(window, document.querySelector("button"), "click");
+  await wait();
+  fire(window, document.querySelector("i"), "dblclick");
+  await wait();
+  assert.deepEqual(sent.map((s) => s.payload.handler), [1, 5]);
+  assert.equal(document.querySelector("i").textContent, "b");
+});
+
+test("input is debounced: one event with the latest value after the pause", async () => {
+  const { window, document, sent } = await page(`<input data-jx-on="input:7:300">`);
+  const input = document.querySelector("input");
+  type(window, input, "a");
+  type(window, input, "ab");
+  await wait(100);
+  assert.equal(sent.length, 0, "nothing is sent while typing");
+  await wait(350);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].payload.value, "ab");
+});
+
+test("pending input is sent before another event", async () => {
+  const { window, document, sent } = await page(`<input data-jx-on="input:7:300"><button data-jx-on="click:8">x</button>`);
+  type(window, document.querySelector("input"), "typed");
+  fire(window, document.querySelector("button"), "click");
+  await wait();
+  assert.deepEqual(sent.map((s) => [s.payload.handler, s.payload.value]), [[7, "typed"], [8, null]]);
+});
+
+test("a submit sends the form's fields once, and reset clears the form", async () => {
+  const { window, document, sent } = await page(
+    `<form data-jx-on="submit:2"><input name="title"><input name="tag" value="a"><button>Add</button></form>`,
+    () => ({ version: 1, patches: [{ op: "reset" }] }),
+  );
+  const title = document.querySelector("input[name=title]");
+  title.value = "Milk";
+  const event = fire(window, document.querySelector("form"), "submit");
+  assert.ok(event.defaultPrevented, "the browser's own submission is prevented");
+  await wait();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].payload.fields, { title: ["Milk"], tag: ["a"] });
+  assert.equal(title.value, "", "reset");
+});
+
+test("a field being typed in is not overwritten until its next event is sent", async () => {
+  const { window, document, streams } = await page(`<input data-jx-id="5" data-jx-on="change:9" value="a">`);
+  const input = document.querySelector("input");
+  input.focus();
+  type(window, input, "abc");
+  streams[0].push({ version: 1, patches: [{ op: "attr", id: 5, name: "value", value: "server" }] });
+  assert.equal(input.value, "abc");
+
+  fire(window, input, "change");
+  await wait();
+  streams[0].push({ version: 2, patches: [{ op: "attr", id: 5, name: "value", value: "" }] });
+  assert.equal(input.value, "");
+});
+
+test("attributes are set, made bare, and removed", async () => {
+  const { document, streams } = await page(`<button data-jx-id="3" class="a">x</button>`);
+  const button = document.querySelector("button");
+  streams[0].push({ version: 1, patches: [
+    { op: "attr", id: 3, name: "class", value: "b" },
+    { op: "attr", id: 3, name: "disabled", value: true },
+  ] });
+  assert.equal(button.className, "b");
+  assert.ok(button.disabled);
+  streams[0].push({ version: 2, patches: [{ op: "attr", id: 3, name: "disabled", value: null }] });
+  assert.ok(!button.disabled);
+});
+
+test("batches are applied in version order", async () => {
+  const { document, streams } = await page(`<p><!--jx:4-->0<!--/jx:4--></p>`);
+  const p = document.querySelector("p");
+  streams[0].push({ version: 2, patches: [{ op: "html", id: 4, html: "two" }] });
+  assert.equal(p.textContent, "0", "version 2 waits for version 1");
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 4, html: "one" }] });
+  assert.equal(p.textContent, "two");
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 4, html: "old" }] });
+  assert.equal(p.textContent, "two", "an old batch is ignored");
+});
+
+test("an element is marked busy while its event runs, and a form can't be submitted twice", async () => {
+  let release;
+  const { window, document, sent } = await page(
+    `<form data-jx-on="submit:2"><button>Add</button></form>`,
+    () => new Promise((resolve) => { release = () => resolve(null); }),
+  );
+  const form = document.querySelector("form");
+  fire(window, form, "submit");
+  await wait();
+  assert.ok(form.classList.contains("jx-loading"));
+  assert.equal(form.getAttribute("aria-busy"), "true");
+  fire(window, form, "submit");
+  await wait();
+  assert.equal(sent.length, 1, "the second submit is ignored");
+  release();
+  await wait();
+  assert.ok(!form.classList.contains("jx-loading"));
+  assert.equal(form.getAttribute("aria-busy"), null);
+});
+
+test("events that don't bubble reach only their own element", async () => {
+  const { document, sent } = await page(`<div data-jx-on="focus:1"><input data-jx-on="focus:2"></div>`);
+  document.querySelector("input").focus();
+  await wait();
+  assert.deepEqual(sent.map((s) => s.payload.handler), [2]);
+});
+
+test("a style sheet patch adds the CSS to the head", async () => {
+  const { document, streams } = await page(``);
+  streams[0].push({ version: 1, patches: [{ op: "css", css: "b { color: red; }" }] });
+  assert.equal(document.head.querySelector("style").textContent, "b { color: red; }");
+});

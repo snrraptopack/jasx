@@ -97,7 +97,7 @@ Codes are never renumbered or reused.
 | JASX2101 | Attribute not defined by the target schema | The attribute |
 | JASX2102 | Children on a void element | The first child |
 | JASX2103 | Java event handler on a target without event handlers | The attribute value |
-| JASX2104 | *Reserved* for reactive targets (not defined in 1.0) | — |
+| JASX2104 | *Reserved* for reactive targets (not reported by any target yet) | — |
 | JASX2105 | Tag not defined by the target schema | The element name |
 | JASX2106 | Style block on a target that does not support style blocks (`semantics.md` §10.6) | The style block's `<style>` tag |
 
@@ -105,7 +105,7 @@ Codes are never renumbered or reused.
 
 ## 5. Warnings (JASX3xxx)
 
-No warnings are defined in 1.0. These codes are **reserved** for a possible reactive target (`targets/live.md`, deferred, not decided), and implementations **MUST NOT** report them:
+No warnings are defined in 1.0. These codes are **reserved** for reactive targets such as `web` (`targets/web.md` §10), and implementations **MUST NOT** report them:
 
 | Code | Reserved for |
 |---|---|

@@ -1,0 +1,167 @@
+package web;
+
+import jasx.runtime.Element;
+import jasx.web.State;
+import java.util.List;
+import web.ChatRoom.Message;
+import web.TodoStore.Todo;
+
+import static jasx.web.Web.*;
+import static web.Layout.*;
+
+// The pages of the example. Each component runs once, when its page is rendered; afterwards only the
+// {...} holes that read a changed state run again, and the browser gets just their new content.
+
+<style>
+    .counter { display: flex; gap: .75rem; align-items: center; font-size: 1.5rem; }
+    .counter button { width: 2.5rem; height: 2.5rem; font-size: 1.25rem; }
+    form { display: flex; gap: .5rem; margin: 1rem 0; }
+    input[type=text], input[type=search], input:not([type]) { flex: 1; padding: .4rem .6rem; }
+    ul { list-style: none; padding: 0; }
+    li { display: flex; gap: .6rem; align-items: center; padding: .4rem 0; border-bottom: 1px solid #f3f4f6; }
+    li.done span { text-decoration: line-through; color: #9ca3af; }
+    .delete { margin-left: auto; border: none; background: none; color: #9ca3af; cursor: pointer; }
+    .filters { display: flex; gap: .5rem; align-items: center; }
+    .filters .active { font-weight: bold; }
+    .hint { color: #6b7280; font-size: .9rem; }
+    .jx-loading { opacity: .6; }
+</style>
+
+// ---------------------------------------------------------------------------------------------------
+// Counter: state, a derived value, and a statement child
+// ---------------------------------------------------------------------------------------------------
+
+public Element Home() {
+    var count = state(0);
+    var doubled = derived(() -> count.get() * 2);
+
+    return (
+        <Page title="Counter">
+            <div class="counter">
+                <button onclick={e -> count.update(n -> n - 1)}>−</button>
+                <output>{count}</output>
+                <button onclick={e -> count.update(n -> n + 1)}>+</button>
+            </div>
+            <p>{count} × 2 = {doubled}</p>
+            {if (count.get() >= 10) {
+                <p><strong>That's a lot of clicking.</strong></p>
+            }}
+            <p class="hint">Each click runs a Java lambda on the server, which answers with the new text of the three places that changed.</p>
+        </Page>
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// To-do list: shared by every window, and nothing is sent while you type
+// ---------------------------------------------------------------------------------------------------
+
+public Element Todos(TodoStore store) {
+    var filter = state("all");
+    var left = derived(() -> store.all().stream().filter(t -> !t.done()).count());
+
+    return (
+        <Page title="To-do list">
+            <form onsubmit={e -> {
+                String title = e.field("title").strip();
+                if (!title.isEmpty()) {
+                    store.add(title);
+                }
+                e.resetForm();
+            }}>
+                <input name="title" placeholder="What needs doing?" autocomplete="off" required />
+                <button>Add</button>
+            </form>
+
+            <ul>
+                {for (Todo t : store.all()) {
+                    if (!shows(filter.get(), t)) continue;
+                    <li class={t.done() ? "done" : null}>
+                        <input type="checkbox" checked={t.done()} onchange={e -> store.toggle(t.id())} />
+                        <span>{t.title()}</span>
+                        <button class="delete" onclick={e -> store.remove(t.id())} aria-label="Delete">✕</button>
+                    </li>
+                }}
+            </ul>
+
+            <div class="filters">
+                <span>{left} left</span>
+                <FilterButton filter={filter} value="all" label="All" />
+                <FilterButton filter={filter} value="active" label="Active" />
+                <FilterButton filter={filter} value="done" label="Done" />
+                <button onclick={e -> store.clearDone()}>Clear done</button>
+            </div>
+            <p class="hint">Typing sends nothing: the form sends its fields once, when you press Enter. Open this page in two windows: a change in one appears in the other.</p>
+        </Page>
+    );
+}
+
+/** One filter button; the filter is shared state, so the button knows whether it is the active one. */
+Element FilterButton(State<String> filter, String value, String label) {
+    return <button class={filter.get().equals(value) ? "active" : null} onclick={e -> filter.set(value)}>{label}</button>;
+}
+
+/** Whether the filter shows the item. */
+boolean shows(String filter, Todo todo) {
+    return switch (filter) {
+        case "active" -> !todo.done();
+        case "done" -> todo.done();
+        default -> true;
+    };
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Live search: input is debounced, so the server hears about it once you pause
+// ---------------------------------------------------------------------------------------------------
+
+static final List<String> COUNTRIES = List.of(
+        "Argentina", "Australia", "Austria", "Belgium", "Brazil", "Canada", "Chile", "China", "Colombia",
+        "Denmark", "Egypt", "Ethiopia", "Finland", "France", "Germany", "Ghana", "Greece", "India", "Indonesia",
+        "Ireland", "Italy", "Japan", "Kenya", "Mexico", "Morocco", "Netherlands", "New Zealand", "Nigeria",
+        "Norway", "Peru", "Poland", "Portugal", "Senegal", "South Africa", "Spain", "Sweden", "Switzerland",
+        "Tanzania", "Togo", "United Kingdom", "United States", "Vietnam");
+
+public Element Search() {
+    var query = state("");
+    var results = derived(() -> COUNTRIES.stream()
+            .filter(c -> c.toLowerCase().contains(query.get().strip().toLowerCase()))
+            .toList());
+
+    return (
+        <Page title="Live search">
+            <input type="search" placeholder="Search countries" autofocus oninput={e -> query.set(e.value())} />
+            <p class="hint">The text is sent 300 ms after you stop typing, not on every keystroke.</p>
+            <p>{results.get().size()} of {COUNTRIES.size()} countries</p>
+            <ul>
+                {for (String country : results.get()) {
+                    <li>{country}</li>
+                }}
+            </ul>
+        </Page>
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Server push: state that changes without any event of this page
+// ---------------------------------------------------------------------------------------------------
+
+public Element Live(ChatRoom room) {
+    return (
+        <Page title="Server push">
+            <p>The server's clock, pushed every second: <strong>{room.clock()}</strong></p>
+            <form onsubmit={e -> {
+                room.post(e.field("name").strip(), e.field("text").strip());
+                e.resetForm();
+            }}>
+                <input name="name" placeholder="Your name" required style="flex: 0 0 8rem" />
+                <input name="text" placeholder="Say something" autocomplete="off" required />
+                <button>Send</button>
+            </form>
+            <ul>
+                {for (Message m : room.messages()) {
+                    <li><span class="hint">{m.time()}</span> <b>{m.name()}</b> {m.text()}</li>
+                }}
+            </ul>
+            <p class="hint">Open this page in two windows and chat: messages from the other window are pushed to this one.</p>
+        </Page>
+    );
+}

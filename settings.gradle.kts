@@ -10,4 +10,5 @@ include(
     "jasx-maven-plugin",
     "jasx-conformance",
     "jasx-lsp",
+    "jasx-web",
 )

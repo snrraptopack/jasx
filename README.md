@@ -68,7 +68,44 @@ public Element Card(String title) {
 
 The compiler adds a file-specific class to every selector, and to the elements of the file that a selector may match, so `.card` here can't affect another file's `.card`. All style blocks of a file form one style sheet, and a style block inside markup renders nothing where it is written, so the CSS is sent once per page however often a component is used. Mistakes in the CSS are compile errors. With the `html` target, put `{Html.styles()}` in your page's `<head>`: it outputs the CSS of every style sheet used on the page. (`<style>{css}</style>`, with an expression, is still an ordinary `<style>` element.)
 
-Like JSX, JASX is **a language, not a framework**. What markup turns into is decided by a **target** library. The current focus is the core language. It ships with one small reference target, `html`, which renders markup to an HTML string. Other targets are not decided yet.
+Like JSX, JASX is **a language, not a framework**. What markup turns into is decided by a **target** library. Two targets come with it:
+
+- `html`, a small reference target that renders markup to an HTML string;
+- `web`, for interactive pages whose code runs on the server ([below](#interactive-pages-the-web-target)).
+
+## Interactive pages: the `web` target
+
+With the `web` target, a page is rendered on the server, and then stays alive there while it is open in the browser, like Phoenix LiveView. Event handlers are Java lambdas that run on the server, and when they change state, the browser receives only the places that changed. The whole application is one Java program: handlers call your services and database directly, with no REST API and no JavaScript.
+
+```java
+import static jasx.web.Web.*;
+
+public Element Counter() {
+    var count = state(0);
+    var doubled = derived(() -> count.get() * 2);
+    return (
+        <div>
+            <button onclick={e -> count.update(n -> n + 1)}>+1</button>
+            <p>{count} × 2 = {doubled}</p>
+        </div>
+    );
+}
+```
+
+- **Components run once.** Each `{...}` in markup is a *hole* that runs again when a state it reads changes. Only its new content is sent.
+- **Typing stays in the browser.**
+  - A form sends its fields once, on submit (`e.field("title")`).
+  - `oninput` is sent 300 ms after the user stops typing (`debounce(ms, ...)` and `immediate(...)` change that).
+  - A field being typed in is never overwritten by the server.
+- **State set from anywhere is pushed.** A scheduled job, a message listener, or another user's action updates every open page that shows it, over server-sent events.
+- **Plain HTTP.** Events are POST requests and updates come back as server-sent events. There's no WebSocket library, so it runs on the JDK's own HTTP server (`WebServer`), or on any server through `WebApp`.
+
+```kotlin
+jasx { target.set("web") }
+dependencies { implementation("dev.jasx:jasx-web:0.1.0-SNAPSHOT") }
+```
+
+The target is a draft: [`targets/web.md`](jasx-spec/targets/web.md) specifies it, including what's not there yet (keeping keyed component state across updates, client-side commands, and a Spring Boot starter).
 
 ## Status
 
@@ -78,15 +115,25 @@ Early development. The specification is a draft.
 - Parser, compiler and `html` target: implemented, and passing the whole conformance suite.
 - Gradle plugin, Maven plugin, annotation processor, VS Code highlighting and a language server (errors while typing, completion, go-to-definition and hover): implemented.
 - Targets with their own lowering, so a third-party target decides what markup becomes (see [Writing a target](#writing-a-target)): implemented.
-- Not yet: artifacts in a public repository.
+- The `web` target: a first version, with a server on the JDK's HTTP server.
+- Not yet: a Spring Boot starter for `web`, and artifacts in a public repository.
 
-## Try the example
+## Try the examples
 
 ```
 ./gradlew -p examples/hello run
+./gradlew -p examples/web run
 ```
 
-This builds [`examples/hello`](examples/hello) (a small to-do page written in `.jasx`) and serves it at http://localhost:8080. Add `--args=--print` to print the HTML instead.
+[`examples/hello`](examples/hello) is a small to-do page rendered to HTML with the `html` target; add `--args=--print` to print the HTML instead.
+
+[`examples/web`](examples/web) is interactive, with the `web` target. It has four pages:
+- a counter;
+- a to-do list shared by every open window;
+- a live search;
+- a page with a server clock and a chat, pushed from the server.
+
+Both serve at http://localhost:8080.
 
 ## Using JASX in a Gradle project
 
@@ -198,6 +245,7 @@ The second command prints the Java generated for a sample file.
 | `jasx-compiler/` | Compiler: resolves components and lowers markup to Java; the interface for a target's own lowering |
 | `jasx-runtime/` | `Element` and the component annotations |
 | `jasx-target-html/` | The `html` reference target |
+| `jasx-web/` | The `web` target: runtime, lowering, browser client, JDK server |
 | `jasx-processor/` | Annotation processor that publishes a library's components |
 | `jasx-gradle-plugin/` | Gradle plugin `dev.jasx` |
 | `jasx-maven-plugin/` | Maven plugin `dev.jasx:jasx-maven-plugin` |

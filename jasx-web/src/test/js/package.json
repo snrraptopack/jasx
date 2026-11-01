@@ -1,0 +1,12 @@
+{
+  "name": "jasx-web-client-tests",
+  "private": true,
+  "description": "Tests of the web target's browser client (src/main/resources/jasx/web/web.js) in jsdom",
+  "type": "module",
+  "scripts": {
+    "test": "node --test client.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}

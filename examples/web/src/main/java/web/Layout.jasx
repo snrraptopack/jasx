@@ -1,0 +1,36 @@
+package web;
+
+import jasx.runtime.Element;
+import java.util.List;
+
+// The frame of every page. Its style block only styles the elements written in this file.
+<style>
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; color: #1f2937; }
+    nav { display: flex; gap: 1.25rem; padding-bottom: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid #e5e7eb; }
+    nav a { color: #2563eb; text-decoration: none; }
+    footer { margin-top: 2.5rem; color: #6b7280; font-size: .875rem; }
+</style>
+
+/** A whole page: the document, the navigation, the title, and the page's own content. */
+public Element Page(String title, List<Element> children) {
+    return (
+        <html lang="en">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>{title} · JASX web</title>
+            </head>
+            <body>
+                <nav>
+                    <a href="/">Counter</a>
+                    <a href="/todos">To-do list</a>
+                    <a href="/search">Live search</a>
+                    <a href="/live">Server push</a>
+                </nav>
+                <h1>{title}</h1>
+                {children}
+                <footer>The code of this page runs on the server; the browser receives small patches.</footer>
+            </body>
+        </html>
+    );
+}

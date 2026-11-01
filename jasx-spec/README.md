@@ -10,7 +10,7 @@ The specification follows the model of the [JSX specification](https://facebook.
 
 Like JSX, JASX is a language, not a framework. The core specification defines the syntax and a standard transform to calls on a **factory** supplied by a **target** library, just as JSX compiles to calls on React, Preact or another library chosen with `jsxImportSource`. Anyone can write a target without changing the language.
 
-**Current focus: the core language**, JASX as JSX is without React. The specification defines a single small reference target, `html`, so that core semantics can be tested. Further targets, including any reactive target, are **not decided yet** (`semantics.md` §7.6). `targets/live.md` only records ideas and is not normative.
+The core language is JASX as JSX is without React. The specification defines a small reference target, `html`, so that core semantics can be tested, and drafts JASX's own server-driven target, `web` (`semantics.md` §7.6).
 
 ---
 
@@ -24,7 +24,7 @@ Like JSX, JASX is a language, not a framework. The core specification defines th
 | [`semantics.md`](semantics.md) | Core semantics: name classification, text normalization, child value contract, component resolution, factory lowering, target interface, static and dynamic positions, file classes, style blocks | Yes |
 | [`diagnostics.md`](diagnostics.md) | Diagnostic codes, severities and the diagnostic JSON format | Yes |
 | [`targets/html.md`](targets/html.md) | The `html` reference target: renders markup to HTML | Yes |
-| [`targets/live.md`](targets/live.md) | Ideas for a server-driven reactive target. **Deferred, not decided** | **No** |
+| [`targets/web.md`](targets/web.md) | The `web` target: server-driven pages whose dynamic positions update in the browser. **Draft** | Draft |
 | [`conformance.md`](conformance.md) | How conformance is defined and how the test suite is structured | Yes |
 | [`tests/`](tests/) | Conformance test fixtures | Yes |
 | [`CHANGELOG.md`](CHANGELOG.md) | Changes between drafts | No |
@@ -88,7 +88,7 @@ jasx-spec/
   CHANGELOG.md
   targets/
     html.md
-    live.md
+    web.md
   tests/
     parse/    *.jasx  → *.ast.json         (parser conformance)
     errors/   *.jasx  → *.diagnostics.json (diagnostic conformance)

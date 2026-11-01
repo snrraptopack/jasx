@@ -401,7 +401,7 @@ The build selects one target per source set by its `id`. All targets share the g
 | `eventHandlers` | `"none"` or `"java"` | Whether event attributes accept Java expressions (such as lambdas) as handlers. Where and when a handler runs is defined by the target. |
 | `styles` | `"none"` (the default) or `"css"` | Whether the target supports style blocks (§10). |
 
-A descriptor **MAY** contain other fields, which a compiler that doesn't know them ignores. Fields for reactive targets (such as a `reactive` flag) are not defined in 1.0 (§7.6).
+A descriptor **MAY** contain other fields, which a compiler that doesn't know them ignores. The core defines no field for reactive targets: a reactive target such as `web` uses a custom lowering (§7.4).
 
 ### 7.3 Schema
 
@@ -436,7 +436,7 @@ The interface through which the compiler loads a custom lowering is defined by t
 | A tag not in the schema | JASX2105 |
 | A style block on a target without `"styles": "css"` (§10.6) | JASX2106 |
 
-JASX2104 is reserved for reactive targets, which are not defined in 1.0.
+JASX2104 is reserved for reactive targets; no target reports it yet.
 
 ### 7.6 Targets in this specification
 
@@ -445,10 +445,10 @@ The current goal is the **core language**: JASX as JSX is without React. The spe
 | Target | Status | Lowering | Specification |
 |---|---|---|---|
 | `html` | Normative reference target | factory | [`targets/html.md`](targets/html.md) |
-| `live` | **Deferred, not decided.** Ideas only; not normative | custom | [`targets/live.md`](targets/live.md) |
+| `web` | **Draft.** JASX's own server-driven target, implemented by `jasx-web` | custom | [`targets/web.md`](targets/web.md) |
 | `javafx` | Idea only | custom | — |
 
-Which further targets JASX will have, including whether there will be a reactive target, will be decided after the core language is complete. Third-party targets are expected: a target needs no change to the language or the compiler, only a descriptor, a factory, builders and a schema, and optionally a custom lowering.
+Third-party targets are expected: a target needs no change to the language or the compiler, only a descriptor, a factory, builders and a schema, and optionally a custom lowering.
 
 ---
 

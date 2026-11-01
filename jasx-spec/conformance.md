@@ -16,7 +16,7 @@ Levels are split into **core** levels, which test the language, and **target** l
 | **Diagnostics** | Core | Reporting syntax errors with the right codes and locations | `tests/errors/` |
 | **HTML target** | Target (reference) | Lowering, compiling and rendering to the expected HTML (`targets/html.md`) | `tests/render/` |
 
-No other target levels are defined. A directory name for a reactive target (`tests/live/`) is reserved, but such a target is not decided (`semantics.md` §7.6).
+No other target levels are defined. The directory name `tests/web/` is reserved for the `web` target, which is a draft (`targets/web.md`); its implementation is tested by its own tests until the draft is final.
 
 An editor plugin, formatter or alternative parser (for example in Rust or TypeScript) typically aims for the core levels. A compiler aims for the core levels plus the levels of the targets it ships. A third-party target can publish its own target-level tests in the same format.
 
