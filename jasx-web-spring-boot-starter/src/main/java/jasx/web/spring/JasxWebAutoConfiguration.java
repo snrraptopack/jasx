@@ -11,8 +11,6 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
-import org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.servlet.WebMvcRegistrations;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.SmartLifecycle;
@@ -28,14 +26,21 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *   <li>the runtime's own requests (client script, events, streams, pings) under {@code jasx.web.base-path},
  *       served by an async servlet, so open streams don't hold the container's threads;
  *   <li>controller methods that return an {@code Element} run inside a new page, which is sent as the response
- *       ({@link PageHandlerAdapter}); a {@link WebPage} return value works too, and is the fallback when another
- *       {@code WebMvcRegistrations} replaces the starter's.
+ *       ({@link PageHandlerAdapter}, supplied by {@link Boot3MvcRegistrations} or {@code Boot4MvcRegistrations});
+ *       a {@link WebPage} return value works too, and is the fallback when another {@code WebMvcRegistrations}
+ *       replaces the starter's.
  * </ul>
+ *
+ * <p>It works with Spring Boot 3 and 4. Boot 4 moved Spring MVC's auto-configuration to another package, so this
+ * class names it only by its names in both, and the one bean that has to name its type is in a class of its own
+ * for each version, which Spring Boot uses only if that version's type exists.
  *
  * <p>The security checks are the {@link WebApp}'s (targets/web.md §6.3): sessions, same-site checks and limits.
  * With Spring Security, exclude the base path from Spring's CSRF check, which the runtime does its own way.
  */
-@AutoConfiguration(before = WebMvcAutoConfiguration.class)
+@AutoConfiguration(beforeName = {
+        "org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration", // Spring Boot 3
+        "org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration"})     // Spring Boot 4
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnClass(RequestMappingHandlerAdapter.class)
 @EnableConfigurationProperties(JasxWebProperties.class)
@@ -89,22 +94,6 @@ public class JasxWebAutoConfiguration {
             @Override
             public int getPhase() {
                 return Integer.MAX_VALUE;
-            }
-        };
-    }
-
-    /**
-     * Supplies Spring MVC's handler adapter: one that runs controller methods returning an {@code Element} inside a
-     * new page ({@link PageHandlerAdapter}). Spring Boot uses a single {@code WebMvcRegistrations}, so if the
-     * application defines its own, this one steps aside, and pages are returned as {@link WebPage}s instead.
-     */
-    @Bean
-    @ConditionalOnMissingBean(WebMvcRegistrations.class)
-    public WebMvcRegistrations jasxWebMvcRegistrations(WebApp app) {
-        return new WebMvcRegistrations() {
-            @Override
-            public RequestMappingHandlerAdapter getRequestMappingHandlerAdapter() {
-                return new PageHandlerAdapter(app);
             }
         };
     }

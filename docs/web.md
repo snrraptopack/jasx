@@ -307,7 +307,7 @@ The runtime is independent of any HTTP server. An adapter describes each request
 
 The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server.
 
-**With Spring Boot** (3.x, with `spring-boot-starter-web`), add `io.github.snrraptopack:jasx-web-spring-boot-starter`. Pages are ordinary controller methods that return their markup:
+**With Spring Boot** (3.x with `spring-boot-starter-web`, or 4.x with `spring-boot-starter-webmvc`), add `io.github.snrraptopack:jasx-web-spring-boot-starter`. Pages are ordinary controller methods that return their markup:
 
 ```java
 @Controller

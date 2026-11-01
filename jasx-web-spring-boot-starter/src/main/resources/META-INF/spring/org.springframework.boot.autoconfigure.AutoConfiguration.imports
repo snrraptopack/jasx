@@ -1,1 +1,3 @@
 jasx.web.spring.JasxWebAutoConfiguration
+jasx.web.spring.Boot3MvcRegistrations
+jasx.web.spring.Boot4MvcRegistrations
