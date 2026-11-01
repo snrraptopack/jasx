@@ -87,13 +87,14 @@ public final class JasxCompiler {
         // Pass 2: lower each .jasx file to Java.
         List<GeneratedFile> generatedFiles = new ArrayList<>();
         List<CompilationResult.Use> uses = new ArrayList<>();
+        List<CompilationResult.PropUse> props = new ArrayList<>();
         for (ScannedFile scanned : scannedFiles) {
-            GeneratedFile generated = lower(scanned, allComponents, uses, diagnostics);
+            GeneratedFile generated = lower(scanned, allComponents, uses, props, diagnostics);
             if (generated != null) {
                 generatedFiles.add(generated);
             }
         }
-        return new CompilationResult(generatedFiles, diagnostics, localComponents, declarations, uses);
+        return new CompilationResult(generatedFiles, diagnostics, localComponents, declarations, uses, props);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -181,10 +182,11 @@ public final class JasxCompiler {
 
     /**
      * Lowers one scanned file; returns null if it is not a {@code .jasx} file or if it has errors. The
-     * component tags it resolves are added to {@code uses}, even when the file has errors.
+     * component tags it resolves are added to {@code uses}, and the props they are given to {@code props}, even
+     * when the file has errors.
      */
     private GeneratedFile lower(ScannedFile scanned, ComponentIndex components, List<CompilationResult.Use> uses,
-            List<CompilerDiagnostic> diagnostics) {
+            List<CompilationResult.PropUse> props, List<CompilerDiagnostic> diagnostics) {
         // .java files are not rewritten.
         if (scanned.parsed() == null) {
             return null;
@@ -199,6 +201,7 @@ public final class JasxCompiler {
         GeneratedFile generated = lowering.lower(scanned.parsed().unit(), scanned.insertions(), scanned.styles());
         report(diagnostics, scanned.file(), scanned.lines(), lowering.diagnostics());
         uses.addAll(lowering.uses());
+        props.addAll(lowering.props());
 
         // Code generated around an error (an unknown component, say) is not meaningful, so don't return it.
         boolean hasErrors = lowering.diagnostics().stream()

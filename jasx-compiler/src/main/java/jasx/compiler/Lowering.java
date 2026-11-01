@@ -147,6 +147,8 @@ final class Lowering {
     private StyleBlocks.Plan styles;
     /** The component tags resolved so far, for editor tooling (CompilationResult.uses). */
     private final List<CompilationResult.Use> uses = new ArrayList<>();
+    /** The props given to those components, for editor tooling (CompilationResult.props). */
+    private final List<CompilationResult.PropUse> props = new ArrayList<>();
     /** How many statement containers were analysed: each gets its own list variable (semantics.md §6.8). */
     private int statementContainers;
     /**
@@ -171,6 +173,10 @@ final class Lowering {
 
     List<CompilationResult.Use> uses() {
         return uses;
+    }
+
+    List<CompilationResult.PropUse> props() {
+        return props;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -470,6 +476,8 @@ final class Lowering {
         String tag = "<" + JasxParser.nameText(element.openingElement().name()) + ">";
 
         Map<String, JasxAttribute> givenProps = checkProps(tag, component, attributes);
+        givenProps.forEach((name, attribute) -> props.add(new CompilationResult.PropUse(
+                component, name, file.path(), attribute.name().start(), attribute.name().end())));
         List<ChildValue> children = normalize(element.children());
         checkChildren(tag, component, children, element);
         checkRequiredProps(tag, component, givenProps, element);

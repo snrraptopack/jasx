@@ -5,7 +5,7 @@ Support for `.jasx` files (Java with JSX-style markup) in IntelliJ IDEA 2025.3 o
 The plugin is a thin client, like the VS Code extension. Everything it knows comes from two pieces both editors share:
 
 - **Highlighting** comes from the TextMate grammar in [`editors/vscode/syntaxes`](../vscode/syntaxes), loaded by IntelliJ's TextMate support. The grammar builds on the Java and CSS grammars IntelliJ ships with. See the [VS Code README](../vscode/README.md#how-markup-is-recognized) for how it recognizes markup and where it falls short.
-- **Errors, completion, go-to-definition and hover** come from the JASX language server ([`jasx-lsp`](../../jasx-lsp)), through IntelliJ's own LSP support. The server behaves as in VS Code: JASX errors while you type, and after a build with the JASX Gradle or Maven plugin, the components of the project's jars, the project's own target, and javac's errors in `.jasx` files when you open or save one. See the [VS Code README](../vscode/README.md) for details.
+- **Errors, completion, go-to-definition, hover, find usages and rename** come from the JASX language server ([`jasx-lsp`](../../jasx-lsp)), through IntelliJ's own LSP support. The server behaves as in VS Code: JASX errors while you type, and after a build with the JASX Gradle or Maven plugin, the components of the project's jars, the project's own target, and javac's errors in `.jasx` files when you open or save one. See the [VS Code README](../vscode/README.md) for details.
 
 The server runs on the IDE's own Java runtime, which has the compiler module the server needs to run javac. If a runtime lacks it, `JAVA_HOME` is used. Its messages are in the **Language Services** widget in the status bar.
 

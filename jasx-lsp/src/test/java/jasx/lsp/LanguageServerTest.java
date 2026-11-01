@@ -580,6 +580,183 @@ class LanguageServerTest {
             assertNull(hoverAt(page, pageWith("<p>some te|xt</p>;")));
         }
 
+        // --- References and rename ---------------------------------------------------------------
+
+        /** A .java file of the same source set that calls the component Ui.Card directly. */
+        private static final String MAIN = """
+                package app;
+
+                class Main {
+                  static Object page() {
+                    return Ui.Card("x", java.util.List.of());
+                  }
+                }
+                """;
+
+        private Path writeMain() throws IOException {
+            return Files.writeString(project.resolve("src/main/java/app/Main.java"), MAIN);
+        }
+
+        /** The LSP position of the {@code n}th (0-based) occurrence of {@code word} in {@code text}, at its start. */
+        private static Map<String, Object> positionOf(Path file, String text, String word, int n) {
+            int at = -1;
+            for (int i = 0; i <= n; i++) {
+                at = text.indexOf(word, at + 1);
+            }
+            String before = text.substring(0, at);
+            int line = (int) before.chars().filter(c -> c == '\n').count();
+            return position(file, line, at - (before.lastIndexOf('\n') + 1));
+        }
+
+        /** The references at a position, as "File.ext@line:column". */
+        private List<String> referencesAt(Map<String, Object> position) {
+            Map<String, Object> params = new LinkedHashMap<>(position);
+            params.put("context", Map.of("includeDeclaration", true));
+            List<String> found = new ArrayList<>();
+            for (Object location : (List<?>) request("textDocument/references", params).get("result")) {
+                Map<String, Object> l = Json.object(location);
+                Map<String, Object> start = Json.object(Json.object(l.get("range")).get("start"));
+                found.add(Workspace.toPath(Json.string(l.get("uri"))).getFileName() + "@" + start.get("line") + ":"
+                        + start.get("character"));
+            }
+            return found;
+        }
+
+        /** Renames at a position; returns the files' new texts by file name, or the error message. */
+        private Map<String, String> renameAt(Map<String, Object> position, String newName) throws IOException {
+            Map<String, Object> params = new LinkedHashMap<>(position);
+            params.put("newName", newName);
+            Map<String, Object> response = request("textDocument/rename", params);
+            if (response.get("error") != null) {
+                return Map.of("error", Json.string(Json.object(response.get("error")).get("message")));
+            }
+            Map<String, String> texts = new LinkedHashMap<>();
+            Json.object(Json.object(response.get("result")).get("changes")).forEach((uri, edits) -> {
+                Path file = Workspace.toPath(uri);
+                try {
+                    texts.put(file.getFileName().toString(), applied(Files.readString(file), (List<?>) edits));
+                } catch (IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            });
+            return texts;
+        }
+
+        /** {@code text} with LSP text edits applied, the last first so that earlier offsets stay right. */
+        private static String applied(String text, List<?> edits) {
+            List<int[]> ranges = new ArrayList<>();
+            List<String> replacements = new ArrayList<>();
+            for (Object e : edits) {
+                Map<String, Object> edit = Json.object(e);
+                Map<String, Object> range = Json.object(edit.get("range"));
+                Map<String, Object> start = Json.object(range.get("start"));
+                Map<String, Object> end = Json.object(range.get("end"));
+                ranges.add(new int[] {
+                        Workspace.offsetOf(text, Json.integer(start.get("line")), Json.integer(start.get("character"))),
+                        Workspace.offsetOf(text, Json.integer(end.get("line")), Json.integer(end.get("character")))});
+                replacements.add(Json.string(edit.get("newText")));
+            }
+            StringBuilder result = new StringBuilder(text);
+            List<Integer> order = new ArrayList<>();
+            for (int i = 0; i < ranges.size(); i++) {
+                order.add(i);
+            }
+            order.sort((a, b) -> ranges.get(b)[0] - ranges.get(a)[0]);
+            for (int i : order) {
+                result.replace(ranges.get(i)[0], ranges.get(i)[1], replacements.get(i));
+            }
+            return result.toString();
+        }
+
+        @Test
+        void aComponentsReferencesAreItsDeclarationTagsAndJavaCalls() throws IOException {
+            writeMain();
+            open(page, PAGE);
+            List<String> found = referencesAt(positionOf(page, PAGE, "Card", 0));
+            // Main.java's call, Page.jasx's opening and closing tags (the "Card" part: "</Ui." ends at 47),
+            // Ui.jasx's declaration.
+            assertEquals(List.of("Main.java@4:14", "Page.jasx@6:15", "Page.jasx@6:47", "Ui.jasx@6:15"), found);
+        }
+
+        @Test
+        void renamingAComponentRenamesItsTagsAndCalls() throws IOException {
+            writeMain();
+            open(page, PAGE);
+            Map<String, String> renamed = renameAt(positionOf(page, PAGE, "Card", 0), "Panel");
+            assertTrue(renamed.get("Page.jasx").contains("<Ui.Panel title=\"Hi\"><p>body</p></Ui.Panel>"), renamed.toString());
+            assertTrue(renamed.get("Ui.jasx").contains("public Element Panel(String title"), renamed.toString());
+            assertTrue(renamed.get("Main.java").contains("Ui.Panel(\"x\""), renamed.toString());
+        }
+
+        @Test
+        void renamingAPropRenamesItsAttributesParameterAndUses() throws IOException {
+            open(page, PAGE);
+            Map<String, String> renamed = renameAt(positionOf(page, PAGE, "title", 0), "heading");
+            assertTrue(renamed.get("Page.jasx").contains("<Ui.Card heading=\"Hi\">"), renamed.toString());
+            assertTrue(renamed.get("Ui.jasx").contains("Card(String heading, List<Element> children)")
+                    && renamed.get("Ui.jasx").contains("<h2>{heading}</h2>"), renamed.toString());
+        }
+
+        @Test
+        void renamingALocalRenamesItsUsesInMarkup() throws IOException {
+            String text = PAGE.replace("return <Ui.Card", "String label = \"Hi\";\n    return <Ui.Card")
+                    .replace("title=\"Hi\"", "title={label}");
+            Files.writeString(page, text);
+            open(page, text);
+            Map<String, String> renamed = renameAt(positionOf(page, text, "label", 1), "caption");
+            assertTrue(renamed.get("Page.jasx").contains("String caption = \"Hi\";")
+                    && renamed.get("Page.jasx").contains("title={caption}"), renamed.toString());
+        }
+
+        @Test
+        void renamingANestedClassRenamesItsPartOfTags() throws IOException {
+            String text = """
+                    package app;
+
+                    import jasx.runtime.Element;
+
+                    class Shelf {
+                      static class Tiles {
+                        static Element Badge() { return <b>x</b>; }
+                      }
+                      static Element Home() { return <div><Tiles.Badge /><Shelf.Tiles.Badge /></div>; }
+                    }
+                    """;
+            Path shelf = Files.writeString(project.resolve("src/main/java/app/Shelf.jasx"), text);
+            open(shelf, text);
+            // The cursor on "Tiles" in a tag names the class, not the component.
+            Map<String, String> renamed = renameAt(positionOf(shelf, text, "Tiles", 1), "Cards");
+            String result = renamed.get("Shelf.jasx");
+            assertTrue(result != null && result.contains("static class Cards {")
+                    && result.contains("<Cards.Badge /><Shelf.Cards.Badge />"), renamed.toString());
+
+            // And a top-level class is named after its file.
+            assertTrue(renameAt(positionOf(shelf, text, "Shelf", 1), "Rack").get("error").contains("file"));
+        }
+
+        @Test
+        void renamesThatWouldBreakCodeAreRefused() throws IOException {
+            open(page, PAGE);
+            assertTrue(renameAt(positionOf(page, PAGE, "Card", 0), "panel").get("error").contains("lowercase"));
+            open(ui, UI);
+            assertTrue(renameAt(positionOf(ui, UI, "children", 0), "items").get("error").contains("children"));
+            assertTrue(renameAt(positionOf(ui, UI, "String", 0), "Text").get("error").contains("isn't declared"));
+            assertTrue(renameAt(positionOf(page, PAGE, "title", 0), "class x").get("error").contains("not a valid Java name"));
+
+            change(page, PAGE.replace("</Ui.Card>", "</Ui.Cards>")); // a JASX error elsewhere in the group
+            assertTrue(renameAt(positionOf(ui, UI, "Card", 0), "Panel").get("error").contains("JASX errors"));
+        }
+
+        @Test
+        void prepareRenameGivesTheNameAndItsRange() {
+            open(page, PAGE);
+            Map<String, Object> result = Json.object(request("textDocument/prepareRename",
+                    positionOf(page, PAGE, "Card", 0)).get("result"));
+            assertEquals("Card", result.get("placeholder"));
+            Map<String, Object> start = Json.object(Json.object(result.get("range")).get("start"));
+            assertEquals(15L, start.get("character"));
+        }
+
         @Test
         void stateMembersShowTheirValueType() throws IOException {
             writeBuildInfo("web", List.of());

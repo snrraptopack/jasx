@@ -98,6 +98,13 @@ final class JavaNames {
                 boolean constructor = tree.getName().contentEquals("<init>");
                 if (!constructor && tree.getReturnType() != null) {
                     addDeclared(tree.getName().toString(), end(tree.getReturnType()));
+                } else if (constructor && getCurrentPath().getParentPath().getLeaf() instanceof ClassTree owner) {
+                    // A constructor is written with its class's name; javac's element for it is the constructor.
+                    long afterModifiers = end(tree.getModifiers()) > 0 ? end(tree.getModifiers()) : start(tree);
+                    String name = owner.getSimpleName().toString();
+                    if (afterModifiers >= 0) {
+                        add(name, wordAt(text, name, (int) afterModifiers), false);
+                    }
                 }
                 return super.visitMethod(tree, unused);
             }

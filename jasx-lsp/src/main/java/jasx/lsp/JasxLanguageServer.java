@@ -31,6 +31,9 @@ import jasx.parser.Diagnostic;
  *       ({@code typingPauseMillis} without another change); its errors are published when it finishes;
  *   <li>{@code textDocument/definition} on component tags, and {@code textDocument/hover} on component
  *       tags, other markup and Java names ({@link Workspace#hover});
+ *   <li>{@code textDocument/references}, {@code textDocument/prepareRename} and {@code textDocument/rename}
+ *       of components, props and Java names ({@link JavaReferences}); a rename that would break code is
+ *       refused with a message ({@code RequestFailed});
  *   <li>{@code textDocument/completion} of tag and attribute names in markup ({@link Completions}), and of
  *       Java members and names in Java code, also inside {@code {...}} ({@link JavaCompletions}).
  * </ul>
@@ -44,6 +47,7 @@ final class JasxLanguageServer {
     /** JSON-RPC error codes. */
     private static final int METHOD_NOT_FOUND = -32601;
     private static final int INTERNAL_ERROR = -32603;
+    private static final int REQUEST_FAILED = -32803;
 
     private final Consumer<String> send;
     private final Executor background;
@@ -99,6 +103,10 @@ final class JasxLanguageServer {
             Object result = dispatch(method, params, isRequest);
             if (isRequest) {
                 respond(id, result);
+            }
+        } catch (Workspace.Refused e) {
+            if (isRequest) {
+                respondWithError(id, REQUEST_FAILED, e.getMessage());
             }
         } catch (UnsupportedOperationException e) {
             if (isRequest) {
@@ -174,6 +182,12 @@ final class JasxLanguageServer {
                 return hover(params);
             case "textDocument/completion":
                 return completion(params);
+            case "textDocument/references":
+                return references(params);
+            case "textDocument/prepareRename":
+                return prepareRename(params);
+            case "textDocument/rename":
+                return rename(params);
             default:
                 if (isRequest) {
                     throw new UnsupportedOperationException(method);
@@ -199,6 +213,9 @@ final class JasxLanguageServer {
         Map<String, Object> completionItem = Json.object(Json.object(Json.object(Json.object(
                 params.get("capabilities")).get("textDocument")).get("completion")).get("completionItem"));
         snippetSupport = Boolean.TRUE.equals(completionItem.get("snippetSupport"));
+        Map<String, Object> renameCapabilities = Json.object(Json.object(Json.object(
+                params.get("capabilities")).get("textDocument")).get("rename"));
+        boolean prepareSupport = Boolean.TRUE.equals(renameCapabilities.get("prepareSupport"));
         Map<String, Object> watchedFiles = Json.object(Json.object(Json.object(
                 params.get("capabilities")).get("workspace")).get("didChangeWatchedFiles"));
         watcherRegistration = Boolean.TRUE.equals(watchedFiles.get("dynamicRegistration"));
@@ -212,6 +229,9 @@ final class JasxLanguageServer {
         capabilities.put("textDocumentSync", sync);
         capabilities.put("definitionProvider", true);
         capabilities.put("hoverProvider", true);
+        capabilities.put("referencesProvider", true);
+        // With prepareRename, the editor asks first, and shows why a rename is refused before the user types.
+        capabilities.put("renameProvider", prepareSupport ? Map.of("prepareProvider", true) : true);
         // '<' starts a tag name, ' ' an attribute name, '.' the rest of a qualified component name.
         capabilities.put("completionProvider", Map.of("triggerCharacters", List.of("<", " ", ".")));
 
@@ -252,13 +272,7 @@ final class JasxLanguageServer {
         Map<String, Object> position = Json.object(params.get("position"));
         Workspace.Location location = workspace().definition(documentUri(params),
                 Json.integer(position.get("line")), Json.integer(position.get("character")));
-        if (location == null) {
-            return null;
-        }
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("uri", location.uri());
-        result.put("range", range(location.startLine(), location.startColumn(), location.endLine(), location.endColumn()));
-        return result;
+        return location == null ? null : location(location);
     }
 
     private Object hover(Map<String, Object> params) {
@@ -269,6 +283,53 @@ final class JasxLanguageServer {
             return null;
         }
         return Map.of("contents", Map.of("kind", "markdown", "value", markdown));
+    }
+
+    /** A Location for every place the symbol at the position is written. */
+    private Object references(Map<String, Object> params) {
+        Map<String, Object> position = Json.object(params.get("position"));
+        boolean includeDeclaration = Boolean.TRUE.equals(Json.object(params.get("context")).get("includeDeclaration"));
+        List<Object> locations = new ArrayList<>();
+        for (Workspace.Location location : workspace().references(documentUri(params),
+                Json.integer(position.get("line")), Json.integer(position.get("character")), includeDeclaration)) {
+            locations.add(location(location));
+        }
+        return locations;
+    }
+
+    /** The range of the name to rename and the name itself, or an error saying why it can't be renamed. */
+    private Object prepareRename(Map<String, Object> params) {
+        Map<String, Object> position = Json.object(params.get("position"));
+        Workspace.RenameAt at = workspace().prepareRename(documentUri(params),
+                Json.integer(position.get("line")), Json.integer(position.get("character")));
+        Workspace.Location range = at.range();
+        return Map.of("range", range(range.startLine(), range.startColumn(), range.endLine(), range.endColumn()),
+                "placeholder", at.placeholder());
+    }
+
+    /** A WorkspaceEdit with the edits of every file, or an error saying why the rename can't be done. */
+    private Object rename(Map<String, Object> params) {
+        Map<String, Object> position = Json.object(params.get("position"));
+        Map<String, List<Workspace.Edit>> edits = workspace().rename(documentUri(params),
+                Json.integer(position.get("line")), Json.integer(position.get("character")),
+                Json.string(params.get("newName")));
+        Map<String, Object> changes = new LinkedHashMap<>();
+        edits.forEach((uri, list) -> {
+            List<Object> textEdits = new ArrayList<>();
+            for (Workspace.Edit edit : list) {
+                textEdits.add(Map.of("range", range(edit.startLine(), edit.startColumn(), edit.endLine(), edit.endColumn()),
+                        "newText", edit.newText()));
+            }
+            changes.put(uri, textEdits);
+        });
+        return Map.of("changes", changes);
+    }
+
+    private static Map<String, Object> location(Workspace.Location location) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("uri", location.uri());
+        result.put("range", range(location.startLine(), location.startColumn(), location.endLine(), location.endColumn()));
+        return result;
     }
 
     /** A CompletionList; every item replaces the name being typed (a textEdit from its start to the cursor). */

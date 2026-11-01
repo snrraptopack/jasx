@@ -410,6 +410,107 @@ final class Workspace {
                 classpathOf(analysis), releaseOf(analysis), components);
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // References and rename
+    // ---------------------------------------------------------------------------------------------
+
+    /** A request that can't be carried out, with a message for the user (a rename that would break code). */
+    static final class Refused extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        Refused(String message) {
+            super(message);
+        }
+    }
+
+    /** One text change: {@code [start, end)} of a file replaced with {@code newText}, in LSP positions. */
+    record Edit(int startLine, int startColumn, int endLine, int endColumn, String newText) {}
+
+    /** Where a rename at a position applies, and the name it starts from. */
+    record RenameAt(Location range, String placeholder) {}
+
+    /**
+     * Every place in the group where the symbol at a position is written ({@link JavaReferences}): a
+     * component, a prop, or a name in Java code. Empty if there is none there.
+     */
+    List<Location> references(String uri, int line, int column, boolean includeDeclaration) {
+        Found found = symbolAt(uri, line, column);
+        if (found == null) {
+            return List.of();
+        }
+        List<Location> locations = new ArrayList<>();
+        for (JavaReferences.Occurrence occurrence : found.symbol().occurrences()) {
+            if (includeDeclaration || !occurrence.declaration()) {
+                locations.add(location(found.analysis(), occurrence.path(), occurrence.start(), occurrence.end()));
+            }
+        }
+        return locations;
+    }
+
+    /**
+     * Whether the symbol at a position can be renamed: the range of its name there and the name, or
+     * {@link Refused} with the reason.
+     */
+    RenameAt prepareRename(String uri, int line, int column) {
+        Found found = renamable(symbolAt(uri, line, column));
+        JavaReferences.Occurrence at = found.symbol().at();
+        return new RenameAt(location(found.analysis(), at.path(), at.start(), at.end()), found.symbol().name());
+    }
+
+    /** The edits that rename the symbol at a position, by file URI, or {@link Refused} with the reason. */
+    Map<String, List<Edit>> rename(String uri, int line, int column, String newName) {
+        Found found = renamable(symbolAt(uri, line, column));
+        String refusal = JavaReferences.refusalOf(found.symbol(), newName);
+        if (refusal != null) {
+            throw new Refused("Can't rename to '" + newName + "': " + refusal + ".");
+        }
+        Map<String, List<Edit>> edits = new LinkedHashMap<>();
+        for (JavaReferences.Occurrence occurrence : found.symbol().occurrences()) {
+            Location place = location(found.analysis(), occurrence.path(), occurrence.start(), occurrence.end());
+            edits.computeIfAbsent(place.uri(), u -> new ArrayList<>()).add(new Edit(place.startLine(),
+                    place.startColumn(), place.endLine(), place.endColumn(), newName));
+        }
+        return edits;
+    }
+
+    /** A symbol, and the analysis of the group it was found in. */
+    private record Found(Analysis analysis, JavaReferences.Symbol symbol) {}
+
+    /** The symbol at a position of an analysed {@code .jasx} file, or null. */
+    private Found symbolAt(String uri, int line, int column) {
+        Path file = toPath(uri);
+        Analysis analysis = analysisOf(file);
+        String relative = analysis != null ? analysis.relativePath(file) : null;
+        if (relative == null || !relative.endsWith(".jasx")) {
+            return null; // .java files are left to the editor's Java support
+        }
+        int offset = offsetOf(analysis.texts().get(relative), line, column);
+        JavacAnalysis javac = JavacAnalysis.of(analysis.result().files(), javaSources(analysis), relative,
+                classpathOf(analysis), releaseOf(analysis));
+        if (javac == null) {
+            return null;
+        }
+        JavaReferences.Symbol symbol = JavaReferences.at(javac, analysis.result(), analysis.texts(), relative, offset);
+        return symbol == null ? null : new Found(analysis, symbol);
+    }
+
+    /**
+     * {@code found}, if its symbol can be renamed; otherwise {@link Refused}. A group with JASX errors is never
+     * renamed in: a file with errors has no generated Java, so its uses can't be found.
+     */
+    private static Found renamable(Found found) {
+        if (found == null) {
+            throw new Refused("There is nothing to rename here.");
+        }
+        if (found.analysis().result().hasErrors()) {
+            throw new Refused("Can't rename while this source set has JASX errors: their files can't be searched.");
+        }
+        if (found.symbol().refusal() != null) {
+            throw new Refused("Can't rename '" + found.symbol().name() + "': " + found.symbol().refusal() + ".");
+        }
+        return found;
+    }
+
     /** The component that the tag name starting at {@code nameStart} resolved to, or null. */
     private static ComponentIndex.Component componentNamedAt(Analysis analysis, String relative, int nameStart) {
         for (CompilationResult.Use use : analysis.result().uses()) {
