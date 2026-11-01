@@ -390,6 +390,26 @@ class WebTest {
         }
 
         @Test
+        void aPageNoBrowserConnectsToIsDiscardedSoon() throws Exception {
+            // A crawler or a link preview renders the page but never runs its script.
+            try (WebApp app = new WebApp("/_jasx", Duration.ofMinutes(10), Duration.ofSeconds(1))) {
+                String visited = app.render(() -> Web.h("p", null, "x"));
+                app.render(() -> Web.h("p", null, "crawled"));
+                assertEquals(204, app.ping(pageId(visited)).status()); // this one's browser connected
+                for (int i = 0; i < 50 && app.pageCount() > 1; i++) {
+                    Thread.sleep(100);
+                }
+                assertEquals(1, app.pageCount());
+                assertTrue(app.hasPage(pageId(visited)), "the page a browser connected to is kept");
+            }
+        }
+
+        @Test
+        void aPingFromAnUnknownPageAnswers410() {
+            assertEquals(410, app.ping("nope").status());
+        }
+
+        @Test
         void aResetPatchNamesTheEventItAnswers() {
             String html = app.render(() -> Web.h("form", jasx.web.attrs.Form.create().onsubmit(e -> e.resetForm())));
             String body = app.event(pageId(html), "{\"handler\":" + handler(html, "submit", 1) + ",\"seq\":7,\"type\":\"submit\"}").body();

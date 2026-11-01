@@ -27,17 +27,22 @@ class ClientLoader extends ResourceLoader {
  * A page whose body is `body`, with the client running. `answer(payload)` plays the server: it returns the
  * batch for an event, null for "nothing changed", or "gone"; it may return a promise.
  */
-async function page(body, answer = () => null) {
+async function page(body, answer = () => null, scriptAttributes = "") {
   const sent = [];
   const streams = [];
+  const pings = [];
   const dom = new JSDOM(
-    `<!DOCTYPE html><html><head></head><body>${body}<script src="/_jasx/web.js" data-jx-page="P1" defer></script></body></html>`,
+    `<!DOCTYPE html><html><head></head><body>${body}<script src="/_jasx/web.js" data-jx-page="P1" ${scriptAttributes} defer></script></body></html>`,
     {
       url: "http://localhost/page",
       runScripts: "dangerously",
       resources: new ClientLoader(),
       beforeParse(window) {
         window.fetch = async (url, init) => {
+          if (url.includes("/ping")) {
+            pings.push(url);
+            return { status: 204 };
+          }
           const payload = JSON.parse(init.body);
           sent.push({ url, payload });
           const batch = await answer(payload);
@@ -66,7 +71,7 @@ async function page(body, answer = () => null) {
   );
   await new Promise((resolve) => dom.window.addEventListener("load", resolve));
   const window = dom.window;
-  return { window, document: window.document, sent, streams };
+  return { window, document: window.document, sent, streams, pings };
 }
 
 const wait = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -358,4 +363,26 @@ test("a hole whose end marker is missing removes nothing", async () => {
   streams[0].push({ version: 1, patches: [{ op: "html", id: 3, html: "new" }] });
   assert.equal(document.querySelectorAll("p").length, 2);
   assert.ok(window.sessionStorage.getItem("jx-reload"), "it reloads instead of guessing");
+});
+
+test("a hidden tab closes its stream, pings, and catches up when shown again", async () => {
+  const { window, document, streams, pings } = await page(`<p><!--jx:4-->0<!--/jx:4--></p>`, () => null, `data-jx-hidden-grace="50"`);
+  const setVisibility = (state) => {
+    Object.defineProperty(document, "visibilityState", { value: state, configurable: true });
+    document.dispatchEvent(new window.Event("visibilitychange"));
+  };
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 4, html: "1" }] });
+
+  setVisibility("hidden");
+  await wait(20);
+  setVisibility("visible"); // a quick switch keeps the stream
+  setVisibility("hidden");
+  await wait(100);
+  assert.ok(streams[0].closed, "the hidden tab released its connection");
+  assert.equal(streams.length, 1);
+  assert.deepEqual(pings, ["/_jasx/ping?page=P1"]);
+
+  setVisibility("visible");
+  assert.equal(streams.length, 2);
+  assert.equal(streams[1].url, "/_jasx/stream?page=P1&since=1", "it asks for what was pushed while hidden");
 });

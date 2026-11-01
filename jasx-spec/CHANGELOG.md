@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0-draft, revision 16
+
+### Changed
+
+- **Character references are decoded in attribute strings** (`grammar.md` §5, `ast.md` §6.4), as in text and as in JSX. Markup copied from HTML now means the same: `href="?a=1&amp;b=2"` is the URL `?a=1&b=2`, where before it kept `&amp;` literally and rendered as `&amp;amp;`. Java escapes are still processed, a `&` that doesn't start a complete reference is literal, and an unknown named reference is JASX1010.
+- Expected output of parse conformance test `010-character-references`: the attribute `title="a&amp;b"` has the value `a&b`.
+- `targets/web.md` §6: a page whose browser never connects is discarded after a **first-connect timeout** (30 seconds by default), so crawlers, link previews and prefetches don't keep pages for 2 minutes. A tab hidden for 10 seconds closes its stream and **pings** (`POST /_jasx/ping`, §8.1) instead, so hidden tabs don't use up the browser's HTTP/1.1 connections; production deployments **SHOULD** serve over HTTP/2.
+- `targets/web.md` §7: states that a hole that re-runs loses the focus and unsent text of fields inside it.
+
+### Added
+
+- Render conformance test `020-character-references-in-attribute-strings`.
+
 ## 1.0-draft, revision 15
 
 Fixes from an external review of the `web` target and `jasx.ui`.

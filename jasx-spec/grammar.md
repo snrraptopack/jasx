@@ -157,9 +157,10 @@ JasxStringLiteral:
 JasxStringCharacter:
     InputCharacter but not " or \
     EscapeSequence
+    CharacterReference
 ```
 
-`InputCharacter` and `EscapeSequence` are as defined in JLS §3.4 and §3.10.7. Attribute strings use Java escape semantics (`\n`, `\"`, `\\`, and so on). `\u0041` is **not** processed, because Unicode escapes are not processed in markup (§2.1). Single-quoted attribute strings are not supported.
+`InputCharacter` and `EscapeSequence` are as defined in JLS §3.4 and §3.10.7. Attribute strings use Java escape semantics (`\n`, `\"`, `\\`, and so on), and decode character references (`CharacterReference`, below) as text does, so markup copied from HTML means the same: `href="?a=1&amp;b=2"` is the URL `?a=1&b=2`. As in text, a `&` that doesn't start a complete reference is literal, and an unknown named reference is an error (JASX1010). To write the characters `&amp;` themselves, write `&amp;amp;` or use an expression container (`{"&amp;"}`). `\u0041` is **not** processed, because Unicode escapes are not processed in markup (§2.1). Single-quoted attribute strings are not supported.
 
 ```
 JasxText:

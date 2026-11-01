@@ -638,6 +638,10 @@ public final class JasxParser {
             }
             if (c == '\\') {
                 parseEscape(value);
+            } else if (c == '&') {
+                // As in text and in JSX (grammar.md §5): markup copied from HTML, such as
+                // href="?a=1&amp;b=2", means what it says.
+                parseCharacterReference(value);
             } else {
                 value.append(c);
                 pos++;

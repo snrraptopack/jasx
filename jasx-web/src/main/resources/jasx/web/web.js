@@ -445,6 +445,7 @@
   // (§6.1). The client reconnects by itself rather than letting EventSource do it, because each
   // reconnection must carry the current version.
   function connect() {
+    if (asleep) return; // a hidden tab catches up when it is shown again
     clearTimeout(retryTimer);
     if (source) source.close();
     const stream = new EventSource(base + "/stream" + query + "&since=" + applied);
@@ -463,6 +464,56 @@
   // Asks the server again for everything after the last version applied.
   function resync() {
     connect();
+  }
+
+  // Hidden tabs (§6): over HTTP/1.1 a browser opens only about 6 connections per server, and each open
+  // stream holds one, so a tab that stays hidden closes its stream and pings instead, which keeps its page
+  // alive on the server. Shown again, it reconnects and catches up. A quick switch between tabs keeps the
+  // stream.
+  const HIDDEN_GRACE = Number(script.dataset.jxHiddenGrace || 10000);
+  const PING_INTERVAL = 60000;
+  let asleep = false;
+  let hiddenTimer = null;
+  let pingTimer = null;
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      clearTimeout(hiddenTimer);
+      hiddenTimer = setTimeout(fallAsleep, HIDDEN_GRACE);
+    } else {
+      clearTimeout(hiddenTimer);
+      hiddenTimer = null;
+      if (asleep) wakeUp();
+    }
+  });
+
+  function fallAsleep() {
+    hiddenTimer = null;
+    asleep = true;
+    clearTimeout(retryTimer);
+    if (source) {
+      source.close();
+      source = null;
+    }
+    ping();
+    pingTimer = setInterval(ping, PING_INTERVAL);
+  }
+
+  function wakeUp() {
+    asleep = false;
+    clearInterval(pingTimer);
+    pingTimer = null;
+    connect(); // with the last version applied: what was pushed meanwhile arrives as one batch
+  }
+
+  async function ping() {
+    try {
+      const response = await fetch(base + "/ping" + query, { method: "POST" });
+      // A page the server discarded: the stream tells the client to reload when the tab is shown.
+      if (response.status === 410) clearInterval(pingTimer);
+    } catch (error) {
+      // Offline for now: the next ping tries again.
+    }
   }
 
   // Loads a fresh page, at most once every 10 seconds, so a broken server can't cause a reload loop.

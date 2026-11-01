@@ -98,6 +98,10 @@ public final class WebServer {
                 event(exchange);
             } else if (path.equals(base + "/stream") && method.equals("GET")) {
                 stream(exchange);
+            } else if (path.equals(base + "/ping") && method.equals("POST")) {
+                exchange.getRequestBody().readAllBytes();
+                WebApp.Response response = app.ping(pageId(exchange));
+                send(exchange, response.status(), "text/plain; charset=utf-8", response.body());
             } else if (pages.containsKey(path) && method.equals("GET")) {
                 WebRequest request = new WebRequest(exchange.getRequestURI());
                 String html = app.render(() -> pages.get(path).apply(request));

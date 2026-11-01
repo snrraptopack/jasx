@@ -136,7 +136,7 @@
                   "column": 30
                 }
               },
-              "value": "a&amp;b",
+              "value": "a&b",
               "raw": "\"a&amp;b\""
             }
           }

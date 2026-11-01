@@ -353,9 +353,10 @@ class JasxParserTest {
         }
 
         @Test
-        void characterReferencesAreNotDecodedInAttributeStrings() {
-            JasxStringLiteral s = (JasxStringLiteral) attribute("Element e = <a t=\"&amp;\" />;").value();
-            assertEquals("&amp;", s.value());
+        void characterReferencesAreDecodedInAttributeStrings() {
+            // grammar.md §5: as in text, so markup copied from HTML means the same (spec revision 16).
+            JasxStringLiteral s = (JasxStringLiteral) attribute("Element e = <a t=\"?a=1&amp;b=2 &#65; & c \\t\" />;").value();
+            assertEquals("?a=1&b=2 A & c \t", s.value());
         }
 
         @Test

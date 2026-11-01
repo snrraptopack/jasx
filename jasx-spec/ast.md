@@ -208,7 +208,7 @@ interface JasxAttribute <: Node {
 ```
 interface JasxStringLiteral <: Node {
   type: "JasxStringLiteral";
-  value: string;     // escape sequences processed
+  value: string;     // escape sequences processed and character references decoded
   raw: string;       // exact source text, including the quotes
 }
 ```

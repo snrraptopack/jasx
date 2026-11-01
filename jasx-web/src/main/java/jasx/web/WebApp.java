@@ -16,13 +16,14 @@ import java.util.function.Supplier;
 
 /**
  * The pages of an application, independent of any HTTP server (targets/web.md §6, §8). A server adapter
- * ({@link jasx.web.server.WebServer} for the JDK's HTTP server, or one for Spring) calls it for the three
+ * ({@link jasx.web.server.WebServer} for the JDK's HTTP server, or one for Spring) calls it for the four
  * kinds of request:
  *
  * <ul>
  *   <li>a page: {@link #render} renders it and keeps it alive;
  *   <li>{@code POST <basePath>/event?page=ID}: {@link #event};
- *   <li>{@code GET <basePath>/stream?page=ID}: {@link #stream};
+ *   <li>{@code GET <basePath>/stream?page=ID&since=N}: {@link #stream};
+ *   <li>{@code POST <basePath>/ping?page=ID}: {@link #ping};
  * </ul>
  *
  * and serves {@link #clientScript()} at {@code GET <basePath>/web.js}.
@@ -39,8 +40,12 @@ public final class WebApp implements AutoCloseable {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int HEARTBEAT_SECONDS = 25;
 
+    /** How long a page waits for its browser to connect, by default (targets/web.md §6). */
+    public static final Duration DEFAULT_FIRST_CONNECT_TIMEOUT = Duration.ofSeconds(30);
+
     private final String basePath;
     private final long pageTimeoutNanos;
+    private final long firstConnectTimeoutNanos;
     private final Map<String, Page> pages = new ConcurrentHashMap<>();
     private final ScheduledExecutorService sweeper;
 
@@ -49,12 +54,28 @@ public final class WebApp implements AutoCloseable {
         this("/_jasx", Duration.ofMinutes(2));
     }
 
+    /** An application whose pages wait 30 seconds (or the page timeout, if shorter) for their browser. */
     public WebApp(String basePath, Duration pageTimeout) {
+        this(basePath, pageTimeout, min(DEFAULT_FIRST_CONNECT_TIMEOUT, pageTimeout));
+    }
+
+    /**
+     * @param pageTimeout         how long a page is kept after its browser goes away (no stream, no event)
+     * @param firstConnectTimeout how long a page is kept if no browser ever connects to it: a page rendered for
+     *                            a crawler, a link preview, a prefetch or curl never runs its script
+     */
+    public WebApp(String basePath, Duration pageTimeout, Duration firstConnectTimeout) {
         this.basePath = basePath.endsWith("/") ? basePath.substring(0, basePath.length() - 1) : basePath;
         this.pageTimeoutNanos = pageTimeout.toNanos();
+        this.firstConnectTimeoutNanos = firstConnectTimeout.toNanos();
         this.sweeper = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().name("jasx-pages").factory());
-        long every = Math.max(1, Math.min(30, pageTimeout.toSeconds() / 2));
+        Duration shortest = min(pageTimeout, firstConnectTimeout);
+        long every = Math.max(1, Math.min(30, shortest.toSeconds() / 2));
         sweeper.scheduleWithFixedDelay(this::discardExpiredPages, every, every, TimeUnit.SECONDS);
+    }
+
+    private static Duration min(Duration a, Duration b) {
+        return a.compareTo(b) <= 0 ? a : b;
     }
 
     /** Where the client script, events and streams are served, such as {@code /_jasx}. */
@@ -140,6 +161,22 @@ public final class WebApp implements AutoCloseable {
         }
     }
 
+    /**
+     * Handles {@code POST <basePath>/ping?page=ID} (targets/web.md §6): a tab that is hidden closes its stream,
+     * so that hidden tabs don't use up the browser's few connections per server, and pings instead to keep its
+     * page alive.
+     *
+     * @return 204, or 410 for an unknown page
+     */
+    public Response ping(String pageId) {
+        Page page = pageId != null ? pages.get(pageId) : null;
+        if (page == null) {
+            return Response.GONE;
+        }
+        page.touch();
+        return Response.NOTHING_CHANGED;
+    }
+
     /** Whether the page {@code pageId} is alive. */
     public boolean hasPage(String pageId) {
         return pageId != null && pages.containsKey(pageId);
@@ -165,7 +202,7 @@ public final class WebApp implements AutoCloseable {
 
     private void discardExpiredPages() {
         pages.values().removeIf(page -> {
-            boolean expired = page.isExpired(pageTimeoutNanos);
+            boolean expired = page.isExpired(pageTimeoutNanos, firstConnectTimeoutNanos);
             if (expired) {
                 page.discard();
             }

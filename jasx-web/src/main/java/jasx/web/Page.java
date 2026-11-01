@@ -64,6 +64,11 @@ final class Page implements Scheduler {
     private final AtomicInteger streamGeneration = new AtomicInteger();
     private volatile boolean streamOpen;
     private volatile long lastSeen = System.nanoTime();
+    /**
+     * Whether a browser ever connected (a stream, an event or a ping). A page rendered for a crawler, a link
+     * preview or a prefetch never runs its script, so it is kept only for the first-connect timeout (§6).
+     */
+    private volatile boolean connected;
 
     Page(String id) {
         this.id = id;
@@ -144,7 +149,7 @@ final class Page implements Scheduler {
      * @return the batch the event produced, or null if nothing changed (or the handler no longer exists)
      */
     String event(Map<String, Object> json) {
-        lastSeen = System.nanoTime();
+        touch();
         return locked(() -> {
             Object handler = handlers.get(((Number) json.get("handler")).intValue());
             if (handler == null) {
@@ -278,7 +283,7 @@ final class Page implements Scheduler {
         int generation = streamGeneration.incrementAndGet();
         log.wakeAll(); // a stream this one replaces stops waiting
         streamOpen = true;
-        lastSeen = System.nanoTime();
+        touch();
         try {
             sink.send(": connected\n\n");
             if (!log.covers(since)) {
@@ -320,9 +325,22 @@ final class Page implements Scheduler {
         }
     }
 
-    /** Whether the page has had no stream and no event for {@code timeoutNanos}. */
-    boolean isExpired(long timeoutNanos) {
-        return !streamOpen && System.nanoTime() - lastSeen > timeoutNanos;
+    /**
+     * Whether the page can be discarded: a browser connected, but it has had no stream and no sign of life for
+     * {@code timeoutNanos}; or no browser ever connected within {@code firstConnectTimeoutNanos} (§6).
+     */
+    boolean isExpired(long timeoutNanos, long firstConnectTimeoutNanos) {
+        long idle = System.nanoTime() - lastSeen;
+        if (!connected) {
+            return idle > firstConnectTimeoutNanos;
+        }
+        return !streamOpen && idle > timeoutNanos;
+    }
+
+    /** A sign of life from the browser: an event, a stream, or a ping from a hidden tab (§6). */
+    void touch() {
+        connected = true;
+        lastSeen = System.nanoTime();
     }
 
     /** Disposes everything, which also unsubscribes the page from state shared with other pages. */

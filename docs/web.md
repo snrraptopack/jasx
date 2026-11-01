@@ -233,7 +233,9 @@ The runtime is independent of any HTTP server. `WebApp` has three methods, one p
 
 The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server. Adapters for servlet containers and Spring Boot are planned.
 
-A page is kept for 2 minutes after its browser goes away (no stream and no event). After that, a browser that comes back reloads it.
+A page is kept for 2 minutes after its browser goes away (no stream and no event). After that, a browser that comes back reloads it. A page whose browser never connects (a crawler, a link preview, a prefetch, `curl`) is dropped after 30 seconds. `new WebApp(basePath, pageTimeout, firstConnectTimeout)` changes both.
+
+**Use HTTP/2 in production.** Each visible tab keeps one stream open, and over HTTP/1.1 browsers open only about six connections per server. Hidden tabs close their stream after 10 seconds and ping instead, which helps, but HTTP/2 removes the limit. The JDK's built-in server (`WebServer`) speaks only HTTP/1.1: put a reverse proxy with HTTP/2 in front of it, or use a server adapter that supports HTTP/2.
 
 ## Pitfalls
 
@@ -247,6 +249,7 @@ A page is kept for 2 minutes after its browser goes away (no stream and no event
 
   Use a `final` copy, a ternary, or a `state`.
 - **Reading state outside a hole doesn't follow it.** `var n = count.get();` in the component body is read once.
+- **A field inside a hole that re-runs loses its focus and unsent text**, because the hole's content is replaced. Keep fields outside the holes that change, as the to-do example does with its form.
 - **A component inside a hole that re-runs is created again**, with fresh state. Keep state that must survive higher up, or in a store.
 - **A hole directly in a `<table>` holds rows.** It is placed in a `<tbody>`, as the browser would do. To fill a `<thead>` from a hole, put the hole inside the `<thead>`.
 - **If a hole throws while updating**, the error is logged and the hole keeps showing what it showed, with working buttons. It tries again on the next change.

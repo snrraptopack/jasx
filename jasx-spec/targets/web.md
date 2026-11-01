@@ -115,7 +115,8 @@ A **page** is one rendering of a root element, alive on the server while the bro
 1. A request for a page renders its root to complete HTML (an `html` element, usually). The runtime inserts its client script before `</body>` (or at the end), and the page's style sheets before `</head>` unless `Web.styles()` places them (§9). The page gets an unguessable id.
 2. The client script opens the page's **stream** (server-sent events), on which the server pushes batches that don't answer an event.
 3. Events are sent as POST requests; the response carries the batch the event produced.
-4. A page is discarded when it has had no stream connected and no event for the page timeout (2 minutes by default). An event for an unknown page answers `410 Gone`, and the stream of an unknown page sends a reload message (§6.1); either way, the client reloads the page.
+4. A page is discarded when it has had no stream connected and no sign of life (an event or a ping) for the page timeout (2 minutes by default). A page whose browser never connects (a crawler, a link preview, a prefetch) is discarded after the **first-connect timeout**, 30 seconds by default (never more than the page timeout). An event for an unknown page answers `410 Gone`, and the stream of an unknown page sends a reload message (§6.1); either way, the client reloads the page.
+5. **Hidden tabs.** A tab that stays hidden for 10 seconds closes its stream, and sends a ping (§8.1) every minute to keep its page alive. Shown again, it reconnects and catches up (§6.1). Over HTTP/1.1, browsers open only about six connections per server, and every open stream holds one, so this keeps hidden tabs from blocking the visible one. Serving over HTTP/2 removes the limit; the JDK's HTTP server (`WebServer`) supports only HTTP/1.1, so production deployments **SHOULD** use HTTP/2 (through their server or a reverse proxy).
 
 ### 6.1 Delivery and catching up
 
@@ -139,6 +140,7 @@ Handlers and events are `jasx.ui`'s (`ui.md` §4): a handler is an `Action` (`()
 - `oninput` is **debounced by default**: the event is sent 300 ms after the last keystroke. `Web.debounce(ms, handler)` sets another delay, on any event, and `Web.immediate(handler)` sends every event (both accept a `Handler` or an `Action`).
 - Before an event is sent, every pending debounced event is sent first, so a handler always sees the latest input (a submit right after typing carries the final text).
 - **Typing is never overwritten.** Each edit of a field gives it a new revision, and each event remembers the revisions of the fields it carries (the field with the handler, and a form's fields). A field has *unsent edits* while it has a revision no sent event carried. A patch doesn't change the `value` of a field with unsent edits if the server will receive them (the field has a handler, or its form has one) or the field is focused. So the answer to an older event never overwrites newer typing, even when that event waited in the queue. `checked`, `selected` and `value` are set as DOM properties.
+- **A hole that re-runs replaces its content**, so a field inside it loses its focus and any text not yet sent, and component state inside it is lost (§4.2). Put fields outside the holes that change, or keep their values in state. Merging new content into the page (DOM morphing) and keeping keyed items are planned (§10).
 - Events are sent one at a time, in order. While its event is queued or running, an element has the class `jx-loading` and `aria-busy="true"`. A form whose submit is in progress ignores further submits.
 
 In a handler, `e.resetForm()` clears the form the event came from (typed text belongs to the browser, so the server can't clear it by setting state): each field returns to its initial value, except a field edited after the event was sent, which keeps the new text. `Web.navigate(url)` makes the browser go to `url`.
@@ -153,6 +155,7 @@ The runtime serves its client script, events and streams under a base path, `/_j
 |---|---|
 | `GET /_jasx/web.js` | the client script |
 | `POST /_jasx/event?page=ID` | an event (§8.3); answers a batch, or `204` if nothing changed |
+| `POST /_jasx/ping?page=ID` | a hidden tab keeping its page alive (§6); answers `204`, or `410` for an unknown page |
 | `GET /_jasx/stream?page=ID&since=N` | the page's stream after version `N` (§6.1): `text/event-stream`, one batch per `data:` line, and a comment every 25 seconds to keep the connection open |
 
 A request body that isn't valid JSON, or an event without a numeric `handler`, answers `400`.
