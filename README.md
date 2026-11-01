@@ -226,7 +226,7 @@ Implement `MarkupLowering` directly to generate something else entirely. See the
 
 ## Editor support
 
-[`editors/vscode`](editors/vscode/README.md) is a VS Code extension: it highlights `.jasx` files (CSS in style blocks too), and runs the JASX language server ([`jasx-lsp`](jasx-lsp)), which shows JASX errors while you type, completes tag names and props, and offers go-to-definition and hover on components. Once the project has been built with the Gradle or Maven plugin, it also knows the components of your dependencies and shows javac's errors in `.jasx` files when you save.
+[`editors/vscode`](editors/vscode/README.md) is a VS Code extension: it highlights `.jasx` files (CSS in style blocks too), and runs the JASX language server ([`jasx-lsp`](jasx-lsp)), which shows JASX errors while you type, completes tag names and props in markup and Java members and names in Java code (also inside `{...}`, where a handler knows its kind of event), and offers go-to-definition and hover on components. Once the project has been built with the Gradle or Maven plugin, it also knows the components of your dependencies and shows javac's errors in `.jasx` files when you save.
 
 ## Building
 

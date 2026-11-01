@@ -367,6 +367,18 @@ final class Workspace {
      * The completion suggestions at a position of an analysed file: tag and attribute names in markup
      * ({@link Completions}). Empty if the file wasn't analysed or the position isn't in a tag.
      */
+    /**
+     * Completion in Java code ({@link JavaCompletions}), with the build's classpath and release, or without build
+     * information the server's own classpath (the JDK, the JASX runtime and the bundled target).
+     */
+    private static Completions.Result javaCompletion(Analysis analysis, String relative, int offset) {
+        BuildInfo build = analysis.build();
+        String classpath = build != null ? build.classpath() : System.getProperty("java.class.path");
+        Integer release = build != null ? build.release() : null;
+        return JavaCompletions.at(analysis.texts(), relative, offset, analysis.target(), analysis.dependencies(),
+                classpath, release);
+    }
+
     CompletionAt completion(String uri, int line, int column) {
         Path file = toPath(uri);
         for (Analysis analysis : analyses.values()) {
@@ -378,8 +390,11 @@ final class Workspace {
             int offset = offsetOf(text, line, column);
             // The group's own components, and those of dependencies they don't hide.
             ComponentIndex index = analysis.result().index().withFallback(analysis.dependencies());
-            Completions.Result result =
-                    Completions.at(new SourceFile(relative, text), offset, index, analysis.target().schema());
+            SourceFile source = new SourceFile(relative, text);
+            Completions.Result result = Completions.at(source, offset, index, analysis.target().schema());
+            if (result.items().isEmpty() && relative.endsWith(".jasx") && Completions.inJava(source, offset)) {
+                result = javaCompletion(analysis, relative, offset);
+            }
             LineMap.Position from = new LineMap(text).position(result.replaceFrom());
             return new CompletionAt(result.items(), from.line() - 1, from.column());
         }

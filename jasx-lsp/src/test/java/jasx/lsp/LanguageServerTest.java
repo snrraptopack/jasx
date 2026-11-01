@@ -1,6 +1,7 @@
 package jasx.lsp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -373,10 +374,66 @@ class LanguageServerTest {
         }
 
         @Test
-        void nothingIsOfferedInJavaOrInValues() {
-            assertEquals(List.of(), labels(completeAt(page, pageWith("1 < le|"))));
+        void nothingIsOfferedInAttributeStringsOrText() {
             assertEquals(List.of(), labels(completeAt(page, pageWith("<a href=\"x|"))));
             assertEquals(List.of(), labels(completeAt(page, pageWith("<p>some te|"))));
+        }
+
+        // --- Java completion ----------------------------------------------------------------------
+
+        @Test
+        void javaMembersAfterADotHaveTheirGenericsResolved() {
+            List<Map<String, Object>> items = completeAt(page, pageWith("<p>{java.util.List.of(\"a\").|}</p>;"));
+            assertTrue(labels(items).contains("size()"), labels(items).toString());
+            assertEquals("String get(int)", item(items, "get(int)").get("detail"));
+            // A comparison isn't markup (grammar.md §4): Java names are completed there too.
+            List<Map<String, Object>> afterLess = completeAt(page, pageWith("1 < Ho|"));
+            assertTrue(labels(afterLess).contains("Home()"), labels(afterLess).toString());
+        }
+
+        @Test
+        void javaNamesInScopeInsideMarkup() {
+            List<Map<String, Object>> items = completeAt(page, pageWith("<p>{Ho|}</p>;"));
+            assertTrue(labels(items).contains("Home()"), labels(items).toString());
+            assertTrue(labels(items).contains("Element"), "an imported type: " + labels(items));
+            assertFalse(labels(items).stream().anyMatch(label -> label.contains("$")), "no names JASX made up");
+        }
+
+        /** A page on the web target, with its state and typed events. */
+        private static final String WEB_PAGE = """
+                package app;
+
+                import jasx.runtime.Element;
+                import static jasx.web.Web.*;
+
+                class Page {
+                  static Element Home() {
+                    var count = state(0);
+                    return MARKUP;
+                  }
+                }
+                """;
+
+        @Test
+        void aHandlerInMarkupKnowsItsKindOfEvent() throws IOException {
+            writeBuildInfo("web", List.of());
+            String click = WEB_PAGE.replace("MARKUP", "<button onclick={e -> e.|}>x</button>");
+            List<String> mouse = labels(completeAt(page, click));
+            assertTrue(mouse.contains("button()") && mouse.contains("ctrl()"), mouse.toString());
+            assertFalse(mouse.contains("field(String)"), "a click has no form fields: " + mouse);
+
+            String submit = WEB_PAGE.replace("MARKUP", "<form onsubmit={e -> { e.| }}></form>");
+            List<String> form = labels(completeAt(page, submit));
+            assertTrue(form.contains("field(String)") && form.contains("resetForm()"), form.toString());
+        }
+
+        @Test
+        void stateMembersShowTheirValueType() throws IOException {
+            writeBuildInfo("web", List.of());
+            List<Map<String, Object>> items = completeAt(page,
+                    WEB_PAGE.replace("MARKUP", "<button onclick={() -> count.|}>x</button>"));
+            assertEquals("Integer get()", item(items, "get()").get("detail"));
+            assertTrue(labels(items).contains("update(UnaryOperator<Integer>)"), labels(items).toString());
         }
 
         // --- What the build says ----------------------------------------------------------------
@@ -386,11 +443,15 @@ class LanguageServerTest {
          * classpath (which has the html target and the runtime), plus {@code extraJasxClasspath}.
          */
         private void writeBuildInfo(List<String> extraJasxClasspath) throws IOException {
+            writeBuildInfo("html", extraJasxClasspath);
+        }
+
+        private void writeBuildInfo(String target, List<String> extraJasxClasspath) throws IOException {
             List<String> classpath = List.of(System.getProperty("java.class.path").split(File.pathSeparator));
             List<String> jasxClasspath = new ArrayList<>(classpath);
             jasxClasspath.addAll(extraJasxClasspath);
             Map<String, Object> info = new LinkedHashMap<>();
-            info.put("target", "html");
+            info.put("target", target);
             info.put("jasxClasspath", jasxClasspath);
             info.put("compileClasspath", classpath);
             info.put("processorPath", List.of());

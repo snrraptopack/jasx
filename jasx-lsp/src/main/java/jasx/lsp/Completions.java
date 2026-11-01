@@ -21,6 +21,7 @@ import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxMarkupStatement;
 import jasx.parser.ast.Ast.JasxOpeningElement;
 import jasx.parser.ast.Ast.JasxStatementContainer;
+import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
 
 /**
@@ -36,7 +37,8 @@ import jasx.parser.ast.Ast.JavaExpression;
  *       complete a <b>tag name</b>;
  *   <li>{@code <Card title="a" ti} ends in an attribute with no value whose name ends at the cursor, and
  *       {@code <Card title="a" } in whitespace inside the opening tag: complete an <b>attribute name</b>;
- *   <li>inside an attribute value, in text, or in Java (also Java inside {@code {...}}): nothing.
+ *   <li>inside an attribute string or in text: nothing; in Java (also Java inside {@code {...}}),
+ *       {@link JavaCompletions} completes instead ({@link #inJava}).
  * </ul>
  *
  * <p><b>What is offered.</b> For a tag name: the components the file can use there, named as they resolve
@@ -89,6 +91,68 @@ final class Completions {
             case AttributeName attribute ->
                     new Result(attribute.nameStart(), attributeNames(file, offset, attribute, index, schema));
         };
+    }
+
+    /**
+     * Whether the cursor at {@code offset} is in Java code: outside markup, or in the Java of an unclosed
+     * {@code {...}} in markup (an attribute value, a child, a statement container). There, {@link JavaCompletions}
+     * completes; in tag names, attribute names, attribute strings and text, nothing Java does.
+     */
+    static boolean inJava(SourceFile file, int offset) {
+        String upToCursor = file.content().substring(0, offset);
+        ParseResult parsed = JasxParser.parse(upToCursor, file.path());
+        return javaAtEnd(parsed.unit().segments(), upToCursor, true);
+    }
+
+    /**
+     * Whether the text ends in Java, judging by the last of {@code nodes}. {@code inJavaLevel} says what the
+     * nodes are part of: Java (a file, a container), where a complete element or container is followed by Java
+     * again; or an element's children, where it is followed by text.
+     */
+    private static boolean javaAtEnd(List<?> nodes, String text, boolean inJavaLevel) {
+        if (nodes.isEmpty()) {
+            return inJavaLevel;
+        }
+        Object last = nodes.get(nodes.size() - 1);
+        return switch (last) {
+            case JavaCode code -> true;
+            case JasxElement element -> javaAtEndOfElement(element, text, inJavaLevel);
+            case JasxFragment fragment -> fragment.closingFragment() != null
+                    ? inJavaLevel
+                    : javaAtEnd(fragment.children(), text, false);
+            case JasxExpressionContainer container -> javaAtEndOfContainer(container, text, inJavaLevel);
+            case JasxStatementContainer container -> text.charAt(container.end() - 1) == '}'
+                    ? inJavaLevel
+                    : javaAtEnd(container.statement().segments(), text, true);
+            case JasxMarkupStatement statement -> javaAtEnd(List.of(statement.markup()), text, true);
+            default -> false; // text, a style block
+        };
+    }
+
+    private static boolean javaAtEndOfElement(JasxElement element, String text, boolean inJavaLevel) {
+        if (element.closingElement() != null) {
+            return inJavaLevel;
+        }
+        JasxOpeningElement opening = element.openingElement();
+        boolean openingTagFinished = text.charAt(opening.end() - 1) == '>';
+        if (!openingTagFinished) {
+            // Only the value of the last attribute can still be open: <button onclick={e -> e.
+            List<JasxAttribute> attributes = opening.attributes();
+            if (attributes.isEmpty()) {
+                return false;
+            }
+            Object value = attributes.get(attributes.size() - 1).value();
+            return value instanceof JasxExpressionContainer container && javaAtEndOfContainer(container, text, false);
+        }
+        return opening.selfClosing() ? inJavaLevel : javaAtEnd(element.children(), text, false);
+    }
+
+    private static boolean javaAtEndOfContainer(JasxExpressionContainer container, String text, boolean inJavaLevel) {
+        boolean closed = text.charAt(container.end() - 1) == '}';
+        if (closed) {
+            return inJavaLevel;
+        }
+        return !(container.expression() instanceof JavaExpression java) || javaAtEnd(java.segments(), text, true);
     }
 
     // ---------------------------------------------------------------------------------------------

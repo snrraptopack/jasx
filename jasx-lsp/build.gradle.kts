@@ -17,6 +17,8 @@ dependencies {
     implementation(project(":jasx-compiler"))
     // The html reference target is bundled, so that the server can check markup against its schema.
     implementation(project(":jasx-target-html"))
+    // The web target, for tests of Java completion with its typed events and state.
+    testImplementation(project(":jasx-web"))
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

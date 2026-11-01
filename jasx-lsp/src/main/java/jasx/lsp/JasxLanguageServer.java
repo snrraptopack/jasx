@@ -26,7 +26,8 @@ import jasx.parser.Diagnostic;
  *       {@code didSave} also start a javac check of the group, if the build describes it
  *       ({@link Workspace#javacCheck}); its errors are published when it finishes;
  *   <li>{@code textDocument/definition} and {@code textDocument/hover} on component tags;
- *   <li>{@code textDocument/completion} of tag and attribute names in markup ({@link Completions}).
+ *   <li>{@code textDocument/completion} of tag and attribute names in markup ({@link Completions}), and of
+ *       Java members and names in Java code, also inside {@code {...}} ({@link JavaCompletions}).
  * </ul>
  *
  * <p>Messages are handled one at a time, in order. javac checks run on the {@code background} executor;
