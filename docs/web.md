@@ -246,7 +246,26 @@ The runtime is independent of any HTTP server. An adapter describes each request
 | `GET /_jasx/stream?pages=ID:N,...` | `stream(request, eventStream)` writes server-sent events until the browser leaves |
 | `POST /_jasx/ping?page=ID` | `ping(request)` |
 
-The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server. Adapters for servlet containers and Spring Boot are planned.
+The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server. A Spring Boot starter is planned.
+
+**On a servlet container** (Tomcat 10.1+, Jetty 12, Undertow: Jakarta Servlet 6), add `dev.jasx:jasx-web-servlet` and register a `JasxServlet` with your pages:
+
+```java
+@WebListener
+public class Pages implements ServletContextListener {
+    @Override
+    public void contextInitialized(ServletContextEvent event) {
+        JasxServlet servlet = new JasxServlet(new WebApp())
+                .page("/", () -> <Home />)
+                .page("/todos", request -> <Todos filter={request.getParameter("filter")} />);
+        ServletRegistration.Dynamic registration = event.getServletContext().addServlet("jasx", servlet);
+        registration.addMapping("/*");
+        registration.setAsyncSupported(true); // open streams then don't hold the container's threads
+    }
+}
+```
+
+If your application has a context path, put it in the base path: `new WebApp("/shop/_jasx", Duration.ofMinutes(2))`. A framework that routes pages itself uses `ServletAdapter`: `handle(app, request, response)` serves the runtime's own requests, and `render(app, request, response, () -> <Page />)` renders a page.
 
 A page is kept for 2 minutes after its browser goes away (no stream and no event). After that, a browser that comes back reloads it. A page whose browser never connects (a crawler, a link preview, a prefetch, `curl`) is dropped after 30 seconds. `new WebApp(basePath, pageTimeout, firstConnectTimeout)` changes both.
 

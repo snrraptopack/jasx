@@ -12,4 +12,5 @@ include(
     "jasx-lsp",
     "jasx-ui",
     "jasx-web",
+    "jasx-web-servlet",
 )

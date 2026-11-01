@@ -14,6 +14,7 @@ val publishedModules = setOf(
     "jasx-maven-plugin",
     "jasx-ui",
     "jasx-web",
+    "jasx-web-servlet",
 )
 
 subprojects {
