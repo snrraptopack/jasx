@@ -279,10 +279,16 @@ final class JasxLanguageServer {
             String newText = item.snippet() && !snippetSupport ? item.newText().replace("$1", "") : item.newText();
             json.put("textEdit", Map.of("range", replaced, "newText", newText));
             json.put("insertTextFormat", asSnippet ? 2 : 1);
+            if (item.importName() != null) {
+                // A type that isn't imported yet brings its import.
+                Map<String, Object> importRange = range(at.importLine(), 0, at.importLine(), 0);
+                String importText = at.beforeImport() + "import " + item.importName() + ";\n";
+                json.put("additionalTextEdits", List.of(Map.of("range", importRange, "newText", importText)));
+            }
             items.add(json);
         }
         Map<String, Object> list = new LinkedHashMap<>();
-        list.put("isIncomplete", false);
+        list.put("isIncomplete", at.incomplete());
         list.put("items", items);
         return list;
     }

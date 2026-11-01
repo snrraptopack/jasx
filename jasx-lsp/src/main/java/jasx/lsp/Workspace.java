@@ -360,13 +360,15 @@ final class Workspace {
         return at == null ? null : Hovers.component(at.use().component());
     }
 
-    /** Completion suggestions, and the LSP position where the text they replace starts. */
-    record CompletionAt(List<Completions.Item> items, int fromLine, int fromColumn) {}
-
     /**
-     * The completion suggestions at a position of an analysed file: tag and attribute names in markup
-     * ({@link Completions}). Empty if the file wasn't analysed or the position isn't in a tag.
+     * Completion suggestions, the LSP position where the text they replace starts, whether the editor should
+     * ask again as the name grows ({@link Completions.Result#incomplete}), and the line where an import
+     * goes, with the text that goes before it there (a blank line after the package declaration, if the file
+     * has no imports yet).
      */
+    record CompletionAt(List<Completions.Item> items, int fromLine, int fromColumn, boolean incomplete,
+            int importLine, String beforeImport) {}
+
     /**
      * Completion in Java code ({@link JavaCompletions}), with the build's classpath and release, or without build
      * information the server's own classpath (the JDK, the JASX runtime and the bundled target).
@@ -379,6 +381,11 @@ final class Workspace {
                 classpath, release);
     }
 
+    /**
+     * The completion suggestions at a position of an analysed file: tag and attribute names in markup
+     * ({@link Completions}), or Java ({@link JavaCompletions}). Empty if the file wasn't analysed or nothing
+     * fits there.
+     */
     CompletionAt completion(String uri, int line, int column) {
         Path file = toPath(uri);
         for (Analysis analysis : analyses.values()) {
@@ -396,9 +403,42 @@ final class Workspace {
                 result = javaCompletion(analysis, relative, offset);
             }
             LineMap.Position from = new LineMap(text).position(result.replaceFrom());
-            return new CompletionAt(result.items(), from.line() - 1, from.column());
+            ImportPlace place = importPlace(text);
+            return new CompletionAt(result.items(), from.line() - 1, from.column(), result.incomplete(),
+                    place.line(), place.before());
         }
-        return new CompletionAt(List.of(), line, column);
+        return new CompletionAt(List.of(), line, column, false, 0, "");
+    }
+
+    /** Where a new import goes: a 0-based line, and what to write before it on that line. */
+    record ImportPlace(int line, String before) {}
+
+    /**
+     * After the file's last import; without imports, after its package declaration (with a blank line
+     * between them); in a file with neither, at the top. Lines are looked at only up to the first type,
+     * method or markup, so an {@code import} word later in the file doesn't count.
+     */
+    static ImportPlace importPlace(String text) {
+        String[] lines = text.split("\n", -1);
+        int lastImport = -1;
+        int packageLine = -1;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].strip();
+            if (line.startsWith("import ")) {
+                lastImport = i;
+            } else if (line.startsWith("package ")) {
+                packageLine = i;
+            } else if (!line.isEmpty() && !line.startsWith("//") && !line.startsWith("/*") && !line.startsWith("*")) {
+                break; // the first declaration
+            }
+        }
+        if (lastImport >= 0) {
+            return new ImportPlace(lastImport + 1, "");
+        }
+        if (packageLine >= 0) {
+            return new ImportPlace(packageLine + 1, "\n");
+        }
+        return new ImportPlace(0, "");
     }
 
     private UseAt useAt(String uri, int line, int column) {

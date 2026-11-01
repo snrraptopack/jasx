@@ -1,5 +1,6 @@
 package jasx.lsp;
 
+import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.ImportTree;
@@ -19,6 +20,7 @@ import jasx.compiler.Target;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,6 +31,7 @@ import java.util.StringJoiner;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
@@ -61,6 +64,12 @@ import javax.tools.ToolProvider;
  *       scope at the marker.
  * </ol>
  *
+ * <p><b>Types.</b> Besides the types in scope (imported ones, nested ones, those of {@code java.lang}, of the
+ * file's package and of {@code .*} imports), a type name being typed is completed from every type the file
+ * could import ({@link TypeIndex}: the platform's {@code java.*} modules, the classpath, and the group's own
+ * sources), with the import it needs. Those are only offered once the name has a first letter, and at most
+ * {@link #MAX_IMPORTABLE} of them, so the result says when the editor should ask again as the name grows.
+ *
  * <p>Names javac or JASX made up (they contain {@code $}) are not offered. Without build information, the
  * server's own classpath is used: the JDK, the JASX runtime and the bundled target.
  */
@@ -77,6 +86,18 @@ final class JavaCompletions {
     private static final int KIND_CLASS = 7;
     private static final int KIND_INTERFACE = 8;
     private static final int KIND_ENUM_MEMBER = 20;
+    private static final int KIND_KEYWORD = 14;
+
+    /** At most this many types that aren't imported yet are offered at once. */
+    static final int MAX_IMPORTABLE = 100;
+
+    /** Java's keywords and literals, offered where a name can go. */
+    private static final List<String> KEYWORDS = List.of("abstract", "assert", "boolean", "break", "byte", "case",
+            "catch", "char", "class", "continue", "default", "do", "double", "else", "enum", "extends", "false",
+            "final", "finally", "float", "for", "if", "implements", "import", "instanceof", "int", "interface",
+            "long", "new", "null", "private", "protected", "public", "record", "return", "short", "static",
+            "super", "switch", "synchronized", "this", "throw", "throws", "true", "try", "var", "void", "while",
+            "yield");
 
     /**
      * The suggestions at {@code offset} in the file {@code path} of {@code group}.
@@ -90,6 +111,7 @@ final class JavaCompletions {
         String text = group.get(path);
         int nameStart = identifierStart(text, offset);
         int nameEnd = identifierEnd(text, offset);
+        String typed = text.substring(nameStart, offset);
         // The marker is a call, so that a lambda being typed stays valid for javac: e -> e.marker() is a
         // statement, which fits a handler that returns nothing; e -> e.marker would not, and javac would then
         // lose e's type. If a call follows already (e.va|lue()), it is the call.
@@ -111,8 +133,7 @@ final class JavaCompletions {
             return Completions.Result.NONE; // the file couldn't be lowered (a markup syntax error, say)
         }
         try {
-            List<Completions.Item> items = analyse(lowered.files(), java, path, classpath, release);
-            return new Completions.Result(nameStart, items);
+            return analyse(lowered.files(), java, path, classpath, release, typed, nameStart);
         } catch (RuntimeException e) {
             return Completions.Result.NONE; // javac couldn't analyse it: no suggestions rather than an error
         }
@@ -122,8 +143,8 @@ final class JavaCompletions {
     // Running javac
     // ---------------------------------------------------------------------------------------------
 
-    private static List<Completions.Item> analyse(List<GeneratedFile> generated, List<SourceFile> java, String path,
-            String classpath, Integer release) {
+    private static Completions.Result analyse(List<GeneratedFile> generated, List<SourceFile> java, String path,
+            String classpath, Integer release, String typed, int nameStart) {
         JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
         List<JavaFileObject> units = new ArrayList<>();
         JavaFileObject target = null;
@@ -148,16 +169,17 @@ final class JavaCompletions {
         StandardJavaFileManager files = javac.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8);
         JavacTask task = (JavacTask) javac.getTask(null, files, diagnostic -> {}, options, null, units);
         try {
-            Iterable<? extends CompilationUnitTree> trees = task.parse();
+            List<CompilationUnitTree> trees = new ArrayList<>();
+            task.parse().forEach(trees::add);
             task.analyze();
             for (CompilationUnitTree unit : trees) {
                 if (target != null && unit.getSourceFile().toUri().equals(target.toUri())) { // javac wraps file objects
-                    return suggestionsAt(task, unit);
+                    return suggestionsAt(task, unit, new Importable(trees, classpath, release, typed), nameStart);
                 }
             }
-            return List.of();
+            return Completions.Result.NONE;
         } catch (java.io.IOException e) {
-            return List.of();
+            return Completions.Result.NONE;
         }
     }
 
@@ -198,18 +220,26 @@ final class JavaCompletions {
     // What to suggest
     // ---------------------------------------------------------------------------------------------
 
-    private static List<Completions.Item> suggestionsAt(JavacTask task, CompilationUnitTree unit) {
+    /** What the types that aren't imported yet are drawn from, and the name typed so far. */
+    private record Importable(List<CompilationUnitTree> group, String classpath, Integer release, String typed) {}
+
+    private static Completions.Result suggestionsAt(JavacTask task, CompilationUnitTree unit, Importable importable,
+            int nameStart) {
         TreePath marker = findMarker(unit);
         if (marker == null) {
-            return List.of(); // the cursor was in a string or a comment
+            return Completions.Result.NONE; // the cursor was in a string or a comment
         }
         Suggestions suggestions = new Suggestions(task, Trees.instance(task).getScope(marker));
+        boolean incomplete = false;
         if (marker.getLeaf() instanceof MemberSelectTree select) {
             suggestions.membersOf(new TreePath(marker, select.getExpression()));
         } else {
             suggestions.namesInScope(unit);
+            suggestions.typesInScope(unit);
+            suggestions.keywords();
+            incomplete = suggestions.importableTypes(unit, importable);
         }
-        return suggestions.items();
+        return new Completions.Result(nameStart, suggestions.items(), incomplete);
     }
 
     /** The suggestions being collected, without duplicates, in a scope. */
@@ -235,6 +265,15 @@ final class JavaCompletions {
         void membersOf(TreePath expression) {
             TypeMirror type = trees.getTypeMirror(expression);
             Element element = trees.getElement(expression);
+            // java.util. : javac reads a qualifier before a call as a type or a value, so a package name is an
+            // error there; its text names the package.
+            boolean unresolved = type == null || type.getKind() == TypeKind.ERROR;
+            PackageElement pkg = element instanceof PackageElement p ? p
+                    : unresolved ? elements.getPackageElement(expression.getLeaf().toString()) : null;
+            if (pkg != null) {
+                addTypesOf(pkg, false);
+                return;
+            }
             if (type == null || type.getKind() == TypeKind.ERROR) {
                 return;
             }
@@ -283,6 +322,115 @@ final class JavaCompletions {
             }
         }
 
+        /** The types usable without an import: those of {@code java.lang} and of the file's own package. */
+        void typesInScope(CompilationUnitTree unit) {
+            PackageElement javaLang = elements.getPackageElement("java.lang");
+            if (javaLang != null) {
+                addTypesOf(javaLang, false);
+            }
+            PackageElement own = unit.getPackageName() != null
+                    ? elements.getPackageElement(unit.getPackageName().toString()) : null;
+            if (own != null) {
+                addTypesOf(own, true);
+            }
+        }
+
+        /** The types of a package; only its public ones unless the file is in it. */
+        private void addTypesOf(PackageElement pkg, boolean samePackage) {
+            for (Element element : pkg.getEnclosedElements()) {
+                boolean usable = samePackage || element.getModifiers().contains(Modifier.PUBLIC);
+                if (element instanceof TypeElement type && usable) {
+                    addMember(type, null, type);
+                }
+            }
+        }
+
+        void keywords() {
+            for (String keyword : KEYWORDS) {
+                add(keyword, KIND_KEYWORD, "keyword", keyword, "8");
+            }
+        }
+
+        /**
+         * The types that match the name typed so far and that the file could import, each with its import.
+         * Returns whether the editor should ask again as the name grows: nothing was typed yet (they aren't
+         * offered then), or more matched than are offered.
+         */
+        boolean importableTypes(CompilationUnitTree unit, Importable importable) {
+            String typed = importable.typed();
+            if (typed.isEmpty()) {
+                return true;
+            }
+            Set<String> candidates = new HashSet<>();
+            for (String name : TypeIndex.platform(elements, importable.release())) {
+                addIfMatches(candidates, name, typed);
+            }
+            for (String name : TypeIndex.classpath(importable.classpath())) {
+                addIfMatches(candidates, name, typed);
+            }
+            for (String name : sourceTypes(importable.group())) {
+                addIfMatches(candidates, name, typed);
+            }
+            String ownPackage = unit.getPackageName() != null ? unit.getPackageName().toString() : "";
+            // Names that start as typed first, then shorter ones: those are kept if there are too many.
+            List<String> ranked = candidates.stream()
+                    .filter(name -> !packageOf(name).equals(ownPackage) && !packageOf(name).equals("java.lang"))
+                    .sorted(Comparator.comparing((String name) -> !simpleName(name).startsWith(typed))
+                            .thenComparing(name -> simpleName(name).length())
+                            .thenComparing(Comparator.naturalOrder()))
+                    .toList();
+            int offered = 0;
+            for (String name : ranked) {
+                if (offered == MAX_IMPORTABLE) {
+                    return true;
+                }
+                if (addImportable(name)) {
+                    offered++;
+                }
+            }
+            return false;
+        }
+
+        /** The qualified names of the top-level types declared in the group's own sources. */
+        private static List<String> sourceTypes(List<CompilationUnitTree> group) {
+            List<String> names = new ArrayList<>();
+            for (CompilationUnitTree unit : group) {
+                String pkg = unit.getPackageName() != null ? unit.getPackageName() + "." : "";
+                for (Tree declaration : unit.getTypeDecls()) {
+                    if (declaration instanceof ClassTree type) {
+                        names.add(pkg + type.getSimpleName());
+                    }
+                }
+            }
+            return names;
+        }
+
+        private static void addIfMatches(Set<String> candidates, String qualifiedName, String typed) {
+            if (matches(simpleName(qualifiedName), typed)) {
+                candidates.add(qualifiedName);
+            }
+        }
+
+        /**
+         * Offers a type with its import, unless a type of that simple name is offered already (it is in scope,
+         * and importing another would clash), or the type isn't public. Returns whether it was offered.
+         */
+        private boolean addImportable(String qualifiedName) {
+            String name = simpleName(qualifiedName);
+            if (name.contains("$") || items.containsKey(name)) {
+                return false;
+            }
+            TypeElement type = elements.getTypeElement(qualifiedName);
+            if (type == null || !type.getModifiers().contains(Modifier.PUBLIC)) {
+                return false;
+            }
+            int kind = type.getKind().isInterface() ? KIND_INTERFACE : KIND_CLASS;
+            // Keyed by the qualified name: java.util.List and java.awt.List are both offered.
+            items.put("import " + qualifiedName,
+                    new Completions.Item(name, kind, qualifiedName, null, name, false, "4" + name, qualifiedName));
+            return true;
+        }
+
         private boolean isInStaticContext() {
             ExecutableElement method = scope.getEnclosingMethod();
             return method != null && method.getModifiers().contains(Modifier.STATIC);
@@ -303,6 +451,10 @@ final class JavaCompletions {
             }
             String name = select.getIdentifier().toString();
             String owner = select.getExpression().toString();
+            if (!importTree.isStatic() && name.equals("*")) {
+                addOnDemand(owner);
+                return;
+            }
             if (!importTree.isStatic()) {
                 TypeElement type = elements.getTypeElement(owner + "." + name);
                 if (type != null) {
@@ -319,6 +471,23 @@ final class JavaCompletions {
                 boolean isStatic = member.getModifiers().contains(Modifier.STATIC);
                 if (imported && isStatic && isAccessible(member, (DeclaredType) type.asType())) {
                     addMember(member, null, type);
+                }
+            }
+        }
+
+        /** {@code import a.b.*}: the public types of package {@code a.b}, or the member types of type {@code a.b}. */
+        private void addOnDemand(String owner) {
+            PackageElement pkg = elements.getPackageElement(owner);
+            if (pkg != null) {
+                addTypesOf(pkg, false);
+                return;
+            }
+            TypeElement type = elements.getTypeElement(owner);
+            if (type != null) {
+                for (Element member : type.getEnclosedElements()) {
+                    if (member instanceof TypeElement nested && isAccessible(nested, (DeclaredType) type.asType())) {
+                        addMember(nested, null, nested);
+                    }
                 }
             }
         }
@@ -402,6 +571,40 @@ final class JavaCompletions {
     // ---------------------------------------------------------------------------------------------
     // The name being typed
     // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Whether a type's simple name fits what was typed: the same first letter (in either case), then the
+     * other typed letters in order, so that {@code ArLi} and {@code alist} both find {@code ArrayList}. The
+     * editor ranks what is offered; this only keeps the list short.
+     */
+    static boolean matches(String name, String typed) {
+        boolean sameFirstLetter = !typed.isEmpty() && !name.isEmpty()
+                && Character.toLowerCase(name.charAt(0)) == Character.toLowerCase(typed.charAt(0));
+        if (!sameFirstLetter) {
+            return false;
+        }
+        int at = 1;
+        for (int i = 1; i < typed.length(); i++) {
+            char wanted = Character.toLowerCase(typed.charAt(i));
+            while (at < name.length() && Character.toLowerCase(name.charAt(at)) != wanted) {
+                at++;
+            }
+            if (at == name.length()) {
+                return false;
+            }
+            at++;
+        }
+        return true;
+    }
+
+    private static String simpleName(String qualifiedName) {
+        return qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1);
+    }
+
+    private static String packageOf(String qualifiedName) {
+        int dot = qualifiedName.lastIndexOf('.');
+        return dot < 0 ? "" : qualifiedName.substring(0, dot);
+    }
 
     /** Where the Java identifier that ends at {@code offset} starts. */
     static int identifierStart(String text, int offset) {

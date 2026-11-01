@@ -447,6 +447,83 @@ class LanguageServerTest {
             assertTrue(form.contains("field(String)") && form.contains("resetForm()"), form.toString());
         }
 
+        /** Like {@link #completeAt}, but the whole CompletionList. */
+        private Map<String, Object> completionListAt(Path file, String text) {
+            int cursor = text.indexOf('|');
+            String before = text.substring(0, cursor);
+            int line = (int) before.chars().filter(c -> c == '\n').count();
+            int character = cursor - (before.lastIndexOf('\n') + 1);
+            open(file, text.substring(0, cursor) + text.substring(cursor + 1));
+            return Json.object(request("textDocument/completion", position(file, line, character)).get("result"));
+        }
+
+        @Test
+        void typesOfJavaLangAndOfTheOwnPackageAreInScope() {
+            List<String> labels = labels(completeAt(page, pageWith("<p>{Str|}</p>;")));
+            assertTrue(labels.contains("String") && labels.contains("StringBuilder"), labels.toString());
+            assertTrue(labels.contains("Ui"), "Ui.jasx's class is in the same package: " + labels);
+            Map<String, Object> string = item(completeAt(page, pageWith("<p>{Str|}</p>;")), "String");
+            assertNull(string.get("additionalTextEdits"), "java.lang needs no import");
+        }
+
+        @Test
+        void aTypeThatIsNotImportedBringsItsImport() {
+            Map<String, Object> list = completionListAt(page, pageWith("<p>{ArrayL|}</p>;"));
+            List<Map<String, Object>> items = new ArrayList<>();
+            ((List<?>) list.get("items")).forEach(i -> items.add(Json.object(i)));
+            Map<String, Object> arrayList = item(items, "ArrayList");
+            assertEquals("java.util.ArrayList", arrayList.get("detail"));
+            Map<String, Object> edit = Json.object(((List<?>) arrayList.get("additionalTextEdits")).get(0));
+            assertEquals("import java.util.ArrayList;\n", edit.get("newText"));
+            // After "import jasx.runtime.Element;", which is line 2 (0-based).
+            assertEquals(3L, Json.object(Json.object(edit.get("range")).get("start")).get("line"));
+        }
+
+        @Test
+        void typesThatAreNotImportedNeedAFirstLetter() {
+            Map<String, Object> list = completionListAt(page, pageWith("<p>{|}</p>;"));
+            assertEquals(true, list.get("isIncomplete"), "the editor must ask again once a letter is typed");
+            String labels = String.valueOf(list.get("items"));
+            assertFalse(labels.contains("java.util.ArrayList"), "not offered before a letter is typed");
+        }
+
+        @Test
+        void onDemandImportsBringTheirTypesIntoScope() {
+            String text = PAGE.replace("import jasx.runtime.Element;", "import jasx.runtime.Element;\nimport java.util.*;")
+                    .replace("<Ui.Card title=\"Hi\"><p>body</p></Ui.Card>;", "<p>{LinkedL|}</p>;");
+            Map<String, Object> linked = item(completeAt(page, text), "LinkedList");
+            assertNull(linked.get("additionalTextEdits"), "java.util.* is imported already");
+        }
+
+        @Test
+        void aPackageNameIsFollowedByItsTypes() {
+            List<String> labels = labels(completeAt(page, pageWith("<p>{java.util.Arr|}</p>;")));
+            assertTrue(labels.contains("ArrayList") && labels.contains("Arrays"), labels.toString());
+        }
+
+        @Test
+        void keywordsAreOffered() {
+            List<String> labels = labels(completeAt(page, pageWith("<p>{ne|}</p>;")));
+            assertTrue(labels.contains("new"), labels.toString());
+        }
+
+        @Test
+        void typeNamesMatchByTheirLetters() {
+            assertTrue(JavaCompletions.matches("ArrayList", "ArLi"));
+            assertTrue(JavaCompletions.matches("ArrayList", "alist"));
+            assertFalse(JavaCompletions.matches("ArrayList", "List"), "the first letter must match");
+            assertFalse(JavaCompletions.matches("ArrayList", "Arz"));
+        }
+
+        @Test
+        void importsGoAfterTheLastImportOrThePackage() {
+            assertEquals(3, Workspace.importPlace("package a;\n\nimport b.C;\nclass D {}\n").line());
+            Workspace.ImportPlace afterPackage = Workspace.importPlace("package a;\nclass D {}\n");
+            assertEquals(1, afterPackage.line());
+            assertEquals("\n", afterPackage.before());
+            assertEquals(0, Workspace.importPlace("class D { Object x = <p>import a;</p>; }\n").line());
+        }
+
         @Test
         void stateMembersShowTheirValueType() throws IOException {
             writeBuildInfo("web", List.of());

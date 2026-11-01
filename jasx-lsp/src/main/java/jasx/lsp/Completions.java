@@ -56,14 +56,29 @@ final class Completions {
 
     /**
      * One suggestion. It replaces the name being typed with {@code newText}, which is a snippet
-     * ({@code $1} marks where the cursor goes) when {@code snippet} is true.
+     * ({@code $1} marks where the cursor goes) when {@code snippet} is true. A type that isn't imported yet
+     * names its import in {@code importName} (a qualified name), which is added to the file with it.
      */
     record Item(String label, int kind, String detail, String documentation, String newText, boolean snippet,
-            String sortText) {}
+            String sortText, String importName) {
 
-    /** The suggestions, and the offset where the name being typed starts: they replace it up to the cursor. */
-    record Result(int replaceFrom, List<Item> items) {
+        Item(String label, int kind, String detail, String documentation, String newText, boolean snippet,
+                String sortText) {
+            this(label, kind, detail, documentation, newText, snippet, sortText, null);
+        }
+    }
+
+    /**
+     * The suggestions, and the offset where the name being typed starts: they replace it up to the cursor.
+     * {@code incomplete} says that typing further may bring other suggestions (types that aren't imported
+     * are only offered once the name has a first letter), so the editor should ask again.
+     */
+    record Result(int replaceFrom, List<Item> items, boolean incomplete) {
         static final Result NONE = new Result(0, List.of());
+
+        Result(int replaceFrom, List<Item> items) {
+            this(replaceFrom, items, false);
+        }
     }
 
     /** Where the cursor is, as far as completion is concerned. */

@@ -12,7 +12,7 @@ Support for `.jasx` files (Java with JSX-style markup): highlighting, and errors
 
 - JASX errors appear while you type, with their codes (`JASX1001`, ...): markup syntax, unknown components and props, attributes and tags the target doesn't have, and mistakes in style blocks. Unsaved changes in one file count in the others.
 - **Completion** in markup: after `<`, the components the file can use (named as they resolve there: `Card`, `Ui.Card` or fully qualified) and the target's elements; in an opening tag, a component's props that aren't given yet (required ones first) or the attributes the target allows on an element. Nothing is offered in text or in attribute values.
-- **Completion** in Java code, also inside `{...}`: members after `.` and names in scope, as javac sees them (an event handler `e -> e.` knows its kind of event).
+- **Completion** in Java code, also inside `{...}`, as javac sees it: members after `.` (an event handler `e -> e.` knows its kind of event), the types of a package after its name (`java.util.`), names in scope, types usable without an import (`java.lang`, the file's package, `.*` imports), keywords, and, once a type name has a first letter, every type the file could import (the JDK's `java.*` modules, the project's jars, its own sources), which adds the import when chosen.
 - **Go to Definition** (F12, or Ctrl+click) on a component tag opens the component's method.
 - **Hover** on a component tag shows its signature and how each prop is passed.
 
