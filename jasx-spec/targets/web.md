@@ -131,21 +131,33 @@ State changed from another thread (a scheduled job, a message listener, another 
 A **page** is one rendering of a root element, alive on the server while the browser shows it.
 
 1. A request for a page renders its root to complete HTML (an `html` element, usually). The runtime inserts its client script before `</body>` (or at the end), and the page's style sheets before `</head>` unless `Web.styles()` places them (§9). The page gets an unguessable id.
-2. The client script opens the page's **stream** (server-sent events), on which the server pushes batches that don't answer an event.
+2. The page's **stream** (server-sent events) carries the batches the server pushes, those that don't answer an event. The tabs of a browser share one stream (§6.2).
 3. Events are sent as POST requests; the response carries the batch the event produced.
 4. A page is discarded when it has had no stream connected and no sign of life (an event or a ping) for the page timeout (2 minutes by default). A page whose browser never connects (a crawler, a link preview, a prefetch) is discarded after the **first-connect timeout**, 30 seconds by default (never more than the page timeout). An event for an unknown page answers `410 Gone`, and the stream of an unknown page sends a reload message (§6.1); either way, the client reloads the page.
-5. **Hidden tabs.** A tab that stays hidden for 10 seconds closes its stream, and sends a ping (§8.1) every minute to keep its page alive. Shown again, it reconnects and catches up (§6.1). Over HTTP/1.1, browsers open only about six connections per server, and every open stream holds one, so this keeps hidden tabs from blocking the visible one. Serving over HTTP/2 removes the limit; the JDK's HTTP server (`WebServer`) supports only HTTP/1.1, so production deployments **SHOULD** use HTTP/2 (through their server or a reverse proxy).
+5. **Hidden tabs**, in a browser whose tabs can't share a stream (§6.2): a tab that stays hidden for 10 seconds closes its stream, and sends a ping (§8.1) every minute to keep its page alive. Shown again, it reconnects and catches up (§6.1).
 
 ### 6.1 Delivery and catching up
 
 Writing a batch to a connection doesn't prove the browser received it, and the answer to an event can be lost after its handler ran. So delivery is settled only by the version the browser reports:
 
 1. The server keeps each page's batches, answers and pushes alike, in a bounded log: at most 1000 batches and 4 MiB of them.
-2. The client opens the stream with the last version it applied: `stream?page=ID&since=N`. The server first sends every batch after `N` as **one merged batch** (§8.4), then each pushed batch as it is made. Batches that answer events are not pushed, because their requests carry them.
-3. If the log no longer holds the first batch the client is missing, or `N` is a version the page never sent, the server sends `{"reload":true}` and the client reloads the page.
-4. The client reconnects by itself, with its current version: after the stream fails (waiting 0.5 s, doubling up to 10 s), when an event's request fails, and when a batch has been missing for 3 seconds. That deadline starts when the gap appears and later batches don't push it back. More than 500 batches waiting for a missing one also makes it reconnect at once.
+2. The stream is opened with the last version applied for each page: `stream?pages=ID:N,ID:N` (§6.2). For each page, the server first sends every batch after `N` as **one merged batch** (§8.4), then each pushed batch as it is made. Batches that answer events are not pushed, because their requests carry them.
+3. If the page is unknown, the log no longer holds the first batch the client is missing, or `N` is a version the page never sent, the server sends `{"reload":true}` for that page, and its tab reloads. The stream goes on for the other pages.
+4. The client asks again, with its current version: after the stream fails (waiting 0.5 s, doubling up to 10 s), when an event's request fails, and when a batch has been missing for 3 seconds. That deadline starts when the gap appears and later batches don't push it back. More than 500 batches waiting for a missing one also makes it ask at once. Asking again means reconnecting the stream, through the leader when tabs share it (§6.2).
 
 A merged batch may cover versions the client had already applied (an event answer that arrived during the reconnection). Applying a patch again is harmless (§8.4), so the client applies a batch whose versions go beyond the last applied one.
+
+### 6.2 One stream for every tab
+
+Over HTTP/1.1, browsers open only about six connections per server, and every open stream holds one, so a few tabs of an application could block each other. The tabs of a browser therefore share one stream:
+
+1. The tab holding the Web Lock `jasx-stream:<base path>` is the **leader**. It opens the stream for every tab's page, `stream?pages=A:12,B:7` (its own page first), and passes each frame to the tab it is for over the BroadcastChannel of the same name. Each frame names its page (§8.1).
+2. Every other tab tells the leader its page and last applied version when it starts, when it needs to catch up (§6.1), and when the leader asks. The leader reconnects with the new list when a tab joins, asks to catch up, or leaves (on `pagehide`). It waits 50 ms first, so that tabs joining together cost one reconnection.
+3. When the leader closes, the lock passes to another tab. The new leader asks every tab for its version, then opens the stream, and the server catches each page up (§6.1).
+4. Every 30 seconds the leader asks every tab whether it is still there. A tab silent for 75 seconds (crashed or frozen) is dropped from the stream, so its page can expire. A tab that is shown again tells the leader its page, in case it was dropped.
+5. On the server, a page is streamed by one connection at a time: a newer connection that names the page takes it, and a connection left with no page ends. A stream request names at most 100 pages; the server ignores the rest.
+
+A browser without Web Locks or BroadcastChannel gives each tab its own stream. Web Locks need a secure context, so this is also what happens on a page served over plain HTTP from a host other than `localhost`. Serving over HTTP/2 removes the connection limit altogether; the JDK's HTTP server (`WebServer`) supports only HTTP/1.1, so production deployments **SHOULD** use HTTP/2 (through their server or a reverse proxy).
 
 ## 7. Events and input
 
@@ -174,7 +186,9 @@ The runtime serves its client script, events and streams under a base path, `/_j
 | `GET /_jasx/web.js` | the client script |
 | `POST /_jasx/event?page=ID` | an event (§8.3); answers a batch, or `204` if nothing changed |
 | `POST /_jasx/ping?page=ID` | a hidden tab keeping its page alive (§6); answers `204`, or `410` for an unknown page |
-| `GET /_jasx/stream?page=ID&since=N` | the page's stream after version `N` (§6.1): `text/event-stream`, one batch per `data:` line, and a comment every 25 seconds to keep the connection open |
+| `GET /_jasx/stream?pages=ID:N,ID:N` | the stream of the pages of a browser's tabs, each after its version `N` (§6.1, §6.2): `text/event-stream`, a comment `: connected` once the stream is live, one frame per `data:` line, and a comment every 25 seconds to keep the connection open. A missing or malformed `N` reads as 0 |
+
+Each stream frame is `{"page": "ID", "batch": B}`, where `B` is a batch, a merged batch (§8.4), or `{"reload": true}`.
 
 A request body that isn't valid JSON, or an event without a numeric `handler`, answers `400`.
 

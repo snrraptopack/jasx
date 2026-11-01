@@ -119,13 +119,13 @@ public final class WebServer {
         send(exchange, response.status(), "application/json", response.body());
     }
 
-    /** The page's stream of server-sent events; blocks this (virtual) thread while it is open. */
+    /** The stream of server-sent events for the pages of a browser's tabs; blocks this (virtual) thread while open. */
     private void stream(HttpExchange exchange) throws IOException {
         exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
         exchange.sendResponseHeaders(200, 0); // 0: chunked, of unknown length
         OutputStream out = exchange.getResponseBody();
-        app.stream(pageId(exchange), WebApp.since(queryParameter(exchange, "since")), frame -> {
+        app.stream(WebApp.streamPages(queryParameter(exchange, "pages")), frame -> {
             out.write(frame.getBytes(StandardCharsets.UTF_8));
             out.flush();
         });

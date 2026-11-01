@@ -3,10 +3,12 @@ package jasx.web;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
  * The batches of one page, numbered and kept for a while, so that a browser that missed some can catch up
@@ -18,6 +20,9 @@ import java.util.Set;
  * can be lost after its handler ran, so delivery is only ever settled by the version the browser reports.
  *
  * <p>The log is bounded. A browser that is further behind than the log reaches is told to reload.
+ *
+ * <p>A stream that waits for new batches registers a {@linkplain #watch watcher}: one connection can carry
+ * several pages (§6.2), so it can't wait on any single log.
  */
 final class BatchLog {
     /** At most this many batches are kept... */
@@ -31,9 +36,11 @@ final class BatchLog {
     private final ArrayDeque<Batch> history = new ArrayDeque<>();
     private long lastVersion;
     private long chars;
+    /** Called after each new batch, and by {@link #wakeAll}; each must return at once. */
+    private final Set<Runnable> watchers = new CopyOnWriteArraySet<>();
 
     /**
-     * Numbers {@code patches} as the next batch, keeps it, and wakes the streams waiting for it.
+     * Numbers {@code patches} as the next batch, keeps it, and wakes the streams watching the log.
      *
      * @param answer whether it answers an event (its event request carries it, so streams don't push it)
      * @return the batch's JSON, {@code {"version":N,"patches":[...]}}
@@ -50,7 +57,7 @@ final class BatchLog {
         while (history.size() > 1 && (history.size() > MAX_BATCHES || chars > MAX_CHARS)) {
             chars -= history.removeFirst().json().length();
         }
-        notifyAll();
+        watchers.forEach(Runnable::run);
         return json;
     }
 
@@ -71,37 +78,34 @@ final class BatchLog {
         return since == lastVersion || since + 1 >= oldestKept;
     }
 
-    /** The batches after {@code version}, in order. */
-    synchronized List<Batch> after(long version) {
-        List<Batch> result = new ArrayList<>();
-        for (Batch batch : history) {
-            if (batch.version() > version) {
-                result.add(batch);
-            }
-        }
-        return result;
-    }
-
     /**
-     * The batches after {@code version}, waiting up to {@code timeoutMillis} for one if there is none yet.
-     *
-     * @return the new batches, or an empty list after the timeout
+     * The batches after {@code version}, in order. It walks back from the newest batch, because a stream asks
+     * after every new batch, and usually only the last one or two are new.
      */
-    synchronized List<Batch> awaitAfter(long version, long timeoutMillis) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMillis;
-        while (lastVersion <= version) {
-            long left = deadline - System.currentTimeMillis();
-            if (left <= 0) {
-                return List.of();
+    synchronized List<Batch> after(long version) {
+        ArrayDeque<Batch> result = new ArrayDeque<>();
+        for (Iterator<Batch> newestFirst = history.descendingIterator(); newestFirst.hasNext(); ) {
+            Batch batch = newestFirst.next();
+            if (batch.version() <= version) {
+                break;
             }
-            wait(left);
+            result.addFirst(batch);
         }
-        return after(version);
+        return new ArrayList<>(result);
     }
 
-    /** Wakes every waiting stream, so a stream that was replaced or a discarded page stops at once. */
-    synchronized void wakeAll() {
-        notifyAll();
+    /** Calls {@code watcher} after each new batch (and on {@link #wakeAll}) until it is {@linkplain #unwatch removed}. */
+    void watch(Runnable watcher) {
+        watchers.add(watcher);
+    }
+
+    void unwatch(Runnable watcher) {
+        watchers.remove(watcher);
+    }
+
+    /** Wakes every watching stream, so a stream that was replaced or a discarded page lets the page go at once. */
+    void wakeAll() {
+        watchers.forEach(Runnable::run);
     }
 
     /**

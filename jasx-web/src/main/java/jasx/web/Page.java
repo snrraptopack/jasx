@@ -6,7 +6,6 @@ import jasx.ui.Effect;
 import jasx.ui.Event;
 import jasx.ui.Handler;
 import jasx.ui.Scheduler;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -25,7 +24,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <p>Everything that touches the page's holes and handlers runs under its lock: the first rendering, each
  * event, and each flush. State changed from another thread marks holes of the page dirty and schedules a
- * flush on a virtual thread, whose batch is pushed on the page's stream (§5).
+ * flush on a virtual thread, whose batch is pushed on the page's stream (§5), which a {@link SharedStream} serves.
  *
  * <p>It is the {@link Scheduler} of its holes and effects (jasx-spec/ui.md §3): a hole whose state changed is
  * {@linkplain #schedule scheduled}, and re-run by the next {@link #flush}.
@@ -259,73 +258,47 @@ final class Page implements Scheduler {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // The stream (targets/web.md §6, §8.1)
+    // The stream (targets/web.md §6, §6.2): served by a SharedStream, which may carry other pages too
     // ---------------------------------------------------------------------------------------------
 
-    /** Where a stream writes: one server-sent event frame at a time. */
-    interface StreamSink {
-        void send(String frame) throws IOException;
-    }
-
-    /** The frame that tells the browser to load the page afresh (§6.1). */
-    static final String RELOAD_FRAME = "data: {\"reload\":true}\n\n";
-
     /**
-     * Streams the page to a browser that has applied every batch up to {@code since} (§6.1): first what it
-     * missed, merged into one batch, then each pushed batch as it comes, until the connection fails or a newer
-     * stream of the page replaces this one. If the log no longer holds what it missed, the browser is told to
-     * reload. Blocks; a comment every {@code heartbeatSeconds} keeps the connection open.
+     * Makes {@code stream} the page's stream, replacing the one it had: the browser reconnected, or the tab that
+     * streams for every tab changed (§6.2). {@code wake} is called after each new batch until
+     * {@link #detachStream}.
      *
-     * <p>Batches that answer events are not pushed: their requests carried them. If one was lost, the browser
-     * notices the missing version and reconnects, and the catch-up includes it.
+     * @return the stream's generation, which tells it later whether it still streams the page
      */
-    void stream(StreamSink sink, long since, int heartbeatSeconds) {
+    synchronized int attachStream(Runnable wake) {
         int generation = streamGeneration.incrementAndGet();
-        log.wakeAll(); // a stream this one replaces stops waiting
+        log.wakeAll(); // the stream this one replaces notices, and lets the page go
+        log.watch(wake);
         streamOpen = true;
         touch();
-        try {
-            // What the browser missed is taken before the greeting, so that from the greeting on, the stream is
-            // live: a batch made later is pushed (or, for an event's answer, carried by its request).
-            boolean canCatchUp = log.covers(since);
-            long cursor = since;
-            List<BatchLog.Batch> missed = canCatchUp ? log.after(cursor) : List.of();
-            sink.send(": connected\n\n");
-            if (!canCatchUp) {
-                sink.send(RELOAD_FRAME);
-                return;
-            }
-            if (!missed.isEmpty()) {
-                sink.send("data: " + BatchLog.merged(missed) + "\n\n");
-                cursor = missed.get(missed.size() - 1).version();
-            }
-            while (streamGeneration.get() == generation) {
-                List<BatchLog.Batch> next = log.awaitAfter(cursor, heartbeatSeconds * 1000L);
-                lastSeen = System.nanoTime();
-                if (streamGeneration.get() != generation) {
-                    break; // a newer stream took over while this one waited
-                }
-                if (next.isEmpty()) {
-                    sink.send(": ping\n\n");
-                    continue;
-                }
-                for (BatchLog.Batch batch : next) {
-                    if (!batch.answer()) {
-                        sink.send("data: " + batch.json() + "\n\n");
-                    }
-                    cursor = batch.version();
-                }
-            }
-        } catch (IOException e) {
-            // The browser went away; it reconnects if it is still there.
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            if (streamGeneration.get() == generation) {
-                streamOpen = false;
-                lastSeen = System.nanoTime();
-            }
+        return generation;
+    }
+
+    /** Whether the stream of {@code generation} still streams the page: no newer stream took it, and it is alive. */
+    boolean isStreamedBy(int generation) {
+        return streamGeneration.get() == generation;
+    }
+
+    /** The stream of {@code generation} no longer streams the page; from now on the page can expire (§6). */
+    synchronized void detachStream(int generation, Runnable wake) {
+        log.unwatch(wake);
+        if (streamGeneration.get() == generation) {
+            streamOpen = false;
+            lastSeen = System.nanoTime();
         }
+    }
+
+    /** Whether a browser that applied every batch up to {@code since} can catch up (§6.1). */
+    boolean canCatchUp(long since) {
+        return log.covers(since);
+    }
+
+    /** The batches after {@code version}, in order. */
+    List<BatchLog.Batch> batchesAfter(long version) {
+        return log.after(version);
     }
 
     /**
@@ -348,7 +321,7 @@ final class Page implements Scheduler {
 
     /** Disposes everything, which also unsubscribes the page from state shared with other pages. */
     void discard() {
-        streamGeneration.incrementAndGet(); // ends a stream that is still running
+        streamGeneration.incrementAndGet(); // the stream that carries the page lets it go
         log.wakeAll();
         locked(() -> {
             root.dispose();

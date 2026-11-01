@@ -227,7 +227,7 @@ public final class Clock {
 <p>It is {clock.time}</p>
 ```
 
-The browser keeps one stream open per page (`GET /_jasx/stream`). Nothing goes through it when nothing changes, apart from a keep-alive comment every 25 seconds.
+The browser keeps one stream open for all its tabs of your application (`GET /_jasx/stream`): one tab holds it and passes each update to the tab it is for, and when that tab closes another takes over. Nothing goes through it when nothing changes, apart from a keep-alive comment every 25 seconds.
 
 If the connection drops (a laptop asleep, a train tunnel), the browser reconnects and tells the server the last update it applied. The server sends what was missed as one update, keeping only the latest value of each spot, so a clock that ticked sixty times while you were away sends one value. If too much was missed, the page reloads.
 
@@ -243,13 +243,13 @@ The runtime is independent of any HTTP server. `WebApp` has three methods, one p
 |---|---|
 | a page | `render(() -> <Page />)` returns its HTML |
 | `POST /_jasx/event?page=ID` | `event(pageId, body)` returns the status and body |
-| `GET /_jasx/stream?page=ID` | `stream(pageId, sink)` writes server-sent events until the browser leaves |
+| `GET /_jasx/stream?pages=ID:N,...` | `stream(WebApp.streamPages(pages), sink)` writes server-sent events until the browser leaves |
 
 The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server. Adapters for servlet containers and Spring Boot are planned.
 
 A page is kept for 2 minutes after its browser goes away (no stream and no event). After that, a browser that comes back reloads it. A page whose browser never connects (a crawler, a link preview, a prefetch, `curl`) is dropped after 30 seconds. `new WebApp(basePath, pageTimeout, firstConnectTimeout)` changes both.
 
-**Use HTTP/2 in production.** Each visible tab keeps one stream open, and over HTTP/1.1 browsers open only about six connections per server. Hidden tabs close their stream after 10 seconds and ping instead, which helps, but HTTP/2 removes the limit. The JDK's built-in server (`WebServer`) speaks only HTTP/1.1: put a reverse proxy with HTTP/2 in front of it, or use a server adapter that supports HTTP/2.
+**Many tabs over HTTP/1.1.** Browsers open only about six connections per server over HTTP/1.1, which is why the tabs share one stream. Sharing needs Web Locks and BroadcastChannel, which every current browser has, and a secure context: HTTPS, or `localhost` while developing. On plain HTTP from another host (a phone on your network trying `http://192.168.1.5:8080`), each tab keeps its own stream, and hidden tabs close theirs after 10 seconds. HTTP/2 removes the limit entirely, so prefer it in production. The JDK's built-in server (`WebServer`) speaks only HTTP/1.1: put a reverse proxy with HTTP/2 in front of it, or use a server adapter that supports HTTP/2.
 
 ## Pitfalls
 

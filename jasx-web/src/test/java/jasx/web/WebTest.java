@@ -22,8 +22,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -72,13 +74,22 @@ class WebTest {
 
     /** Opens the page's stream on a virtual thread, as a browser that applied every batch up to {@code since}. */
     private Thread openStream(String html, long since, BlockingQueue<String> frames) {
-        return Thread.ofVirtual().start(() -> {
-            try {
-                app.stream(pageId(html), since, frames::add);
-            } catch (java.io.IOException e) {
-                throw new java.io.UncheckedIOException(e);
-            }
-        });
+        return openStream(Map.of(pageId(html), since), frames);
+    }
+
+    /** Opens one stream for several pages (targets/web.md §6.2), as the leading tab of a browser does. */
+    private Thread openStream(Map<String, Long> pages, BlockingQueue<String> frames) {
+        return Thread.ofVirtual().start(() -> app.stream(pages, frames::add));
+    }
+
+    /** The stream frame carrying {@code batch} for the page of {@code html}. */
+    private static String frame(String html, String batch) {
+        return framePrefix(html, batch) + "}\n\n";
+    }
+
+    /** How the frame carrying a batch that starts with {@code batchStart} starts. */
+    private static String framePrefix(String html, String batchStart) {
+        return "data: {\"page\":\"" + pageId(html) + "\",\"batch\":" + batchStart;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -227,12 +238,74 @@ class WebTest {
             try {
                 assertEquals(": connected\n\n", frames.poll(5, TimeUnit.SECONDS));
                 message.set("second");
-                String frame = frames.poll(5, TimeUnit.SECONDS);
-                assertNotNull(frame);
-                assertTrue(frame.startsWith("data: {\"version\":1,\"patches\":[{\"op\":\"html\",\"id\":1,\"html\":\"second\"}]}"), frame);
+                assertEquals(frame(html, "{\"version\":1,\"patches\":[{\"op\":\"html\",\"id\":1,\"html\":\"second\"}]}"),
+                        frames.poll(5, TimeUnit.SECONDS));
             } finally {
                 stream.interrupt();
             }
+        }
+
+        @Test
+        void oneStreamCarriesThePagesOfSeveralTabs() throws Exception {
+            State<String> shared = Web.state("a");
+            String first = app.render(() -> Web.h("p", null, Web.dynamic(() -> shared.get())));
+            String second = app.render(() -> Web.h("b", null, Web.dynamic(() -> shared.get() + "!")));
+            Map<String, Long> pages = new LinkedHashMap<>();
+            pages.put(pageId(first), 0L);
+            pages.put(pageId(second), 0L);
+            pages.put("closed-tab", 0L);
+            BlockingQueue<String> frames = new LinkedBlockingQueue<>();
+            Thread stream = openStream(pages, frames);
+            try {
+                assertEquals(": connected\n\n", frames.poll(5, TimeUnit.SECONDS));
+                // A page the server no longer has: only its tab reloads, the stream goes on.
+                assertEquals("data: {\"page\":\"closed-tab\",\"batch\":{\"reload\":true}}\n\n", frames.poll(5, TimeUnit.SECONDS));
+                shared.set("b");
+                Set<String> pushed = Set.of(frames.poll(5, TimeUnit.SECONDS), frames.poll(5, TimeUnit.SECONDS));
+                assertEquals(Set.of(
+                        frame(first, "{\"version\":1,\"patches\":[{\"op\":\"html\",\"id\":1,\"html\":\"b\"}]}"),
+                        frame(second, "{\"version\":1,\"patches\":[{\"op\":\"html\",\"id\":1,\"html\":\"b!\"}]}")), pushed);
+            } finally {
+                stream.interrupt();
+            }
+        }
+
+        @Test
+        void aNewerStreamTakesItsPagesAndTheOldOneEndsWhenItHasNone() throws Exception {
+            String first = app.render(() -> Web.h("p", null, "1"));
+            String second = app.render(() -> Web.h("p", null, "2"));
+            BlockingQueue<String> oldFrames = new LinkedBlockingQueue<>();
+            Thread old = openStream(Map.of(pageId(first), 0L, pageId(second), 0L), oldFrames);
+            assertEquals(": connected\n\n", oldFrames.poll(5, TimeUnit.SECONDS));
+
+            // The leading tab reconnects with one page more, say, or another tab took over.
+            BlockingQueue<String> newFrames = new LinkedBlockingQueue<>();
+            Thread newer = openStream(Map.of(pageId(first), 0L), newFrames);
+            try {
+                assertEquals(": connected\n\n", newFrames.poll(5, TimeUnit.SECONDS));
+                Thread.sleep(200);
+                assertTrue(old.isAlive(), "the old stream still has the second page");
+                BlockingQueue<String> newest = new LinkedBlockingQueue<>();
+                Thread third = openStream(Map.of(pageId(second), 0L), newest);
+                try {
+                    old.join(5000);
+                    assertFalse(old.isAlive(), "with no page left, the old stream ended");
+                } finally {
+                    third.interrupt();
+                }
+            } finally {
+                newer.interrupt();
+                old.interrupt();
+            }
+        }
+
+        @Test
+        void theStreamsPagesParameterIsReadLeniently() {
+            assertEquals(Map.of("a", 12L, "b", 0L, "c", 0L), WebApp.streamPages("a:12,b,c:x,:5,"));
+            assertEquals(Map.of(), WebApp.streamPages(null));
+            String many = java.util.stream.IntStream.range(0, 500).mapToObj(i -> "p" + i + ":0")
+                    .collect(Collectors.joining(","));
+            assertEquals(SharedStream.MAX_PAGES, WebApp.streamPages(many).size());
         }
 
         @Test
@@ -278,7 +351,7 @@ class WebTest {
             try {
                 assertEquals(": connected\n\n", frames.poll(5, TimeUnit.SECONDS));
                 // Three values of the same hole: only the last is sent.
-                assertEquals("data: {\"from\":1,\"version\":3,\"patches\":[{\"op\":\"html\",\"id\":1,\"html\":\"3\"}]}\n\n",
+                assertEquals(frame(html, "{\"from\":1,\"version\":3,\"patches\":[{\"op\":\"html\",\"id\":1,\"html\":\"3\"}]}"),
                         frames.poll(5, TimeUnit.SECONDS));
             } finally {
                 stream.interrupt();
@@ -302,11 +375,12 @@ class WebTest {
             String html = app.render(() -> Web.h("p", null, "x"));
             BlockingQueue<String> frames = new LinkedBlockingQueue<>();
             openStream(html, 99, frames).join(5000); // a version this page never sent
-            assertTrue(frames.contains("data: {\"reload\":true}\n\n"), frames.toString());
+            assertTrue(frames.contains(frame(html, "{\"reload\":true}")), frames.toString());
 
             BlockingQueue<String> unknown = new LinkedBlockingQueue<>();
-            app.stream("no-such-page", 0, unknown::add);
-            assertEquals(List.of("data: {\"reload\":true}\n\n"), List.copyOf(unknown));
+            app.stream(Map.of("no-such-page", 0L), unknown::add); // returns: it has no page to stream
+            assertEquals(List.of(": connected\n\n", "data: {\"page\":\"no-such-page\",\"batch\":{\"reload\":true}}\n\n"),
+                    List.copyOf(unknown));
         }
 
         @Test
@@ -320,8 +394,8 @@ class WebTest {
                 assertEquals(": connected\n\n", frames.poll(5, TimeUnit.SECONDS));
                 assertEquals(200, click(html, handler(html, "click", 1)).status()); // version 1, in the answer
                 count.set(5); // version 2, pushed
-                String frame = frames.poll(5, TimeUnit.SECONDS);
-                assertTrue(frame.startsWith("data: {\"version\":2,"), frame);
+                String pushed = frames.poll(5, TimeUnit.SECONDS);
+                assertTrue(pushed.startsWith(framePrefix(html, "{\"version\":2,")), pushed);
             } finally {
                 stream.interrupt();
             }
@@ -331,7 +405,7 @@ class WebTest {
             try {
                 catchUp.poll(5, TimeUnit.SECONDS);
                 String merged = catchUp.poll(5, TimeUnit.SECONDS);
-                assertTrue(merged.startsWith("data: {\"from\":1,\"version\":2,"), merged);
+                assertTrue(merged.startsWith(framePrefix(html, "{\"from\":1,\"version\":2,")), merged);
             } finally {
                 again.interrupt();
             }
@@ -438,7 +512,7 @@ class WebTest {
                 Thread.sleep(20);
                 probe.interrupt();
                 probe.join(1000);
-                if (!frames.contains(Page.RELOAD_FRAME)) {
+                if (!frames.contains(frame(html, "{\"reload\":true}"))) {
                     return;
                 }
             }
@@ -675,11 +749,11 @@ class WebTest {
                 assertEquals(200, script.statusCode());
                 assertTrue(script.body().contains("data-jx-on"));
 
-                HttpResponse<String> gone = client.send(HttpRequest.newBuilder(URI.create(base + "/_jasx/stream?page=nope")).build(),
+                HttpResponse<String> gone = client.send(HttpRequest.newBuilder(URI.create(base + "/_jasx/stream?pages=nope:0")).build(),
                         HttpResponse.BodyHandlers.ofString());
-                // The stream of an unknown page tells the browser to reload (§6.1).
+                // The stream of an unknown page tells its tab to reload (§6.1), and ends: it has nothing else.
                 assertEquals(200, gone.statusCode());
-                assertEquals("data: {\"reload\":true}\n\n", gone.body());
+                assertEquals(": connected\n\ndata: {\"page\":\"nope\",\"batch\":{\"reload\":true}}\n\n", gone.body());
             } finally {
                 server.stop();
             }

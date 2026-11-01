@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -22,7 +23,7 @@ import java.util.function.Supplier;
  * <ul>
  *   <li>a page: {@link #render} renders it and keeps it alive;
  *   <li>{@code POST <basePath>/event?page=ID}: {@link #event};
- *   <li>{@code GET <basePath>/stream?page=ID&since=N}: {@link #stream};
+ *   <li>{@code GET <basePath>/stream?pages=ID:N,ID:N}: {@link #stream}, one connection for every tab;
  *   <li>{@code POST <basePath>/ping?page=ID}: {@link #ping};
  * </ul>
  *
@@ -133,38 +134,58 @@ public final class WebApp implements AutoCloseable {
     }
 
     /**
-     * Handles {@code GET <basePath>/stream?page=ID&since=N} (targets/web.md §6.1, §8.1): sends the batches after
-     * version {@code since} that the browser missed, then the page's pushed batches, until the connection fails
-     * or a newer stream of the page replaces it. Blocks, so call it on a thread that may block (a virtual
-     * thread). Answer with status 200 and {@code Content-Type: text/event-stream} before calling it.
+     * Handles {@code GET <basePath>/stream?pages=A:12,B:7} (targets/web.md §6.1, §6.2, §8.1): one connection
+     * for the pages of every tab of a browser. For each page, it sends the batches after the version its browser
+     * applied, merged into one, then the page's pushed batches, each frame naming its page. It returns when the
+     * connection fails or newer connections have taken all its pages. Blocks, so call it on a thread that may
+     * block (a virtual thread). Answer with status 200 and {@code Content-Type: text/event-stream} before
+     * calling it.
      *
-     * <p>For an unknown page, or one that can't catch the browser up, it sends a frame telling the browser to
-     * reload, and returns.
+     * <p>A page that is unknown, or that can't catch its browser up, gets a frame telling its tab to reload.
      *
-     * @param since the last version the browser applied (the {@code since} query parameter; 0 if absent)
+     * @param pages each page's id and the last version its browser applied: {@link #streamPages} reads them
      */
-    public void stream(String pageId, long since, StreamSink sink) throws IOException {
-        Page page = pageId != null ? pages.get(pageId) : null;
-        if (page == null) {
-            sink.send(Page.RELOAD_FRAME);
-            return;
-        }
-        page.stream(sink::send, since, HEARTBEAT_SECONDS);
+    public void stream(Map<String, Long> pages, StreamSink sink) {
+        new SharedStream().run(pages, this.pages::get, sink, HEARTBEAT_SECONDS);
     }
 
-    /** Reads the {@code since} query parameter of a stream request: 0 if it is absent or not a number. */
-    public static long since(String parameter) {
+    /**
+     * Reads the {@code pages} query parameter of a stream request, {@code A:12,B:7}: page ids with the last
+     * version each browser applied. A missing or malformed version reads as 0 (the start); entries without an id,
+     * and those beyond the first {@value SharedStream#MAX_PAGES}, are ignored.
+     */
+    public static Map<String, Long> streamPages(String parameter) {
+        Map<String, Long> pages = new LinkedHashMap<>();
+        if (parameter == null) {
+            return pages;
+        }
+        for (String entry : parameter.split(",")) {
+            int colon = entry.lastIndexOf(':');
+            String pageId = colon < 0 ? entry : entry.substring(0, colon);
+            String version = colon < 0 ? "" : entry.substring(colon + 1);
+            if (pageId.isEmpty()) {
+                continue;
+            }
+            if (pages.size() == SharedStream.MAX_PAGES) {
+                break;
+            }
+            pages.put(pageId, parseVersion(version));
+        }
+        return pages;
+    }
+
+    private static long parseVersion(String text) {
         try {
-            return parameter == null ? 0 : Long.parseLong(parameter);
+            return text.isEmpty() ? 0 : Long.parseLong(text);
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
     /**
-     * Handles {@code POST <basePath>/ping?page=ID} (targets/web.md §6): a tab that is hidden closes its stream,
-     * so that hidden tabs don't use up the browser's few connections per server, and pings instead to keep its
-     * page alive.
+     * Handles {@code POST <basePath>/ping?page=ID} (targets/web.md §6): in a browser whose tabs can't share a
+     * stream (§6.2), a tab that is hidden closes its own, so that hidden tabs don't use up the browser's few
+     * connections per server, and pings instead to keep its page alive.
      *
      * @return 204, or 410 for an unknown page
      */

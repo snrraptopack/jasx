@@ -4,6 +4,7 @@
 // and applies the batches of patches the server answers or pushes on the page's stream, in version order.
 // Typing stays in the browser: input events are debounced, and edits the server hasn't received yet are
 // never overwritten. If a batch goes missing, it reconnects and the server sends what it missed (§6.1).
+// The tabs of an application share one stream (§6.2).
 (() => {
   "use strict";
 
@@ -609,24 +610,49 @@
   }
 
   // ---------------------------------------------------------------------------------------------
-  // The stream (§6): batches the server pushes, and catching up after a gap
+  // The stream (§6, §6.2): one connection for every tab of the application
   // ---------------------------------------------------------------------------------------------
+  //
+  // Over HTTP/1.1 a browser opens only about six connections per server, and each open stream holds one.
+  // So the tabs share one stream: the tab holding a Web Lock is the leader. It opens the stream for every
+  // tab's page (stream?pages=A:12,B:7) and passes each frame on over a BroadcastChannel; the other tabs
+  // tell it their page and version. When the leader closes, the lock passes to another tab, which asks
+  // every tab for its version and reconnects, and the server catches each page up (§6.1).
+  //
+  // Without Web Locks or BroadcastChannel (an old browser, or a page served over plain http from another
+  // host: Web Locks needs a secure context), each tab leads itself alone, and hidden tabs release their
+  // stream instead.
+
+  const shared = Boolean(navigator.locks) && typeof BroadcastChannel === "function";
+  const channel = shared ? new BroadcastChannel("jasx-stream:" + base) : null;
+  /** Whether this tab holds the stream: the leader, or a tab that can't share. */
+  let leading = !shared;
+  /** The other tabs' pages the leader streams: page id -> {since, seen}. */
+  const members = new Map();
+
+  /** How long the leader gathers tabs joining (a roll call's answers) before it reconnects once. */
+  const JOIN_DELAY = 50;
+  /** How often the leader asks every tab whether it is still there; a tab silent for 2.5 rounds is dropped. */
+  const ROLL_CALL_INTERVAL = 30000;
 
   let source = null;
   let retries = 0;
   let retryTimer = null;
+  let joinTimer = null;
 
-  // Opens the stream, telling the server the last version applied, so it first sends what was missed
-  // (§6.1). The client reconnects by itself rather than letting EventSource do it, because each
-  // reconnection must carry the current version.
+  // Opens the stream, telling the server the last version applied for each page, so it first sends what
+  // was missed (§6.1). The client reconnects by itself rather than letting EventSource do it, because each
+  // reconnection must carry the current versions.
   function connect() {
-    if (asleep) return; // a hidden tab catches up when it is shown again
+    if (!leading || asleep) return; // a hidden tab catches up when it is shown again
     clearTimeout(retryTimer);
+    clearTimeout(joinTimer);
+    retryTimer = joinTimer = null;
     if (source) source.close();
-    const stream = new EventSource(base + "/stream" + query + "&since=" + applied);
+    const stream = new EventSource(base + "/stream?pages=" + streamedPages());
     source = stream;
     stream.onopen = () => { retries = 0; };
-    stream.onmessage = (message) => receive(JSON.parse(message.data));
+    stream.onmessage = (message) => onFrame(JSON.parse(message.data));
     stream.onerror = () => {
       if (source !== stream) return;
       stream.close();
@@ -636,15 +662,113 @@
     };
   }
 
-  // Asks the server again for everything after the last version applied.
-  function resync() {
-    connect();
+  // This tab's page first, then the other tabs': id:version,id:version.
+  function streamedPages() {
+    const pages = [[pageId, applied], ...Array.from(members, ([page, member]) => [page, member.since])];
+    return pages.map(([page, since]) => encodeURIComponent(page) + ":" + since).join(",");
   }
 
-  // Hidden tabs (§6): over HTTP/1.1 a browser opens only about 6 connections per server, and each open
-  // stream holds one, so a tab that stays hidden closes its stream and pings instead, which keeps its page
-  // alive on the server. Shown again, it reconnects and catches up. A quick switch between tabs keeps the
-  // stream.
+  // Tabs join in bursts (a roll call is answered by every tab), so the leader waits a moment and reconnects
+  // once. While it waits to retry a failed stream, the retry carries the new pages.
+  function reconnectSoon() {
+    if (retryTimer !== null || joinTimer !== null) return;
+    joinTimer = setTimeout(() => { joinTimer = null; connect(); }, JOIN_DELAY);
+  }
+
+  // A frame names the page its batch is for (§8.1): this tab's own is applied here, and the others are
+  // passed on to their tabs.
+  function onFrame(frame) {
+    if (frame.page === pageId) {
+      receive(frame.batch);
+      return;
+    }
+    const member = members.get(frame.page);
+    if (frame.batch.reload) {
+      members.delete(frame.page); // the server no longer streams it: its tab reloads and joins afresh
+    } else if (member && frame.batch.version > member.since) {
+      member.since = frame.batch.version; // a lower version would only resend what the tab has
+    }
+    channel.postMessage({ type: "frame", page: frame.page, batch: frame.batch });
+  }
+
+  // Asks the server again for everything after the last version applied: the leader reconnects, another
+  // tab asks the leader to.
+  function resync() {
+    if (leading) connect();
+    else announce(true);
+  }
+
+  // Tells the leader this tab's page and version. `resync` asks it to reconnect even if it knows the page.
+  function announce(resync) {
+    channel.postMessage({ type: "join", page: pageId, since: applied, resync });
+  }
+
+  function onMessage(message) {
+    switch (message.type) {
+      case "frame":
+        if (message.page === pageId) receive(message.batch);
+        break;
+      case "rollcall":
+        announce(false);
+        break;
+      case "join":
+        if (leading) join(message);
+        break;
+      case "leave":
+        if (leading && members.delete(message.page)) reconnectSoon();
+        break;
+    }
+  }
+
+  function join(message) {
+    const isNew = !members.has(message.page);
+    members.set(message.page, { since: message.since, seen: Date.now() });
+    if (isNew || message.resync) reconnectSoon();
+  }
+
+  // The lock passed to this tab: it streams for every tab from now on.
+  function lead() {
+    leading = true;
+    channel.postMessage({ type: "rollcall" }); // every tab answers with its page and version
+    setInterval(rollCall, ROLL_CALL_INTERVAL);
+    reconnectSoon();
+  }
+
+  // A tab that went away without saying so (it crashed, or was frozen) stops being streamed, so the
+  // server can discard its page. It joins again if it comes back.
+  function rollCall() {
+    const silentSince = Date.now() - 2.5 * ROLL_CALL_INTERVAL;
+    let dropped = false;
+    for (const [page, member] of members) {
+      if (member.seen < silentSince) {
+        members.delete(page);
+        dropped = true;
+      }
+    }
+    if (dropped) reconnectSoon();
+    channel.postMessage({ type: "rollcall" });
+  }
+
+  if (shared) {
+    channel.onmessage = (message) => onMessage(message.data);
+    // Every tab asks for the lock; the first holds it until it closes, and the others wait their turn.
+    navigator.locks.request("jasx-stream:" + base, () => {
+      lead();
+      return new Promise(() => {}); // held for as long as the tab lives
+    });
+    announce(false); // to a leader that is already there
+    window.addEventListener("pagehide", () => {
+      if (!leading) channel.postMessage({ type: "leave", page: pageId });
+    });
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted && !leading) announce(true); // back from the back-forward cache
+    });
+  }
+
+  // Hidden tabs (§6), when tabs can't share a stream: a tab that stays hidden closes its stream and pings
+  // instead, which keeps its page alive on the server. Shown again, it reconnects and catches up. A quick
+  // switch between tabs keeps the stream. With a shared stream, a tab shown again only checks that the
+  // leader still streams its page (a frozen tab may have been dropped).
   const HIDDEN_GRACE = Number(script.dataset.jxHiddenGrace || 10000);
   const PING_INTERVAL = 60000;
   let asleep = false;
@@ -652,7 +776,10 @@
   let pingTimer = null;
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
+    const visible = document.visibilityState !== "hidden";
+    if (shared) {
+      if (visible && !leading) announce(false);
+    } else if (!visible) {
       clearTimeout(hiddenTimer);
       hiddenTimer = setTimeout(fallAsleep, HIDDEN_GRACE);
     } else {
@@ -704,5 +831,5 @@
 
   indexHoles(document);
   listenFor(document);
-  connect();
+  connect(); // a tab that can't share streams at once; a shared stream opens when its leader is chosen
 })();

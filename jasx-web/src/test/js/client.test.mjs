@@ -5,7 +5,7 @@
 //
 // Run with: npm install && npm test   (from jasx-web/src/test/js)
 
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -23,21 +23,29 @@ class ClientLoader extends ResourceLoader {
   }
 }
 
+// Every page's window is closed after the tests, so that their timers (a leader's roll call) let Node exit.
+const openWindows = [];
+after(() => openWindows.forEach((window) => window.close()));
+
 /**
  * A page whose body is `body`, with the client running. `answer(payload)` plays the server: it returns the
- * batch for an event, null for "nothing changed", or "gone"; it may return a promise.
+ * batch for an event, null for "nothing changed", "gone" or "lost"; it may return a promise. The page's id
+ * is `id`; a page made with a `browser` (browserWithTabs) is one of its tabs, otherwise it can't share its
+ * stream.
  */
-async function page(body, answer = () => null, scriptAttributes = "") {
+async function page(body, answer = () => null, scriptAttributes = "", { id = "P1", browser = null } = {}) {
   const sent = [];
   const streams = [];
   const pings = [];
   const dom = new JSDOM(
-    `<!DOCTYPE html><html><head></head><body>${body}<script src="/_jasx/web.js" data-jx-page="P1" ${scriptAttributes} defer></script></body></html>`,
+    `<!DOCTYPE html><html><head></head><body>${body}<script src="/_jasx/web.js" data-jx-page="${id}" ${scriptAttributes} defer></script></body></html>`,
     {
       url: "http://localhost/page",
       runScripts: "dangerously",
       resources: new ClientLoader(),
       beforeParse(window) {
+        if (browser) browser.install(window, id);
+        else window.BroadcastChannel = undefined;
         window.fetch = async (url, init) => {
           if (url.includes("/ping")) {
             pings.push(url);
@@ -58,8 +66,13 @@ async function page(body, answer = () => null, scriptAttributes = "") {
             this.closed = false;
             streams.push(this);
           }
+          /** Pushes a batch for this tab's page. */
           push(batch) {
-            this.onmessage({ data: JSON.stringify(batch) });
+            this.pushFor(id, batch);
+          }
+          /** Pushes a batch for page `page`: each frame names its page (§8.1). */
+          pushFor(page, batch) {
+            this.onmessage({ data: JSON.stringify({ page, batch }) });
           }
           close() {
             this.closed = true;
@@ -71,7 +84,65 @@ async function page(body, answer = () => null, scriptAttributes = "") {
   );
   await new Promise((resolve) => dom.window.addEventListener("load", resolve));
   const window = dom.window;
+  openWindows.push(window);
   return { window, document: window.document, sent, streams, pings };
+}
+
+/**
+ * The tabs of one browser (targets/web.md §6.2): pages made with it share a BroadcastChannel and Web Locks,
+ * faked here because jsdom has neither. Messages are delivered asynchronously, as browsers do.
+ */
+function browserWithTabs() {
+  const channels = new Set();
+  const waiting = []; // lock requests in order: {tab, name, callback}
+  let holder = null;
+  const grantNext = () => {
+    if (holder !== null || waiting.length === 0) return;
+    const next = waiting.shift();
+    holder = next.tab;
+    next.callback({ name: next.name });
+  };
+  return {
+    install(window, tab) {
+      window.BroadcastChannel = class {
+        constructor(name) {
+          this.name = name;
+          this.tab = tab;
+          channels.add(this);
+        }
+        postMessage(data) {
+          const copy = JSON.parse(JSON.stringify(data));
+          for (const other of channels) {
+            if (other !== this && other.name === this.name) setTimeout(() => other.onmessage?.({ data: copy }), 0);
+          }
+        }
+        close() {
+          channels.delete(this);
+        }
+      };
+      Object.defineProperty(window.navigator, "locks", {
+        configurable: true,
+        value: {
+          request(name, callback) {
+            waiting.push({ tab, name, callback });
+            setTimeout(grantNext, 0);
+            return new Promise(() => {});
+          },
+        },
+      });
+    },
+    /** Closes a tab: its page is hidden for good, its channel closes, and a lock it held passes on. */
+    close(window, tab) {
+      window.dispatchEvent(new window.Event("pagehide"));
+      for (const channel of channels) if (channel.tab === tab) channels.delete(channel);
+      waiting.splice(0, waiting.length, ...waiting.filter((request) => request.tab !== tab));
+      if (holder === tab) {
+        holder = null;
+        setTimeout(grantNext, 0);
+      }
+      window.close();
+    },
+  };
 }
 
 const wait = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -96,7 +167,7 @@ test("a click sends its handler and applies the answer", async () => {
     `<button data-jx-on="click:3"><span>+</span></button><p><!--jx:4-->0<!--/jx:4--></p>`,
     () => ({ version: 1, patches: [{ op: "html", id: 4, html: "<b>1</b>" }] }),
   );
-  assert.equal(streams[0].url, "/_jasx/stream?page=P1&since=0");
+  assert.equal(streams[0].url, "/_jasx/stream?pages=P1:0");
 
   fire(window, document.querySelector("span"), "click"); // on a child: the button's handler
   await wait();
@@ -317,7 +388,7 @@ test("a missing batch makes the client reconnect with its version, however many 
   await wait(1200);
   assert.ok(streams.length >= 2, "reconnected");
   assert.ok(streams[0].closed);
-  assert.equal(streams[1].url, "/_jasx/stream?page=P1&since=0");
+  assert.equal(streams[1].url, "/_jasx/stream?pages=P1:0");
   streams[1].push({ from: 1, version: 6, patches: [{ op: "html", id: 4, html: "6" }] });
   assert.equal(document.querySelector("p").textContent, "6");
 });
@@ -327,7 +398,7 @@ test("a lost event answer makes the client fetch what it missed", async () => {
   fire(window, document.querySelector("button"), "click");
   await wait();
   assert.equal(streams.length, 2, "reconnected to catch up");
-  assert.equal(streams[1].url, "/_jasx/stream?page=P1&since=0");
+  assert.equal(streams[1].url, "/_jasx/stream?pages=P1:0");
 });
 
 test("a merged catch-up that overlaps applied versions is applied once more, harmlessly", async () => {
@@ -384,7 +455,64 @@ test("a hidden tab closes its stream, pings, and catches up when shown again", a
 
   setVisibility("visible");
   assert.equal(streams.length, 2);
-  assert.equal(streams[1].url, "/_jasx/stream?page=P1&since=1", "it asks for what was pushed while hidden");
+  assert.equal(streams[1].url, "/_jasx/stream?pages=P1:1", "it asks for what was pushed while hidden");
+});
+
+// -------------------------------------------------------------------------------------------------
+// One stream for every tab (targets/web.md §6.2)
+// -------------------------------------------------------------------------------------------------
+
+const HOLE = `<p><!--jx:4-->-<!--/jx:4--></p>`;
+
+/** Two tabs of one browser, once the first leads and streams both pages. */
+async function twoTabs(secondAnswer = () => null) {
+  const browser = browserWithTabs();
+  const first = await page(HOLE, () => null, "", { id: "P1", browser });
+  const second = await page(HOLE + `<button data-jx-on="click:1">x</button>`, secondAnswer, "", { id: "P2", browser });
+  await wait(150);
+  return { browser, first, second };
+}
+
+test("tabs share one stream: the leader streams every tab's page and passes frames on", async () => {
+  const { first, second } = await twoTabs();
+  assert.equal(second.streams.length, 0, "the second tab opens no stream of its own");
+  const stream = first.streams.at(-1);
+  assert.equal(stream.url, "/_jasx/stream?pages=P1:0,P2:0");
+  assert.ok(first.streams.slice(0, -1).every((old) => old.closed), "one stream at a time");
+
+  stream.pushFor("P2", { version: 1, patches: [{ op: "html", id: 4, html: "two" }] });
+  stream.pushFor("P1", { version: 1, patches: [{ op: "html", id: 4, html: "one" }] });
+  await wait();
+  assert.equal(first.document.querySelector("p").textContent, "one");
+  assert.equal(second.document.querySelector("p").textContent, "two");
+});
+
+test("a tab that lost an event's answer asks the leader to reconnect with its version", async () => {
+  const { first, second } = await twoTabs(() => "lost");
+  const before = first.streams.length;
+  fire(second.window, second.document.querySelector("button"), "click");
+  await wait(150);
+  assert.equal(first.streams.length, before + 1, "the leader reconnected");
+  assert.equal(first.streams.at(-1).url, "/_jasx/stream?pages=P1:0,P2:0");
+});
+
+test("a closed tab leaves the stream, so the server can discard its page", async () => {
+  const { browser, first, second } = await twoTabs();
+  browser.close(second.window, "P2");
+  await wait(150);
+  assert.equal(first.streams.at(-1).url, "/_jasx/stream?pages=P1:0");
+});
+
+test("when the leader closes, another tab takes over and carries on from its version", async () => {
+  const { browser, first, second } = await twoTabs();
+  first.streams.at(-1).pushFor("P2", { version: 1, patches: [{ op: "html", id: 4, html: "two" }] });
+  await wait();
+  browser.close(first.window, "P1");
+  await wait(150);
+  assert.equal(second.streams.length, 1, "the second tab streams now");
+  assert.equal(second.streams[0].url, "/_jasx/stream?pages=P2:1");
+  second.streams[0].push({ version: 2, patches: [{ op: "html", id: 4, html: "still live" }] });
+  assert.equal(second.document.querySelector("p").textContent, "still live");
 });
 
 // -------------------------------------------------------------------------------------------------

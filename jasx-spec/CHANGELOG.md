@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0-draft, revision 18
+
+### Added
+
+- `targets/web.md` §6.2, **one stream for every tab**: the tabs of a browser share one stream, so they don't use up the browser's HTTP/1.1 connections. The tab holding a Web Lock leads: it streams every tab's page and passes frames on over a BroadcastChannel; when it closes, another tab takes over and the server catches each page up. A browser without those APIs (or a page outside a secure context) gives each tab its own stream, as before.
+
+### Changed
+
+- `targets/web.md` §6.1, §8.1: the stream request names several pages with their versions, `stream?pages=ID:N,ID:N`, instead of `stream?page=ID&since=N`. Each frame is `{"page": ID, "batch": ...}`, and a reload message concerns one page; the stream goes on for the others. A newer stream that names a page takes it from the older one, and a stream left with no page ends.
+- `targets/web.md` §6: hidden tabs close their stream and ping only in a browser whose tabs can't share a stream.
+
 ## 1.0-draft, revision 17
 
 ### Added
