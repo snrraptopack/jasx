@@ -2,6 +2,7 @@ package jasx.gradle;
 
 import java.io.File;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
@@ -97,6 +98,7 @@ public final class JasxPlugin implements Plugin<Project> {
                     task.getCompileClasspath().from(sourceSet.getCompileClasspath());
                     task.getProcessorPath().from(sourceSet.getAnnotationProcessorPath());
                     task.getRelease().set(release);
+                    task.getCompilerArgs().set(compilerArgs(project, sourceSet));
                     task.getOutputDirectory().set(outputDirectory);
                     task.dependsOn(editorInfo);
                 });
@@ -108,6 +110,20 @@ public final class JasxPlugin implements Plugin<Project> {
         // Classes compiled from generated files name their .jasx source, for stack traces and debuggers.
         project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class).configure(task ->
                 task.doLast("pointClassesAtJasxSources", new PointClassesAtJasxSources(generatedSources)));
+    }
+
+    /**
+     * {@code compileJava}'s {@code options.compilerArgs}, so that the type check reads the code as it does
+     * ({@code --add-modules}, {@code --enable-preview}, {@code -parameters}, ...). Only the list is read, not
+     * argument providers, which may depend on other tasks' outputs.
+     *
+     * <p>A plain {@code project.provider}, not {@code compileJava.map(...)}: mapping a task's provider makes
+     * Gradle infer a dependency on that task, and compileJava depends on compileJasx.
+     */
+    private static Provider<List<String>> compilerArgs(Project project, SourceSet sourceSet) {
+        TaskProvider<JavaCompile> compileJava =
+                project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class);
+        return project.provider(() -> List.copyOf(compileJava.get().getOptions().getCompilerArgs()));
     }
 
     /**

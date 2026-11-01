@@ -225,6 +225,27 @@ class JasxPluginFunctionalTest {
     }
 
     @Test
+    void typeChecksWithTheCompilerArgumentsCompileJavaUses() throws IOException {
+        // The incubating vector API is only visible with --add-modules: without compileJava's argument, the
+        // check would report "package jdk.incubator.vector is not visible" in Pages.jasx.
+        write("build.gradle.kts", Files.readString(project.resolve("build.gradle.kts"))
+                + "\ntasks.compileJava { options.compilerArgs.addAll(listOf(\"--add-modules\", \"jdk.incubator.vector\")) }\n");
+        write("src/main/java/app/Pages.jasx", """
+                package app;
+                public class Pages {
+                    public static jasx.runtime.Element Home() {
+                        return <p>{jdk.incubator.vector.IntVector.SPECIES_128.length()}</p>;
+                    }
+                }
+                """);
+
+        BuildResult result = gradle("compileJava").build();
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":compileJasx").getOutcome());
+        assertEquals(TaskOutcome.SUCCESS, result.task(":compileJava").getOutcome());
+    }
+
+    @Test
     void typeCheckCanBeTurnedOff() throws IOException {
         write("build.gradle.kts", Files.readString(project.resolve("build.gradle.kts"))
                 + "\njasx { typeCheck.set(false) }\n");

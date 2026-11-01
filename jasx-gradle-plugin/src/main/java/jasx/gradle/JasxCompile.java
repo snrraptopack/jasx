@@ -15,6 +15,7 @@ import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Classpath;
@@ -45,8 +46,9 @@ import org.gradle.api.tasks.TaskAction;
  * can't be changed: an error in code that came from markup would point at
  * {@code build/generated/sources/jasx/main/app/Page.java}. So, unless {@code jasx.typeCheck} is off, this
  * task first checks the generated files with javac itself ({@link JavacRunner#typeCheck}), together with the
- * source set's {@code .java} files, against the same classpath, with the same annotation processors and
- * Java release:
+ * source set's {@code .java} files, against the same classpath, with the same annotation processors, Java
+ * release and compiler arguments ({@code compileJava}'s {@code options.compilerArgs}, less those the check sets
+ * itself and those about warnings: {@link JavacRunner.BuildOptions#compilerArgs}):
  *
  * <ul>
  *   <li>If javac finds an error in a {@code .jasx} file, the task prints every error javac found, those in
@@ -103,6 +105,10 @@ public abstract class JasxCompile extends DefaultTask {
     @Optional
     public abstract Property<Integer> getRelease();
 
+    /** {@code compileJava}'s {@code options.compilerArgs}, for the type check. */
+    @Input
+    public abstract ListProperty<String> getCompilerArgs();
+
     @OutputDirectory
     public abstract DirectoryProperty getOutputDirectory();
 
@@ -151,7 +157,7 @@ public abstract class JasxCompile extends DefaultTask {
 
         JavacRunner.BuildOptions options = new JavacRunner.BuildOptions(
                 pathString(getCompileClasspath()), pathString(getProcessorPath()), release,
-                getTemporaryDir().toPath());
+                getTemporaryDir().toPath(), getCompilerArgs().get());
         List<CompilerDiagnostic> javacErrors;
         try {
             javacErrors = sources.javacErrorsToReport(generated, options);
