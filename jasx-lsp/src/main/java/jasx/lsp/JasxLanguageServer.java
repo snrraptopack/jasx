@@ -19,7 +19,10 @@ import jasx.parser.Diagnostic;
  * <p>Supported:
  *
  * <ul>
- *   <li>lifecycle: {@code initialize}, {@code initialized}, {@code shutdown}, {@code exit};
+ *   <li>lifecycle: {@code initialize}, {@code initialized}, {@code shutdown}, {@code exit}. On
+ *       {@code initialized} the server asks the client to watch {@code .jasx} and {@code .java} files
+ *       ({@code client/registerCapability}), if the client supports that, because a change on disk to
+ *       one file can change what another means (a component declared elsewhere);
  *   <li>documents: {@code didOpen}, {@code didChange} (whole text), {@code didSave}, {@code didClose},
  *       and {@code workspace/didChangeWatchedFiles}. Each of them re-analyses the file's group and
  *       publishes its diagnostics ({@code textDocument/publishDiagnostics}). {@code didOpen} and
@@ -45,6 +48,10 @@ final class JasxLanguageServer {
     private Workspace workspace;
     /** Whether the client accepts snippets ({@code $1}) in completions; if not, plain text is sent. */
     private boolean snippetSupport;
+    /** Whether the client lets the server register file watchers ({@code client/registerCapability}). */
+    private boolean watcherRegistration;
+    /** The id of the server's next request to the client. */
+    private int nextRequestId = 1;
     private boolean shutdownRequested;
     private boolean exitRequested;
 
@@ -96,12 +103,13 @@ final class JasxLanguageServer {
     /** Runs one method; returns the result of a request (ignored for notifications). */
     private Object dispatch(String method, Map<String, Object> params, boolean isRequest) {
         if (method == null) {
-            return null; // a response to a request of ours; the server sends none
+            return null; // the client's answer to a request of ours (registerCapability), which needs no handling
         }
         switch (method) {
             case "initialize":
                 return initialize(params);
             case "initialized":
+                registerFileWatchers();
                 return null;
             case "shutdown":
                 shutdownRequested = true;
@@ -175,6 +183,9 @@ final class JasxLanguageServer {
         Map<String, Object> completionItem = Json.object(Json.object(Json.object(Json.object(
                 params.get("capabilities")).get("textDocument")).get("completion")).get("completionItem"));
         snippetSupport = Boolean.TRUE.equals(completionItem.get("snippetSupport"));
+        Map<String, Object> watchedFiles = Json.object(Json.object(Json.object(
+                params.get("capabilities")).get("workspace")).get("didChangeWatchedFiles"));
+        watcherRegistration = Boolean.TRUE.equals(watchedFiles.get("dynamicRegistration"));
 
         Map<String, Object> sync = new LinkedHashMap<>();
         sync.put("openClose", true);
@@ -192,6 +203,22 @@ final class JasxLanguageServer {
         result.put("capabilities", capabilities);
         result.put("serverInfo", Map.of("name", "jasx-lsp", "version", "0.2.0"));
         return result;
+    }
+
+    /**
+     * Asks the client to report changes to {@code .jasx} and {@code .java} files on disk
+     * ({@code workspace/didChangeWatchedFiles}). The client's answer needs no handling.
+     */
+    private void registerFileWatchers() {
+        if (!watcherRegistration) {
+            return;
+        }
+        List<Object> watchers = List.of(Map.of("globPattern", "**/*.jasx"), Map.of("globPattern", "**/*.java"));
+        Map<String, Object> registration = new LinkedHashMap<>();
+        registration.put("id", "jasx-watched-files");
+        registration.put("method", "workspace/didChangeWatchedFiles");
+        registration.put("registerOptions", Map.of("watchers", watchers));
+        request("client/registerCapability", Map.of("registrations", List.of(registration)));
     }
 
     private Workspace workspace() {
@@ -329,6 +356,15 @@ final class JasxLanguageServer {
     private void notify(String method, Object params) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("jsonrpc", "2.0");
+        message.put("method", method);
+        message.put("params", params);
+        send.accept(Json.write(message));
+    }
+
+    private void request(String method, Object params) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("jsonrpc", "2.0");
+        message.put("id", "jasx-" + nextRequestId++);
         message.put("method", method);
         message.put("params", params);
         send.accept(Json.write(message));

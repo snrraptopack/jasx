@@ -1,0 +1,33 @@
+<!--
+  The JASX plugin for IntelliJ IDEA: highlighting from the TextMate grammar shared with VS Code, and
+  errors, completion, go-to-definition and hover from the JASX language server, over IntelliJ's LSP support.
+  The version and the supported builds are filled in by the build (build.gradle.kts).
+-->
+<idea-plugin>
+    <id>io.github.snrraptopack.jasx</id>
+    <name>JASX</name>
+    <vendor url="https://github.com/snrraptopack/jasx">JASX</vendor>
+
+    <description><![CDATA[
+    <p>Support for <a href="https://github.com/snrraptopack/jasx">JASX</a>: Java source files
+    (<code>.jasx</code>) with JSX-style markup.</p>
+    <ul>
+      <li>Highlighting of Java, markup and style blocks.</li>
+      <li>JASX errors while typing, and javac errors on save once the project is built with the JASX
+          Gradle or Maven plugin.</li>
+      <li>Completion of tags, attributes and props in markup, and of Java members and names in Java code.</li>
+      <li>Go to definition and hover on components.</li>
+    </ul>
+    <p>Everything but highlighting comes from the JASX language server, which runs on the IDE's own Java
+    runtime.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lsp</depends>
+    <depends>org.jetbrains.plugins.textmate</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <platform.lsp.serverSupportProvider implementation="jasx.intellij.JasxLspServerSupportProvider"/>
+        <textmate.bundleProvider implementation="jasx.intellij.JasxBundleProvider"/>
+    </extensions>
+</idea-plugin>

@@ -1,0 +1,32 @@
+{
+  "name": "jasx",
+  "version": "1.0.0",
+  "description": "JASX (Java with JSX-style markup): the TextMate grammar shared with the VS Code extension.",
+  "license": "Apache-2.0",
+  "contributes": {
+    "languages": [
+      {
+        "id": "jasx",
+        "extensions": [
+          ".jasx"
+        ],
+        "aliases": [
+          "JASX",
+          "jasx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "jasx",
+        "scopeName": "source.jasx",
+        "path": "./syntaxes/jasx.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.expression.jasx": "java",
+          "meta.embedded.block.css": "css"
+        }
+      }
+    ]
+  }
+}

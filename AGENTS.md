@@ -33,11 +33,20 @@ The user asked for items 1–4 to be done in this order, then the rest. Mark eac
 6. **Publishing to Maven Central.** (setup done) Decided with the user: license Apache-2.0; group id `io.github.snrraptopack` (namespace verified on central.sonatype.com) and Gradle plugin id `io.github.snrraptopack.jasx`, **temporary** until the user buys `jasx.dev`, then everything moves to `dev.jasx` (Java packages stay `jasx.*`). The build signs, stages and uploads (`./gradlew publishToMavenCentral`, as a deployment the user publishes by hand in the portal); `docs/publishing.md` is the procedure. Still waiting on the user: a GPG key and a Central user token in `~/.gradle/gradle.properties`, then the first release (version without `-SNAPSHOT`).
 7. **Plain JavaScript in the browser:** parked in `docs/discussions/browser-javascript.md`; only when the user says so.
 
+Agreed with the user on 2026-11-01, after items 1–4: everything below, in this order, while items 5 and 6 (benchmarks, publishing) wait. JASX is a library, not an application: concerns such as rate limiting belong to the applications (or their server or framework) and are not on this list.
+
+8. **(done: `editors/intellij`)** **IntelliJ IDEA support, step 1:** a thin plugin on IntelliJ's own LSP API (IntelliJ IDEA 2025.3 or later) that starts the same `jasx-lsp` and highlights with the VS Code grammar through IntelliJ's TextMate support. The server now registers its own file watchers (`client/registerCapability`), so every client hears about `.jasx` and `.java` changes. Step 2 (a native plugin: navigation to `.jasx` sources, IntelliJ's Java support inside `.jasx`) comes later.
+9. **Language server features** for every editor: document symbols, find references and rename of components and props, semantic tokens.
+10. **The Maven plugin reads the maven-compiler-plugin's configuration** for its type check: `annotationProcessorPaths` and compiler arguments.
+11. **The Gradle type check compiles only once** (or at least copies `compileJava`'s `compilerArgs`).
+12. **`web`: a plain hole keeps the state of the components inside it** when it re-renders, as keyed lists keep their items (spec change, `targets/web.md`).
+13. **The Spring Boot starter is tested with Spring Boot 4.**
+
 ## Current state
 
 - `jasx-spec/` is the **normative source of truth**. `JASX-update1.md` is the **historical** design proposal: don't implement from it.
 - **Milestones 1 and 2 are done.** The parser passes the parse and error conformance tests, and the compiler with the `html` reference target passes the render tests: `.jasx` compiles to Java, javac compiles it, and it renders the expected HTML.
-- **Milestone 3 is mostly done:** the annotation processor, the Gradle and Maven plugins (with javac errors reported at `.jasx` locations, and `.jasx` names in stack traces), VS Code syntax highlighting, a language server (`jasx-lsp`: JASX errors while typing, javac errors on save once the project is built, completion of tags and props in markup and of Java members and names in Java code, go-to-definition and hover on components) with its VS Code client, publishing to Maven Local, and a runnable example (`examples/hello`). Still missing: publishing to a public repository, which waits until Milestone 4 has JASX's own runtime target and more examples.
+- **Milestone 3 is mostly done:** the annotation processor, the Gradle and Maven plugins (with javac errors reported at `.jasx` locations, and `.jasx` names in stack traces), VS Code syntax highlighting, a language server (`jasx-lsp`: JASX errors while typing, javac errors on save once the project is built, completion of tags and props in markup and of Java members and names in Java code, go-to-definition and hover on components) with its VS Code and IntelliJ IDEA clients, publishing to Maven Local, and a runnable example (`examples/hello`). Still missing: publishing to a public repository, which waits until Milestone 4 has JASX's own runtime target and more examples.
 - **Milestone 4 has started:** targets can have their own lowering (`semantics.md` §7.4, `MarkupLowering`), and the `web` target works (`jasx-web`: reactive holes, events over HTTP, pushes over server-sent events, a server on the JDK's HTTP server, the browser client, `examples/web`, a servlet adapter and a Spring Boot starter). Next: more examples, then publishing.
 
 ## Known gaps
@@ -45,7 +54,7 @@ The user asked for items 1–4 to be done in this order, then the rest. Mark eac
 - **The Gradle type check compiles twice.** `compileJasx` type-checks the generated Java with javac (`JavacRunner.typeCheck`: same classpath, annotation processors and release as `compileJava`, no class files) so that javac's errors in `.jasx` code are reported once, at `.jasx` locations, and `compileJava` doesn't run. On success, `compileJava` then compiles the source set again. `jasx { typeCheck.set(false) }` turns the check off; javac's errors then point at the generated files (same line numbers). Other `compileJava` options (`compilerArgs`) are not copied into the check.
 - **The language server needs a build for the full picture.** It analyses a Gradle-style source set (`src/<set>/java` and `src/<set>/jasx` together, as the build plugins compile them) as one group, and any other file alone, each under its own key. The Gradle plugin's `writeJasxEditorInfo` task writes `build/jasx/editor/<set>.json` (`EditorInfo`: target, classpaths, processor path, release) on every build, and the Maven plugin `target/jasx/editor/<set>.json`; with it, the server knows the components of the project's jars and runs javac (`JavacRunner.typeCheck`) on open and save, in the background, showing its errors in `.jasx` files only. Before the first build (or without the plugin, or with a custom build directory) it uses its bundled `html` target, knows no jar's components (JASX2001), and shows no javac errors. javac errors are hidden in a file as soon as it is edited, until the next save.
 - **Not published to a public repository yet** (the build is ready: `docs/publishing.md`). `./gradlew publishToMavenLocal` installs everything in `~/.m2`; `examples/hello` uses a composite build instead, and `examples/hello-maven` needs `publishToMavenLocal` first.
-- **The `web` target is a first version** (`targets/web.md` §10). Keyed lists keep unchanged items (`targets/web.md` §4.3; inputs compared through the lambda's captured fields, `Captures`), and the client merges `html` patches into the DOM, but a plain hole still renders its whole content again (component state inside it starts afresh), and repeated shapes are sent as templates, found at run time (`targets/web.md` §8.4, `Markup`, `Page.content`). `WebServer` (the JDK's HTTP server) is HTTP/1.1 only; the tabs of a browser share one stream (`targets/web.md` §6.2, `SharedStream`, a leader tab chosen with Web Locks), except outside a secure context, where each tab has its own and many tabs can hit the browser's six-connections-per-server limit. The core is `WebApp`, which any server can call through `WebApp.Request`; `WebServer` is the JDK adapter, `jasx-web-servlet` the servlet one, and `jasx-web-spring-boot-starter` (built and tested with Spring Boot 3.4; Spring Boot 4 untested) the Spring one. `WebApp` binds pages to a `jasx_session` cookie and checks events (`targets/web.md` §6.3); there is no rate limiting. The browser client's tests (jsdom) run in `./gradlew build` (`:jasx-web:clientTests`) only when Node.js is installed; without it they are skipped with a warning.
+- **The `web` target is a first version** (`targets/web.md` §10). Keyed lists keep unchanged items (`targets/web.md` §4.3; inputs compared through the lambda's captured fields, `Captures`), and the client merges `html` patches into the DOM, but a plain hole still renders its whole content again (component state inside it starts afresh), and repeated shapes are sent as templates, found at run time (`targets/web.md` §8.4, `Markup`, `Page.content`). `WebServer` (the JDK's HTTP server) is HTTP/1.1 only; the tabs of a browser share one stream (`targets/web.md` §6.2, `SharedStream`, a leader tab chosen with Web Locks), except outside a secure context, where each tab has its own and many tabs can hit the browser's six-connections-per-server limit. The core is `WebApp`, which any server can call through `WebApp.Request`; `WebServer` is the JDK adapter, `jasx-web-servlet` the servlet one, and `jasx-web-spring-boot-starter` (built and tested with Spring Boot 3.4; Spring Boot 4 untested) the Spring one. `WebApp` binds pages to a `jasx_session` cookie and checks events (`targets/web.md` §6.3); rate limiting is left to the application or its server, as for any library. For HTTP/2, run `web` on a servlet container or in Spring Boot. The browser client's tests (jsdom) run in `./gradlew build` (`:jasx-web:clientTests`) only when Node.js is installed; without it they are skipped with a warning.
 - **The Maven plugin's type check uses the classpath as the annotation processor path** (Maven's default). It doesn't read `annotationProcessorPaths` from the maven-compiler-plugin's configuration, nor other compiler options. Its plugin descriptor (`META-INF/maven/plugin.xml`) is written by hand; keep it in sync with the mojos' fields (the functional tests catch a mismatch).
 
 ## Repository layout
@@ -74,6 +83,8 @@ jasx-gradle-plugin/        Gradle plugin id "io.github.snrraptopack.jasx": compi
 jasx-conformance/          JUnit runner for jasx-spec/tests (all levels)
 jasx-lsp/                  language server over stdio (no third-party deps): JASX and javac diagnostics, completion, definition, hover
 editors/vscode/            VS Code extension: TextMate grammar, language server client (extension.js), Node tests
+editors/intellij/          IntelliJ IDEA plugin (a build of its own): LSP client on IntelliJ's LSP API, the VS Code grammar as a
+                           TextMate bundle, headless IDE tests
 jasx-maven-plugin/         Maven plugin: goals compile, test-compile, source-names, test-source-names (hand-written plugin.xml)
 jasx-ui/                   shared runtime of interactive targets: jasx.ui (State, Derived, Effect, Reactive, Computation,
                            Scheduler; Event, InputEvent, KeyEvent, MouseEvent, FormEvent, Handler, Action, form-to-record binding)
@@ -115,13 +126,14 @@ These decisions are already made. Follow them unless the user changes them.
 | `jasx-lsp` | language server (LSP over stdio, no third-party deps): JASX diagnostics while typing, javac diagnostics on save (with the build's classpath), completion of tag names and attributes/props in markup and of Java members and names in Java code (`JavaCompletions`: the group lowered with a marker at the cursor, analysed with javac's tree API), go-to-definition and hover on components; `installServer` copies a self-contained jar into the VS Code extension | done (first version) |
 | `jasx-maven-plugin` | Maven plugin `io.github.snrraptopack:jasx-maven-plugin`: the same steps as the Gradle plugin, sharing `BuildSources`, `EditorInfo` and `JasxSourceNames` from the compiler | done; functional tests run real Maven builds of `examples/hello-maven` |
 | `editors/vscode` | TextMate grammar injected into VS Code's Java grammar; language server client; tests with `vscode-textmate` | done |
+| `editors/intellij` | IntelliJ IDEA plugin (own Gradle build, including the main one for `:jasx-lsp:serverJar`): `JasxLspServerDescriptor` runs the server on the IDE's runtime, `JasxBundleProvider` gives TextMate the VS Code grammar; the server jar and the bundle sit in the plugin's directory, outside its jar; tests in a headless IDE | first version |
 | `jasx-ui` | shared runtime of interactive targets (`ui.md`): reactive values and their engine (`Computation`, `Scheduler`), typed events and handlers, `FormEvent.as` record binding; no dependencies | first version |
 | `jasx-web` | the `web` target (`targets/web.md`): holes on `jasx-ui`, `WebLowering`, builders with typed event overloads, pages and protocol (`WebApp`), JDK server (`WebServer`), browser client; no third-party dependencies | first version |
 | `jasx-web-servlet` | `web` on servlet containers: `ServletAdapter` translates requests and responses (the security checks stay in `WebApp`), `JasxServlet` serves pages; streams use async servlets on virtual threads; the servlet API is `compileOnly` (the container provides it) | first version |
 | `jasx-web-spring-boot-starter` | `web` in Spring Boot 3: auto-configuration (`WebApp` bean, `JasxWebProperties`, the runtime's async servlet, a lifecycle bean that closes pages before graceful shutdown), controller methods returning `Element` run inside a new page (`PageHandlerAdapter` through `WebMvcRegistrations`), `WebPage` (`() -> <Page />`) is the fallback when an app has its own `WebMvcRegistrations`; Spring is `compileOnly` | first version |
 | `jasx-web-test` | page tests without a browser: `TestPage` renders through `WebApp`'s public API (its own session), sends events as the client describes them (no debounce), applies answers and pushes to a small DOM, CSS selectors with a text filter, `await` for pushes; no dependencies besides `jasx-web` | first version |
 
-  Next: the order of work in "Current focus", more examples, then publishing. Later: an IntelliJ client for the language server (and later a deeper IntelliJ plugin), more language server features (rename, find references).
+  Next: the order of work in "Current focus", more examples, then publishing. Later: a deeper IntelliJ plugin (step 2 of item 8).
 - The Java package root is `jasx` (`jasx.parser`, `jasx.runtime`, `jasx.html`, …), matching the names the spec uses.
 - `jasx-parser`, `jasx-runtime`, `jasx-compiler`, `jasx-lsp`, `jasx-ui` and `jasx-web` must stay free of third-party runtime dependencies (the compiler has its own small JSON reader). Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
 - The compiler never references a target at compile time. It loads the target's descriptor and schema from the classpath (`Target.load`), and the target's lowering class if the descriptor names one.
@@ -149,7 +161,7 @@ The build plugins share `BuildSources` (reading a source set, compiling, the typ
 Git Bash on this machine doesn't have `java` on its `PATH`, so set `JAVA_HOME` first:
 
 ```
-export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
+export JAVA_HOME="/c/Program Files/Java/jdk-21.0.10"
 ./gradlew build                          # compile, unit tests, conformance suite
 ./gradlew :jasx-parser:test              # parser unit tests only
 ./gradlew :jasx-conformance:test         # conformance suite only
@@ -163,6 +175,10 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew :jasx-lsp:installServer        # build the server jar into editors/vscode/server/
 (cd editors/vscode && npx @vscode/vsce@3 package --skip-license && code --install-extension jasx-0.6.0.vsix --force)
                                          # package and install the VS Code extension
+./gradlew -p editors/intellij buildPlugin   # the IntelliJ plugin zip (build/distributions/); downloads IntelliJ IDEA once
+./gradlew -p editors/intellij test       # the plugin in a headless IDE; add
+                                         # -PintellijPlatformLocalPath="C:/Program Files/JetBrains/IntelliJ IDEA 2026.1.1"
+                                         # to either to use the installed IDE instead of downloading one
 ./gradlew -p examples/hello run --args=--print   # build and run the example (prints the page)
 ./gradlew -p examples/hello run          # serve the example at http://localhost:8080
 ./gradlew :jasx-web:test                 # web target: reactive core, pages, compiled .jasx, JDK server
@@ -240,6 +256,7 @@ When running Java directly on Windows, separate classpath entries with `;`, not 
 ## Environment
 
 - Development machine: Windows 11 (temporary). Shells: PowerShell and Git Bash.
-- JDK: Eclipse Temurin 21 at `C:\Program Files\Eclipse Adoptium\jdk-21.0.13.9-hotspot`. Gradle comes from the wrapper.
+- JDK: Oracle JDK 21 at `C:\Program Files\Java\jdk-21.0.10` (the machine changes; find the JDK again if this path is gone). Gradle comes from the wrapper.
+- IntelliJ IDEA 2026.1.1 is installed at `C:\Program Files\JetBrains\IntelliJ IDEA 2026.1.1`; the user works in it.
 - Node.js is available for one-off scripts.
 - Git: work on a branch off `main` and **push after every commit**, because the machine is temporary. Remote: `https://github.com/snrraptopack/jasx`.

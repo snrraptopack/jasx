@@ -118,7 +118,7 @@ Early development. The specification is a draft.
 
 - [`jasx-spec/`](jasx-spec/README.md): the language specification and its conformance tests.
 - Parser, compiler and `html` target: implemented, and passing the whole conformance suite.
-- Gradle plugin, Maven plugin, annotation processor, VS Code highlighting and a language server (errors while typing, completion, go-to-definition and hover): implemented.
+- Gradle plugin, Maven plugin, annotation processor, VS Code and IntelliJ IDEA support, and a language server (errors while typing, completion, go-to-definition and hover): implemented.
 - Targets with their own lowering, so a third-party target decides what markup becomes (see [Writing a target](#writing-a-target)): implemented.
 - The `web` target: a first version, with a server on the JDK's HTTP server and an adapter for servlet containers.
 - A Spring Boot starter for `web`: pages are controller methods (`jasx-web-spring-boot-starter`).
@@ -236,6 +236,8 @@ Implement `MarkupLowering` directly to generate something else entirely. See the
 
 [`editors/vscode`](editors/vscode/README.md) is a VS Code extension: it highlights `.jasx` files (CSS in style blocks too), and runs the JASX language server ([`jasx-lsp`](jasx-lsp)), which shows JASX errors while you type, completes tag names and props in markup and Java members and names in Java code (also inside `{...}`, where a handler knows its kind of event), and offers go-to-definition and hover on components. Once the project has been built with the Gradle or Maven plugin, it also knows the components of your dependencies and shows javac's errors in `.jasx` files when you save.
 
+[`editors/intellij`](editors/intellij/README.md) is the same for IntelliJ IDEA 2025.3 or later: the plugin highlights `.jasx` files with the same grammar and runs the same language server, through IntelliJ's LSP support.
+
 ## Building
 
 Requires JDK 21.
@@ -268,6 +270,7 @@ The second command prints the Java generated for a sample file.
 | `jasx-conformance/` | Runs the conformance tests |
 | `jasx-lsp/` | Language server: JASX errors while typing, completion, go-to-definition and hover |
 | `editors/vscode/` | VS Code extension (highlighting, language server client) |
+| `editors/intellij/` | IntelliJ IDEA plugin (highlighting, language server client) |
 | `JASX-update1.md` | The original design proposal (historical) |
 
 Contributors and coding agents: see [`AGENTS.md`](AGENTS.md). Releasing to Maven Central: see [`docs/publishing.md`](docs/publishing.md).

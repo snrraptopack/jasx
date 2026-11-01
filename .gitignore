@@ -28,3 +28,6 @@ Thumbs.db
 
 # Language server jar copied into the VS Code extension (./gradlew :jasx-lsp:installServer)
 editors/vscode/server/
+
+# IntelliJ Platform Gradle plugin: downloaded IDEs and sandboxes (editors/intellij)
+.intellijPlatform/

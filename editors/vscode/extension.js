@@ -36,9 +36,8 @@ async function activate(context) {
     { run: server, debug: server },
     {
       documentSelector: [{ scheme: "file", language: "jasx" }],
-      // Other files change what a .jasx file means (a component declared elsewhere), so the server hears
-      // about every .jasx and .java file that changes on disk.
-      synchronize: { fileEvents: vscode.workspace.createFileSystemWatcher("**/*.{jasx,java}") },
+      // The server asks for the .jasx and .java files it needs to hear about (client/registerCapability),
+      // in every editor, so no file watcher is set up here.
       initializationOptions: { target: settings.get("target", "html") },
     });
 

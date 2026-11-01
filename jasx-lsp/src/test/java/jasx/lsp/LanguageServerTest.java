@@ -192,6 +192,26 @@ class LanguageServerTest {
         }
 
         @Test
+        void asksTheClientToWatchFilesOnlyIfItCan() {
+            // setUp's client didn't say it supports registration, so nothing was asked.
+            assertTrue(sent.stream().noneMatch(m -> "client/registerCapability".equals(m.get("method"))));
+
+            sent.clear();
+            server = new JasxLanguageServer(json -> sent.add(Json.object(Json.parse(json))), Runnable::run);
+            Map<String, Object> capabilities = Map.of("workspace",
+                    Map.of("didChangeWatchedFiles", Map.of("dynamicRegistration", true)));
+            request("initialize", Map.of("rootUri", project.toUri().toString(), "capabilities", capabilities));
+            notification("initialized", Map.of());
+
+            Map<String, Object> registration = sent.stream()
+                    .filter(m -> "client/registerCapability".equals(m.get("method")))
+                    .findFirst().orElseThrow();
+            String watchers = Json.write(Json.object(registration.get("params")).get("registrations"));
+            assertTrue(watchers.contains("\"workspace/didChangeWatchedFiles\""), watchers);
+            assertTrue(watchers.contains("\"**/*.jasx\"") && watchers.contains("\"**/*.java\""), watchers);
+        }
+
+        @Test
         void reportsErrorsWhileTyping() {
             open(page, PAGE);
             assertEquals(List.of(), diagnosticsOf(page));
