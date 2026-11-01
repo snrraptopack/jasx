@@ -15,10 +15,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -61,10 +58,9 @@ final class Page implements Scheduler {
     private final Set<Computation> dirty = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean flushScheduled = new AtomicBoolean();
     private final List<Map<String, Object>> patches = new ArrayList<>();
-    private long version;
 
-    /** Batches for the stream, in version order; one that couldn't be sent goes back to the front. */
-    private final BlockingDeque<String> outbox = new LinkedBlockingDeque<>();
+    /** Every batch, numbered, kept so a browser that missed some can catch up (§6.1). */
+    private final BatchLog log = new BatchLog();
     private final AtomicInteger streamGeneration = new AtomicInteger();
     private volatile boolean streamOpen;
     private volatile long lastSeen = System.nanoTime();
@@ -100,11 +96,8 @@ final class Page implements Scheduler {
             Renderer renderer = new Renderer(this, false);
             String html = renderer.document(rootValue.get(), scriptTag);
             sheets.addAll(renderer.sheets());
-            // State set while rendering (rare): its patches wait for the stream.
-            String batch = flush();
-            if (batch != null) {
-                outbox.add(batch);
-            }
+            // State set while rendering (rare): the stream delivers its batch when the browser connects.
+            flush(false);
             return html;
         }));
     }
@@ -168,7 +161,7 @@ final class Page implements Scheduler {
                 }
                 return null;
             });
-            return flush();
+            return flush(true);
         });
     }
 
@@ -201,21 +194,19 @@ final class Page implements Scheduler {
         }
         Thread.ofVirtual().name("jasx-flush-" + id).start(() -> locked(() -> {
             flushScheduled.set(false); // changes from now on need another flush
-            String batch = flush();
-            if (batch != null) {
-                outbox.add(batch);
-            }
+            flush(false); // the stream pushes it
             return null;
         }));
     }
 
     /**
      * Re-runs the dirty holes in document order, then the dirty effects, until nothing is dirty, and turns
-     * the patches into one batch (targets/web.md §5, §8.4). Must hold the lock.
+     * the patches into the page's next batch (targets/web.md §5, §8.4). Must hold the lock.
      *
+     * @param answer whether the batch answers an event (its request returns it) or is pushed on the stream
      * @return the batch as JSON, or null if nothing changed in the browser
      */
-    private String flush() {
+    private String flush(boolean answer) {
         for (int round = 0; !dirty.isEmpty(); round++) {
             if (round == MAX_FLUSH_ROUNDS) {
                 LOG.log(System.Logger.Level.WARNING, "page " + id + ": effects keep changing state; stopped after "
@@ -231,12 +222,12 @@ final class Page implements Scheduler {
             // when its parent re-runs, and then skipped.
             for (Computation computation : now) {
                 if (!(computation instanceof Effect) && !computation.isDisposed()) {
-                    computation.update();
+                    updateIsolated(computation);
                 }
             }
             for (Computation computation : now) {
                 if (computation instanceof Effect effect && !effect.isDisposed()) {
-                    effect.update();
+                    updateIsolated(effect);
                 }
             }
         }
@@ -244,12 +235,22 @@ final class Page implements Scheduler {
         if (patches.isEmpty()) {
             return null;
         }
-        version++;
-        Map<String, Object> batch = new LinkedHashMap<>();
-        batch.put("version", version);
-        batch.put("patches", List.copyOf(patches));
+        String batch = log.add(List.copyOf(patches), answer);
         patches.clear();
-        return Json.write(batch);
+        return batch;
+    }
+
+    /**
+     * Updates one hole or effect. If it throws, it keeps its previous run (jasx-spec/ui.md §2.4): the browser
+     * keeps showing what it showed, with working handlers, and the rest of the flush goes on (targets/web.md §5).
+     */
+    private void updateIsolated(Computation computation) {
+        try {
+            computation.update();
+        } catch (RuntimeException | AssertionError e) {
+            String what = computation instanceof Effect ? "an effect" : "a hole, which keeps its previous content,";
+            LOG.log(System.Logger.Level.ERROR, "page " + id + ": " + what + " failed to update", e);
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -261,31 +262,50 @@ final class Page implements Scheduler {
         void send(String frame) throws IOException;
     }
 
+    /** The frame that tells the browser to load the page afresh (§6.1). */
+    static final String RELOAD_FRAME = "data: {\"reload\":true}\n\n";
+
     /**
-     * Sends the page's pushed batches to {@code sink} until the connection fails or a newer stream for the
-     * page replaces this one. Blocks; a comment every {@code heartbeatSeconds} keeps the connection open.
+     * Streams the page to a browser that has applied every batch up to {@code since} (§6.1): first what it
+     * missed, merged into one batch, then each pushed batch as it comes, until the connection fails or a newer
+     * stream of the page replaces this one. If the log no longer holds what it missed, the browser is told to
+     * reload. Blocks; a comment every {@code heartbeatSeconds} keeps the connection open.
+     *
+     * <p>Batches that answer events are not pushed: their requests carried them. If one was lost, the browser
+     * notices the missing version and reconnects, and the catch-up includes it.
      */
-    void stream(StreamSink sink, int heartbeatSeconds) {
+    void stream(StreamSink sink, long since, int heartbeatSeconds) {
         int generation = streamGeneration.incrementAndGet();
+        log.wakeAll(); // a stream this one replaces stops waiting
         streamOpen = true;
+        lastSeen = System.nanoTime();
         try {
             sink.send(": connected\n\n");
+            if (!log.covers(since)) {
+                sink.send(RELOAD_FRAME);
+                return;
+            }
+            long cursor = since;
+            List<BatchLog.Batch> missed = log.after(cursor);
+            if (!missed.isEmpty()) {
+                sink.send("data: " + BatchLog.merged(missed) + "\n\n");
+                cursor = missed.get(missed.size() - 1).version();
+            }
             while (streamGeneration.get() == generation) {
-                String batch = outbox.poll(heartbeatSeconds, TimeUnit.SECONDS);
+                List<BatchLog.Batch> next = log.awaitAfter(cursor, heartbeatSeconds * 1000L);
                 lastSeen = System.nanoTime();
-                if (batch == null) {
+                if (streamGeneration.get() != generation) {
+                    break; // a newer stream took over while this one waited
+                }
+                if (next.isEmpty()) {
                     sink.send(": ping\n\n");
                     continue;
                 }
-                if (streamGeneration.get() != generation) {
-                    outbox.addFirst(batch); // a newer stream took over while this one waited
-                    break;
-                }
-                try {
-                    sink.send("data: " + batch + "\n\n");
-                } catch (IOException e) {
-                    outbox.addFirst(batch); // the next stream sends it, so no version is skipped
-                    throw e;
+                for (BatchLog.Batch batch : next) {
+                    if (!batch.answer()) {
+                        sink.send("data: " + batch.json() + "\n\n");
+                    }
+                    cursor = batch.version();
                 }
             }
         } catch (IOException e) {
@@ -308,6 +328,7 @@ final class Page implements Scheduler {
     /** Disposes everything, which also unsubscribes the page from state shared with other pages. */
     void discard() {
         streamGeneration.incrementAndGet(); // ends a stream that is still running
+        log.wakeAll();
         locked(() -> {
             root.dispose();
             handlers.clear();

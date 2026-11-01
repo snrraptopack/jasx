@@ -215,6 +215,8 @@ public final class Clock {
 
 The browser keeps one stream open per page (`GET /_jasx/stream`). Nothing goes through it when nothing changes, apart from a keep-alive comment every 25 seconds.
 
+If the connection drops (a laptop asleep, a train tunnel), the browser reconnects and tells the server the last update it applied. The server sends what was missed as one update, keeping only the latest value of each spot, so a clock that ticked sixty times while you were away sends one value. If too much was missed, the page reloads.
+
 ## Styles
 
 A `<style>` block in a `.jasx` file is scoped to that file's markup, as with every target. The page gets the style sheets it uses in its `<head>`, or where you place `{styles()}`. A style sheet first needed by an update is sent with it.
@@ -246,6 +248,8 @@ A page is kept for 2 minutes after its browser goes away (no stream and no event
   Use a `final` copy, a ternary, or a `state`.
 - **Reading state outside a hole doesn't follow it.** `var n = count.get();` in the component body is read once.
 - **A component inside a hole that re-runs is created again**, with fresh state. Keep state that must survive higher up, or in a store.
+- **A hole directly in a `<table>` holds rows.** It is placed in a `<tbody>`, as the browser would do. To fill a `<thead>` from a hole, put the hole inside the `<thead>`.
+- **If a hole throws while updating**, the error is logged and the hole keeps showing what it showed, with working buttons. It tries again on the next change.
 - **`Boolean` values render as text**, as on every JASX target: `{done}` shows `true`. Use `{done ? "✓" : ""}`.
 
 ## Reference

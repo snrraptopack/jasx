@@ -117,23 +117,22 @@ public final class WebServer {
 
     /** The page's stream of server-sent events; blocks this (virtual) thread while it is open. */
     private void stream(HttpExchange exchange) throws IOException {
-        String pageId = pageId(exchange);
-        if (!app.hasPage(pageId)) {
-            send(exchange, 410, "text/plain; charset=utf-8", "");
-            return;
-        }
         exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
         exchange.sendResponseHeaders(200, 0); // 0: chunked, of unknown length
         OutputStream out = exchange.getResponseBody();
-        app.stream(pageId, frame -> {
+        app.stream(pageId(exchange), WebApp.since(queryParameter(exchange, "since")), frame -> {
             out.write(frame.getBytes(StandardCharsets.UTF_8));
             out.flush();
         });
     }
 
     private static String pageId(HttpExchange exchange) {
-        return WebRequest.parseQuery(exchange.getRequestURI().getRawQuery()).getOrDefault("page", java.util.List.of())
+        return queryParameter(exchange, "page");
+    }
+
+    private static String queryParameter(HttpExchange exchange, String name) {
+        return WebRequest.parseQuery(exchange.getRequestURI().getRawQuery()).getOrDefault(name, java.util.List.of())
                 .stream().findFirst().orElse(null);
     }
 

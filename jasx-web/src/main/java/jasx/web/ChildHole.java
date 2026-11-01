@@ -30,7 +30,7 @@ final class ChildHole extends Computation {
      * its content still get theirs.
      */
     String firstRender(Renderer parent) {
-        Renderer content = renderContent();
+        Renderer content = track(this::renderContent);
         parent.useSheets(content.sheets());
         html = content.html();
         if (!hasSources()) {
@@ -39,11 +39,14 @@ final class ChildHole extends Computation {
         return "<!--jx:" + id + "-->" + html + "<!--/jx:" + id + "-->";
     }
 
-    /** Renders again after a value it read changed, and records a patch if the content changed. */
+    /**
+     * Renders again after a value it read changed, and records a patch if the content changed. If rendering
+     * throws, the hole keeps its previous content, handlers and subscriptions (jasx-spec/ui.md §2.4), and the
+     * page reports the exception (targets/web.md §5).
+     */
     @Override
     public void update() {
-        reset();
-        Renderer content = renderContent();
+        Renderer content = retrack(this::renderContent);
         page.useSheets(content.sheets()); // a css patch for any style sheet the page didn't have (§9)
         String newHtml = content.html();
         if (!newHtml.equals(html)) {
@@ -57,14 +60,12 @@ final class ChildHole extends Computation {
     }
 
     /**
-     * Evaluates the value and renders it, both tracked: components called by the expression, and lazy
-     * values such as streams consumed while rendering, subscribe this hole to what they read.
+     * Evaluates the value and renders it. Both run tracked (the caller tracks): components called by the
+     * expression, and lazy values such as streams consumed while rendering, subscribe this hole too.
      */
     private Renderer renderContent() {
-        return track(() -> {
-            Renderer content = new Renderer(page, false);
-            content.child(value.get());
-            return content;
-        });
+        Renderer content = new Renderer(page, false);
+        content.child(value.get());
+        return content;
     }
 }

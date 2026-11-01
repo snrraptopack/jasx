@@ -12,6 +12,8 @@ public final class Derived<T> extends Source {
     private final Computation computation;
     private T value;
     private boolean stale = true;
+    /** Whether its readers were told it is stale since it was last computed; then they needn't be told again. */
+    private boolean readersTold;
 
     Derived(Supplier<T> fn) {
         this.fn = fn;
@@ -35,8 +37,16 @@ public final class Derived<T> extends Source {
         synchronized (this) {
             if (stale) {
                 computation.reset(); // drops the subscriptions of the previous computation
-                value = computation.track(fn);
+                try {
+                    value = computation.track(fn);
+                } catch (RuntimeException | Error failure) {
+                    // Still stale. Readers that failed with it retry when one of its values changes, so the
+                    // next change must tell them again.
+                    readersTold = false;
+                    throw failure;
+                }
                 stale = false;
+                readersTold = false;
             }
             return value;
         }
@@ -45,10 +55,11 @@ public final class Derived<T> extends Source {
     /** A value it read changed: compute again on the next read, and tell its own readers. */
     private void markStale() {
         synchronized (this) {
-            if (stale) {
-                return; // its readers were already told
+            if (stale && readersTold) {
+                return; // nothing was computed since they were told
             }
             stale = true;
+            readersTold = true;
         }
         changed();
     }

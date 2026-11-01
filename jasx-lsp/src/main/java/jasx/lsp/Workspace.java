@@ -31,7 +31,7 @@ import jasx.parser.LineMap;
  * <p><b>Groups.</b> Markup in one file can use components of other files, so files are analysed together,
  * in the groups a build would compile together. A file in a Gradle-style source directory
  * ({@code .../src/<set>/java} or {@code .../src/<set>/jasx}) is analysed with every {@code .jasx} and
- * {@code .java} file of that directory. Any other file is analysed on its own.
+ * {@code .java} file of its source set, in both directories. Any other file is analysed on its own.
  *
  * <p><b>Text.</b> An open document is analysed with the text the editor has, which may not be saved yet;
  * every other file with its text on disk.
@@ -51,10 +51,10 @@ final class Workspace {
 
     /** A group of files analysed together, and the result of the last analysis. */
     record Analysis(
-            /** The source directory, or the directory of a file analysed on its own. */
+            /** The group's key: its source set ({@code src/main}), or the file analysed on its own. */
             Path base,
             CompilationResult result,
-            /** Each analysed file by its path relative to {@code base}, as the compiler knows it. */
+            /** Each analysed file by its path relative to its source directory, as the compiler knows it. */
             Map<String, Path> files,
             /** The text each file was analysed with, by relative path. */
             Map<String, String> texts,
@@ -142,32 +142,33 @@ final class Workspace {
      */
     Map<String, List<FileDiagnostic>> analyze(String uri) {
         Path file = toPath(uri);
-        Path base = sourceDirectory(file);
-        List<Path> paths = base != null ? sourceFiles(base) : List.of(file);
-        if (base == null) {
-            base = file.getParent();
-        }
+        Path sourceDirectory = sourceDirectory(file);
+        // The group's key: the source set (src/main) for a file in a source directory, so that src/main/java
+        // and src/main/jasx form one group as in the build; otherwise the file itself, so that two files
+        // analysed on their own in one directory don't replace each other's analysis.
+        Path base = sourceDirectory != null ? sourceDirectory.getParent() : file;
+        List<Path> paths = sourceDirectory != null ? sourceSetFiles(base) : new ArrayList<>(List.of(file));
         if (!paths.contains(file) && isSource(file)) {
-            paths = new ArrayList<>(paths);
             paths.add(file); // a new file that isn't on disk yet
         }
 
-        // Read every file of the group, preferring the editor's text.
+        // Read every file of the group, preferring the editor's text. Each file is named relative to its own
+        // source directory, as the build names it.
         Map<String, Path> files = new LinkedHashMap<>();
         Map<String, String> texts = new LinkedHashMap<>();
         List<SourceFile> sources = new ArrayList<>();
         for (Path path : paths) {
-            String relative = base.relativize(path).toString().replace('\\', '/');
+            String relative = relativeName(path);
             String text = textOf(path);
-            if (text == null) {
-                continue; // deleted meanwhile
+            if (text == null || files.containsKey(relative)) {
+                continue; // deleted meanwhile, or the same name in both source directories (javac reports it)
             }
             files.put(relative, path);
             texts.put(relative, text);
             sources.add(new SourceFile(relative, text));
         }
 
-        BuildInfo build = sourceDirectory(file) != null ? buildInfoFor(base) : null;
+        BuildInfo build = sourceDirectory != null ? buildInfoFor(sourceDirectory) : null;
         Target target = build != null ? build.target() : defaultTarget;
         ComponentIndex dependencies = build != null ? build.dependencies() : defaultDependencies;
         CompilationResult result = new JasxCompiler(target, dependencies).compile(sources);
@@ -433,6 +434,28 @@ final class Workspace {
             }
         }
         return null;
+    }
+
+    /**
+     * Every source file of a source set ({@code src/main}): those of its {@code java} and {@code jasx}
+     * directories, which the build plugins compile together.
+     */
+    private static List<Path> sourceSetFiles(Path sourceSet) {
+        List<Path> paths = new ArrayList<>();
+        for (String root : List.of("java", "jasx")) {
+            Path directory = sourceSet.resolve(root);
+            if (Files.isDirectory(directory)) {
+                paths.addAll(sourceFiles(directory));
+            }
+        }
+        return paths;
+    }
+
+    /** A file's name as the compiler knows it: relative to its source directory, or its bare name. */
+    private static String relativeName(Path file) {
+        Path sourceDirectory = sourceDirectory(file);
+        Path relative = sourceDirectory != null ? sourceDirectory.relativize(file) : file.getFileName();
+        return relative.toString().replace('\\', '/');
     }
 
     /** Every {@code .jasx} and {@code .java} file under {@code directory}. */

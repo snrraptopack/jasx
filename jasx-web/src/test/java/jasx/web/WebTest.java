@@ -69,6 +69,17 @@ class WebTest {
         return app.event(pageId(html), "{\"handler\":" + handlerId + ",\"type\":\"click\"}");
     }
 
+    /** Opens the page's stream on a virtual thread, as a browser that applied every batch up to {@code since}. */
+    private Thread openStream(String html, long since, BlockingQueue<String> frames) {
+        return Thread.ofVirtual().start(() -> {
+            try {
+                app.stream(pageId(html), since, frames::add);
+            } catch (java.io.IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        });
+    }
+
     // ---------------------------------------------------------------------------------------------
 
     @Nested
@@ -211,7 +222,7 @@ class WebTest {
             State<String> message = Web.state("first");
             String html = app.render(() -> Web.h("p", null, Web.dynamic(() -> message.get())));
             BlockingQueue<String> frames = new LinkedBlockingQueue<>();
-            Thread stream = Thread.ofVirtual().start(() -> app.stream(pageId(html), frames::add));
+            Thread stream = openStream(html, 0, frames);
             try {
                 assertEquals(": connected\n\n", frames.poll(5, TimeUnit.SECONDS));
                 message.set("second");
@@ -247,6 +258,158 @@ class WebTest {
                 }
                 assertEquals(0, shortLived.pageCount());
             }
+        }
+    }
+
+    /** Delivery, failures and malformed input (targets/web.md §5, §6.1, §8): regressions from a review. */
+    @Nested
+    class Robustness {
+        @Test
+        void aBrowserThatMissedBatchesCatchesUpWithOneMergedBatch() throws Exception {
+            State<String> clock = Web.state("0");
+            String html = app.render(() -> Web.h("p", null, Web.dynamic(() -> clock.get())));
+            for (int second = 1; second <= 3; second++) {
+                clock.set(String.valueOf(second));
+                waitForVersion(html, second);
+            }
+            BlockingQueue<String> frames = new LinkedBlockingQueue<>();
+            Thread stream = openStream(html, 0, frames);
+            try {
+                assertEquals(": connected\n\n", frames.poll(5, TimeUnit.SECONDS));
+                // Three values of the same hole: only the last is sent.
+                assertEquals("data: {\"from\":1,\"version\":3,\"patches\":[{\"op\":\"html\",\"id\":1,\"html\":\"3\"}]}\n\n",
+                        frames.poll(5, TimeUnit.SECONDS));
+            } finally {
+                stream.interrupt();
+            }
+        }
+
+        @Test
+        void aBrowserTheLogCantCatchUpIsToldToReload() throws Exception {
+            String html = app.render(() -> Web.h("p", null, "x"));
+            BlockingQueue<String> frames = new LinkedBlockingQueue<>();
+            openStream(html, 99, frames).join(5000); // a version this page never sent
+            assertTrue(frames.contains("data: {\"reload\":true}\n\n"), frames.toString());
+
+            BlockingQueue<String> unknown = new LinkedBlockingQueue<>();
+            app.stream("no-such-page", 0, unknown::add);
+            assertEquals(List.of("data: {\"reload\":true}\n\n"), List.copyOf(unknown));
+        }
+
+        @Test
+        void theStreamDoesntPushEventAnswersButACatchUpIncludesThem() throws Exception {
+            State<Integer> count = Web.state(0);
+            String html = app.render(() -> Web.h("button", Button.create().onclick(() -> count.update(n -> n + 1)),
+                    Web.dynamic(() -> count.get())));
+            BlockingQueue<String> frames = new LinkedBlockingQueue<>();
+            Thread stream = openStream(html, 0, frames);
+            try {
+                assertEquals(": connected\n\n", frames.poll(5, TimeUnit.SECONDS));
+                assertEquals(200, click(html, handler(html, "click", 1)).status()); // version 1, in the answer
+                count.set(5); // version 2, pushed
+                String frame = frames.poll(5, TimeUnit.SECONDS);
+                assertTrue(frame.startsWith("data: {\"version\":2,"), frame);
+            } finally {
+                stream.interrupt();
+            }
+            // The answer was lost, say: catching up from version 0 brings it back.
+            BlockingQueue<String> catchUp = new LinkedBlockingQueue<>();
+            Thread again = openStream(html, 0, catchUp);
+            try {
+                catchUp.poll(5, TimeUnit.SECONDS);
+                String merged = catchUp.poll(5, TimeUnit.SECONDS);
+                assertTrue(merged.startsWith("data: {\"from\":1,\"version\":2,"), merged);
+            } finally {
+                again.interrupt();
+            }
+        }
+
+        @Test
+        void aHoleThatFailsToUpdateKeepsItsContentAndHandlers() {
+            String html = app.render(() -> {
+                State<Integer> count = Web.state(0);
+                return Web.h("div", null, Web.dynamic(() -> {
+                    if (count.get() == 1) {
+                        throw new IllegalStateException("boom (expected by the test)");
+                    }
+                    return Web.h("button", Button.create().onclick(() -> count.update(n -> n + 1)), "n=" + count.get());
+                }));
+            });
+            int button = handler(html, "click", 1);
+            assertEquals(204, click(html, button).status(), "the failed update sends nothing");
+            String body = click(html, button).body(); // the old button still works
+            assertTrue(body.contains("n=2"), body);
+        }
+
+        @Test
+        void aPageWhoseRenderingFailsIsDisposed() throws Exception {
+            State<Integer> shared = Web.state(0);
+            int[] runs = {0};
+            try {
+                app.render(() -> Web.h("div", null,
+                        Web.dynamic(() -> {
+                            runs[0]++;
+                            return shared.get();
+                        }),
+                        Web.dynamic(() -> {
+                            throw new IllegalStateException("boom (expected by the test)");
+                        })));
+            } catch (IllegalStateException expected) {
+                // the rendering failed
+            }
+            assertEquals(0, app.pageCount());
+            shared.set(1);
+            Thread.sleep(200); // a flush, if one were scheduled, would run on another thread
+            assertEquals(1, runs[0], "the failed page no longer follows the shared state");
+        }
+
+        @Test
+        void malformedEventsAnswer400() {
+            String html = app.render(() -> Web.h("button", Button.create().onclick(() -> {}), "x"));
+            String page = pageId(html);
+            String backslash = "\\";
+            for (String body : List.of(
+                    "{\"handler\":1,\"type\":\"a" + backslash,           // cut off after a backslash
+                    "{\"handler\":1,\"type\":\"" + backslash + "u12",     // cut off in a hex escape
+                    "{\"handler\":1,\"type\":\"" + backslash + "q\"}",    // an unknown escape
+                    "[".repeat(10_000),                                    // nested too deeply
+                    "{\"handler\":\"one\"}")) {
+                assertEquals(400, app.event(page, body).status(), body.length() > 40 ? body.substring(0, 40) : body);
+            }
+        }
+
+        @Test
+        void rowsAndHolesDirectlyInATableGoInATbody() {
+            String html = app.render(() -> {
+                State<List<String>> rows = Web.state(List.of("a"));
+                return Web.h("table", null,
+                        Web.h("caption", null, "c"),
+                        Web.dynamic(() -> rows.get().stream().map(r -> Web.h("tr", null, Web.h("td", null, r))).toList()));
+            });
+            assertTrue(html.contains("<table><caption>c</caption><tbody><!--jx:1--><tr><td>a</td></tr><!--/jx:1--></tbody></table>"), html);
+        }
+
+        @Test
+        void aResetPatchNamesTheEventItAnswers() {
+            String html = app.render(() -> Web.h("form", jasx.web.attrs.Form.create().onsubmit(e -> e.resetForm())));
+            String body = app.event(pageId(html), "{\"handler\":" + handler(html, "submit", 1) + ",\"seq\":7,\"type\":\"submit\"}").body();
+            assertTrue(body.contains("{\"op\":\"reset\",\"event\":7}"), body);
+        }
+
+        /** Waits until the page has produced batch {@code version} (a push is flushed on another thread). */
+        private void waitForVersion(String html, long version) throws InterruptedException {
+            for (int i = 0; i < 100; i++) {
+                BlockingQueue<String> frames = new LinkedBlockingQueue<>();
+                // A stream from `version` gets nothing but its greeting if the batch exists, a reload if not.
+                Thread probe = openStream(html, version, frames);
+                Thread.sleep(20);
+                probe.interrupt();
+                probe.join(1000);
+                if (!frames.contains(Page.RELOAD_FRAME)) {
+                    return;
+                }
+            }
+            throw new AssertionError("batch " + version + " never came");
         }
     }
 
@@ -442,7 +605,9 @@ class WebTest {
 
                 HttpResponse<String> gone = client.send(HttpRequest.newBuilder(URI.create(base + "/_jasx/stream?page=nope")).build(),
                         HttpResponse.BodyHandlers.ofString());
-                assertEquals(410, gone.statusCode());
+                // The stream of an unknown page tells the browser to reload (§6.1).
+                assertEquals(200, gone.statusCode());
+                assertEquals("data: {\"reload\":true}\n\n", gone.body());
             } finally {
                 server.stop();
             }

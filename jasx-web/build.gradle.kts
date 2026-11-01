@@ -123,3 +123,57 @@ val generateAttributeBuilders = tasks.register("generateAttributeBuilders") {
 sourceSets.main {
     java.srcDir(generateAttributeBuilders)
 }
+
+// -------------------------------------------------------------------------------------------------
+// The browser client's tests (src/test/js, in jsdom), part of `check` when Node.js is installed
+// -------------------------------------------------------------------------------------------------
+
+val clientTestDir = layout.projectDirectory.dir("src/test/js")
+val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+
+/**
+ * Whether Node.js is installed: it is optional for building JASX, so the client tests are skipped without it.
+ * An object, not a script function, so that tasks using it stay compatible with the configuration cache.
+ */
+object Node {
+    val available: Boolean by lazy {
+        try {
+            ProcessBuilder("node", "--version").redirectErrorStream(true).start().waitFor() == 0
+        } catch (e: java.io.IOException) {
+            false
+        }
+    }
+}
+
+val installClientTestDependencies = tasks.register<Exec>("installClientTestDependencies") {
+    description = "Installs jsdom for the browser client's tests (npm ci)."
+    onlyIf("Node.js is installed") { Node.available }
+    workingDir(clientTestDir)
+    commandLine(if (isWindows) "npm.cmd" else "npm", "ci", "--no-audit", "--no-fund")
+    inputs.file(clientTestDir.file("package-lock.json"))
+    outputs.dir(clientTestDir.dir("node_modules"))
+}
+
+val clientTests = tasks.register<Exec>("clientTests") {
+    description = "Runs the browser client's tests in jsdom (skipped when Node.js isn't installed)."
+    group = "verification"
+    dependsOn(installClientTestDependencies)
+    onlyIf("Node.js is installed") {
+        if (!Node.available) {
+            logger.warn("Node.js isn't installed: the browser client's tests (jasx-web/src/test/js) are skipped.")
+        }
+        Node.available
+    }
+    workingDir(clientTestDir)
+    commandLine("node", "--test", "client.test.mjs")
+    inputs.file("src/main/resources/jasx/web/web.js")
+    inputs.file(clientTestDir.file("client.test.mjs"))
+    // A marker, so the tests only run again when the client or its tests change.
+    val marker = layout.buildDirectory.file("client-tests/passed")
+    outputs.file(marker)
+    doLast { marker.get().asFile.apply { parentFile.mkdirs(); writeText("passed\n") } }
+}
+
+tasks.check {
+    dependsOn(clientTests)
+}

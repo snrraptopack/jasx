@@ -9,10 +9,18 @@ import java.util.Map;
  * The little JSON the web protocol needs (targets/web.md §8): reading events, writing batches. Objects are
  * read as {@code LinkedHashMap}, arrays as {@code ArrayList}, numbers as {@code Long} or {@code Double}. The
  * runtime has no third-party dependencies, so it carries its own.
+ *
+ * <p>Events come from the network, so reading must fail only with {@link IllegalArgumentException}, which the
+ * server answers with 400: every index is checked, and nesting is limited so a hostile body can't overflow the
+ * stack.
  */
 final class Json {
+    /** Events nest two levels (an object of field lists); this leaves room without risking the stack. */
+    private static final int MAX_DEPTH = 32;
+
     private final String text;
     private int pos;
+    private int depth;
 
     private Json(String text) {
         this.text = text;
@@ -113,14 +121,25 @@ final class Json {
         }
         char c = text.charAt(pos);
         return switch (c) {
-            case '{' -> object();
-            case '[' -> array();
+            case '{' -> nested(this::object);
+            case '[' -> nested(this::array);
             case '"' -> string();
             case 't' -> literal("true", Boolean.TRUE);
             case 'f' -> literal("false", Boolean.FALSE);
             case 'n' -> literal("null", null);
             default -> number();
         };
+    }
+
+    private Object nested(java.util.function.Supplier<Object> container) {
+        if (++depth > MAX_DEPTH) {
+            throw error("nested too deeply");
+        }
+        try {
+            return container.get();
+        } finally {
+            depth--;
+        }
     }
 
     private Map<String, Object> object() {
@@ -182,6 +201,9 @@ final class Json {
                 out.append(c);
                 continue;
             }
+            if (pos >= text.length()) {
+                throw error("unfinished escape"); // a request cut off after a backslash
+            }
             char escaped = text.charAt(pos++);
             switch (escaped) {
                 case 'n' -> out.append('\n');
@@ -189,13 +211,27 @@ final class Json {
                 case 't' -> out.append('\t');
                 case 'b' -> out.append('\b');
                 case 'f' -> out.append('\f');
-                case 'u' -> {
-                    out.append((char) Integer.parseInt(text.substring(pos, pos + 4), 16));
-                    pos += 4;
-                }
-                default -> out.append(escaped); // \" \\ \/
+                case 'u' -> out.append(hexCharacter());
+                case '"', '\\', '/' -> out.append(escaped);
+                default -> throw error("unknown escape");
             }
         }
+    }
+
+    /** The four hex digits after a backslash and {@code u}, checked so that a cut-off request is a JSON error. */
+    private char hexCharacter() {
+        if (pos + 4 > text.length()) {
+            throw error("unfinished escape");
+        }
+        int code = 0;
+        for (int i = 0; i < 4; i++) {
+            int digit = Character.digit(text.charAt(pos++), 16);
+            if (digit < 0) {
+                throw error("bad hex digit in escape");
+            }
+            code = code * 16 + digit;
+        }
+        return (char) code;
     }
 
     private Object number() {

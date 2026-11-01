@@ -208,6 +208,37 @@ class LanguageServerTest {
         }
 
         @Test
+        void theJavaAndJasxDirectoriesOfASourceSetAreOneGroup() throws IOException {
+            // The build compiles src/main/java and src/main/jasx together, so Ui.Card (in java/) is known in jasx/.
+            Path other = Files.createDirectories(project.resolve("src/main/jasx/app")).resolve("Other.jasx");
+            String text = PAGE.replace("class Page", "class Other");
+            Files.writeString(other, text);
+            open(other, text);
+            assertEquals(List.of(), diagnosticsOf(other));
+        }
+
+        @Test
+        void filesOutsideSourceDirectoriesKeepTheirOwnAnalyses() throws IOException {
+            Path loose = Files.createDirectories(project.resolve("scratch"));
+            String a = """
+                    import jasx.runtime.Element;
+                    class A {
+                      /** A card. */
+                      static Element Card() { return <p>a</p>; }
+                      static Element a() { return <Card />; }
+                    }
+                    """;
+            Path first = Files.writeString(loose.resolve("A.jasx"), a);
+            Path second = Files.writeString(loose.resolve("B.jasx"), "class B { Object b() { return <p>b</p>; } }\n");
+            open(first, a);
+            open(second, Files.readString(second));
+            // Before, both were cached under their directory, and B's analysis replaced A's: hover found nothing.
+            Map<String, Object> hover = request("textDocument/hover", position(first, 4, 33));
+            assertTrue(String.valueOf(hover.get("result")).contains("A.Card()"), hover.toString());
+            assertEquals(List.of(), diagnosticsOf(second));
+        }
+
+        @Test
         void unsavedChangesInOneFileAffectAnother() {
             // Rename the prop in Ui.jasx without saving: Page.jasx now passes an unknown prop.
             open(page, PAGE);

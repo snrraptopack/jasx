@@ -48,6 +48,17 @@ When a computation reads a `State` or `Derived` while tracking, it subscribes to
 
 Before a computation runs again, everything from its previous run is disposed: the computations it owns (holes inside a hole, derived values and effects created by a component inside it), its cleanups (`onCleanup`, which a target uses to drop handlers), and its subscriptions. A component inside a hole therefore loses its state when that hole runs again. A disposed computation never runs again.
 
+### 2.4 Failed runs
+
+A run that throws must not leave half a computation behind. A target re-runs holes with `retrack`: the new run starts with nothing, and the previous run is kept aside until the new one succeeds.
+
+- **On success**, what the previous run created is disposed, its cleanups run, and the subscriptions only it had are dropped.
+- **On failure**, the new run is undone instead (what it created is disposed, the subscriptions only it had are dropped), and the previous run is put back: what it created, its cleanups and its subscriptions, so the computation runs again when one of the values it read changes. The exception goes to the target, which reports it.
+
+So one failing expression leaves the rest of a page or window, and its own previous output, usable. Effects follow the same rule. A derived value whose computation throws stays stale and passes the exception to its reader; the next change of a value it read tells its readers again.
+
+`State.update(fn)` reads the value, applies `fn` and stores the result as one step, so concurrent updates of a shared state never lose a change. Subscribers are told afterwards, outside that step.
+
 ## 3. Scheduling
 
 A computation is created with a `Scheduler`: the target's unit of updates, such as a page of `web` or a window of a desktop target. An invalidated computation is **scheduled**; it does not run at once. The target then runs what was scheduled (`Computation.update()`) at a moment it chooses, such as after an event handler returns, under these rules:

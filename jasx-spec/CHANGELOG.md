@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0-draft, revision 15
+
+Fixes from an external review of the `web` target and `jasx.ui`.
+
+### Added
+
+- `ui.md` §2.4, **failed runs**: a hole or effect that throws keeps its previous run (what it created, its cleanups, its subscriptions) and runs again on the next change; `State.update` is atomic.
+- `targets/web.md` §6.1, **delivery and catching up**: batches are kept in a bounded log; the client opens the stream with the last version it applied (`since`), and receives what it missed as one merged batch, or a reload message if the log no longer reaches back. The client reconnects after a failed stream, a failed event request, or a batch missing for 3 seconds (a deadline later batches don't push back).
+- `targets/web.md` §8.4, **merged batches** (`from`, `version`): superseded `html` and `attr` patches are left out. Patches are defined to be harmless when applied again.
+- `targets/web.md` §8.3: events carry `seq`, the client's number for them.
+
+### Changed
+
+- `targets/web.md` §7: protecting typing is defined by **field revisions** instead of "typed since its last event". The answer to an older queued event no longer overwrites newer typing. `resetForm()` leaves alone the fields edited after the event was sent.
+- `targets/web.md` §8.4: a `reset` patch names its event (`"event": seq`), so it still finds its form when its batch waits for an earlier one or comes in a catch-up. Before, it applied only to the event response being processed.
+- `targets/web.md` §6: the stream of an unknown page sends a reload message instead of answering `410`, because the client now reconnects by itself and can't see statuses.
+- `targets/web.md` §8.2: rows and holes directly in a `table` are rendered inside a `tbody`, so a hole's markers stay together; hole content is parsed in its parent's namespace (SVG, MathML); a missing end marker removes nothing and reloads.
+- `targets/web.md` §5: failures in hole and effect updates are isolated, and a page whose first rendering fails is discarded.
+- `targets/web.md` §8.1: a malformed event body answers `400`, including truncated escapes and deep nesting.
+
 ## 1.0-draft, revision 14
 
 ### Added

@@ -33,7 +33,7 @@ final class AttributeHole extends Computation {
 
     /** The first value, as part of the element's rendering. */
     Object firstValue() {
-        current = evaluate();
+        current = track(this::evaluate);
         return current;
     }
 
@@ -45,8 +45,7 @@ final class AttributeHole extends Computation {
     /** Evaluates again after a value it read changed, and records a patch if the value changed. */
     @Override
     public void update() {
-        reset();
-        Object newValue = evaluate();
+        Object newValue = retrack(this::evaluate); // on failure, keeps its previous value (ui.md §2.4)
         if (!Objects.equals(newValue, current)) {
             current = newValue;
             Map<String, Object> patch = new LinkedHashMap<>();
@@ -59,7 +58,7 @@ final class AttributeHole extends Computation {
     }
 
     private Object evaluate() {
-        return track(() -> normalize(page, value.get(), scopeClass));
+        return normalize(page, value.get(), scopeClass);
     }
 
     /**

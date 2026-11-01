@@ -12,11 +12,13 @@ public final class Effect extends Computation {
         this.fn = fn;
     }
 
-    /** Runs the effect again, subscribing to what it reads this time. */
+    /**
+     * Runs the effect again, subscribing to what it reads this time. If it throws, it keeps its previous
+     * subscriptions, so it runs again on the next change (ui.md §2.4).
+     */
     @Override
     public void update() {
-        reset();
-        track(() -> {
+        retrack(() -> {
             fn.run();
             return null;
         });

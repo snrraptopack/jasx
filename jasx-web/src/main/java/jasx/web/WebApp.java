@@ -75,7 +75,14 @@ public final class WebApp implements AutoCloseable {
         try {
             return page.render(root, scriptTag);
         } catch (RuntimeException | Error e) {
+            // What rendered before the failure may already follow shared state: dispose it, or that state would
+            // keep the page alive (and the sweeper no longer sees it).
             pages.remove(page.id);
+            try {
+                page.discard();
+            } catch (RuntimeException | Error cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
             throw e;
         }
     }
@@ -105,15 +112,31 @@ public final class WebApp implements AutoCloseable {
     }
 
     /**
-     * Handles {@code GET <basePath>/stream?page=ID} (targets/web.md §8.1): sends the page's pushed batches to
-     * {@code sink} until the connection fails or a newer stream of the page replaces it. Blocks, so call it
-     * on a thread that may block (a virtual thread). Before calling, check {@link #hasPage}: an unknown page
-     * answers {@code 410}.
+     * Handles {@code GET <basePath>/stream?page=ID&since=N} (targets/web.md §6.1, §8.1): sends the batches after
+     * version {@code since} that the browser missed, then the page's pushed batches, until the connection fails
+     * or a newer stream of the page replaces it. Blocks, so call it on a thread that may block (a virtual
+     * thread). Answer with status 200 and {@code Content-Type: text/event-stream} before calling it.
+     *
+     * <p>For an unknown page, or one that can't catch the browser up, it sends a frame telling the browser to
+     * reload, and returns.
+     *
+     * @param since the last version the browser applied (the {@code since} query parameter; 0 if absent)
      */
-    public void stream(String pageId, StreamSink sink) {
-        Page page = pages.get(pageId);
-        if (page != null) {
-            page.stream(sink::send, HEARTBEAT_SECONDS);
+    public void stream(String pageId, long since, StreamSink sink) throws IOException {
+        Page page = pageId != null ? pages.get(pageId) : null;
+        if (page == null) {
+            sink.send(Page.RELOAD_FRAME);
+            return;
+        }
+        page.stream(sink::send, since, HEARTBEAT_SECONDS);
+    }
+
+    /** Reads the {@code since} query parameter of a stream request: 0 if it is absent or not a number. */
+    public static long since(String parameter) {
+        try {
+            return parameter == null ? 0 : Long.parseLong(parameter);
+        } catch (NumberFormatException e) {
+            return 0;
         }
     }
 

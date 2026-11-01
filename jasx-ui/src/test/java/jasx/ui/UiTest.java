@@ -156,6 +156,38 @@ class UiTest {
         }
 
         @Test
+        void aRunThatThrowsKeepsThePreviousRunAndRetriesOnTheNextChange() {
+            State<Integer> n = Reactive.state(0);
+            List<TestHole> children = new ArrayList<>();
+            List<Object> values = new ArrayList<>();
+            Computation hole = new Computation(scheduler) {
+                @Override
+                public void update() {
+                    values.add(retrack(() -> {
+                        children.add(new TestHole(scheduler, () -> "child"));
+                        if (n.get() == 1) {
+                            throw new IllegalStateException("boom (expected by the test)");
+                        }
+                        return n.get();
+                    }));
+                }
+            };
+            hole.update();
+
+            n.set(1);
+            assertThrows(IllegalStateException.class, scheduler::flush);
+            scheduler.waiting.clear();
+            assertFalse(children.get(0).isDisposed(), "the previous run's child is kept");
+            assertTrue(children.get(1).isDisposed(), "the failed run's child is undone");
+
+            n.set(2); // still subscribed: it retries
+            scheduler.flush();
+            assertEquals(List.of(0, 2), values);
+            assertTrue(children.get(0).isDisposed(), "dropped once a run succeeded");
+            assertFalse(children.get(2).isDisposed());
+        }
+
+        @Test
         void concurrentUpdatesOfASharedStateLoseNoChange() throws Exception {
             State<Integer> count = Reactive.state(0);
             int threads = 8;

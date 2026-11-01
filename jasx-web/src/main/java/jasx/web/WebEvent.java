@@ -28,6 +28,8 @@ final class WebEvent implements FormEvent, KeyEvent, MouseEvent {
     private final double x;
     private final double y;
     private final Map<String, List<String>> fields;
+    /** The browser's number for this event, so that a reset patch can name the form it answers (§8.4). */
+    private final long seq;
 
     private WebEvent(Map<String, Object> json) {
         this.type = string(json, "type");
@@ -43,6 +45,7 @@ final class WebEvent implements FormEvent, KeyEvent, MouseEvent {
         this.x = number(json, "x");
         this.y = number(json, "y");
         this.fields = fields(json.get("fields"));
+        this.seq = (long) number(json, "seq");
     }
 
     /** Reads an event sent by the browser client (§8.3). Missing members are empty. */
@@ -149,7 +152,12 @@ final class WebEvent implements FormEvent, KeyEvent, MouseEvent {
         if (page == null) {
             throw new IllegalStateException("resetForm() must be called while the event is handled");
         }
-        page.addPatch(new LinkedHashMap<>(Map.of("op", "reset")));
+        // The patch names its event: the batch may be applied after others, or replayed after a reconnection,
+        // when the browser no longer knows which response it came in.
+        Map<String, Object> patch = new LinkedHashMap<>();
+        patch.put("op", "reset");
+        patch.put("event", seq);
+        page.addPatch(patch);
     }
 
     @Override

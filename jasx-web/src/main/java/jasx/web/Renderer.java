@@ -206,8 +206,12 @@ final class Renderer {
         noHoles = outerNoHoles || textOnly;
         int contentStart = out.length();
         try {
-            for (Object child : tag.children()) {
-                child(child);
+            if (name.equals("table")) {
+                tableChildren(tag.children());
+            } else {
+                for (Object child : tag.children()) {
+                    child(child);
+                }
             }
         } finally {
             escapeText = outerEscape;
@@ -224,6 +228,42 @@ final class Renderer {
             bodyEnd = out.length();
         }
         out.append("</").append(name).append('>');
+    }
+
+    /**
+     * The children of a {@code table} (targets/web.md §8.2). A browser puts rows written directly in a table into
+     * a {@code tbody} it creates, which would separate a hole's start marker from its end marker. So rows and
+     * holes written directly in a table are wrapped in a {@code tbody} here, exactly where the browser would
+     * create one: the page looks the same, and each hole's markers stay together.
+     */
+    private void tableChildren(Object[] children) {
+        boolean bodyOpen = false;
+        for (Object child : children) {
+            boolean belongsInBody = isRowOrHole(child);
+            if (belongsInBody && !bodyOpen) {
+                out.append("<tbody>");
+                bodyOpen = true;
+            } else if (!belongsInBody && bodyOpen) {
+                out.append("</tbody>");
+                bodyOpen = false;
+            }
+            child(child);
+        }
+        if (bodyOpen) {
+            out.append("</tbody>");
+        }
+    }
+
+    /** Whether a child of a table is a {@code tr} or a dynamic child, which go in a {@code tbody}. */
+    private static boolean isRowOrHole(Object child) {
+        return switch (child) {
+            case WebElement.Dynamic dynamic -> true;
+            case WebElement.Tag tag -> tag.tag().equals("tr");
+            case WebElement.Scoped scoped -> isRowOrHole(scoped.element());
+            case WebElement.Unscoped unscoped -> isRowOrHole(unscoped.element());
+            case WebElement.Keyed keyed -> isRowOrHole(keyed.element());
+            case null, default -> false;
+        };
     }
 
     /** The content of script or style must not close the element early (targets/html.md §3.3). */

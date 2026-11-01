@@ -32,6 +32,13 @@ abstract sealed class Source permits State, Derived {
         }
     }
 
+    /** Subscribes {@code observer} again, after a failed run put its previous run back (ui.md §2.4). */
+    final void resubscribe(Computation observer) {
+        if (!observer.isDisposed()) {
+            observers.add(observer);
+        }
+    }
+
     final void unsubscribe(Computation observer) {
         observers.remove(observer);
     }

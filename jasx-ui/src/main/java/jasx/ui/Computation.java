@@ -161,6 +161,83 @@ public abstract class Computation {
         sources.clear();
     }
 
+    /**
+     * Runs {@code body} as this computation's next run, keeping the previous run until the new one succeeds
+     * (ui.md §2.4). On success, what the previous run created is disposed and the subscriptions it alone had are
+     * dropped. If {@code body} throws, the new run is undone instead, the previous one stays (its holes, its
+     * handlers, its subscriptions, so it retries when one of its values changes again), and the exception is
+     * rethrown for the target to report.
+     *
+     * <p>A target uses it to update a hole, so that one failing expression leaves the rest of the page usable.
+     */
+    protected final <T> T retrack(Supplier<T> body) {
+        List<Computation> previousOwned = new ArrayList<>(owned);
+        List<Runnable> previousCleanups = new ArrayList<>(cleanups);
+        Set<Source> previousSources = new LinkedHashSet<>(sources);
+        owned.clear();
+        cleanups.clear();
+        sources.clear();
+
+        T result;
+        try {
+            result = track(body);
+        } catch (RuntimeException | Error failure) {
+            undoRun(previousSources);
+            restoreRun(previousOwned, previousCleanups, previousSources);
+            throw failure;
+        }
+        dropRun(previousOwned, previousCleanups, previousSources);
+        return result;
+    }
+
+    /** Undoes a failed run: disposes what it created, and drops the subscriptions only it had. */
+    private void undoRun(Set<Source> keep) {
+        for (Computation child : owned) {
+            child.dispose();
+        }
+        for (Runnable cleanup : cleanups) {
+            cleanup.run();
+        }
+        for (Source source : sources) {
+            if (!keep.contains(source)) {
+                source.unsubscribe(this);
+            }
+        }
+    }
+
+    /**
+     * Puts the previous run back. The source whose change caused this run already dropped this computation, so
+     * every previous source subscribes it again.
+     */
+    private void restoreRun(List<Computation> previousOwned, List<Runnable> previousCleanups,
+                            Set<Source> previousSources) {
+        owned.clear();
+        owned.addAll(previousOwned);
+        cleanups.clear();
+        cleanups.addAll(previousCleanups);
+        sources.clear();
+        sources.addAll(previousSources);
+        for (Source source : previousSources) {
+            source.resubscribe(this);
+        }
+    }
+
+    /** Drops the previous run after a successful one, keeping the subscriptions the new run also has. */
+    private void dropRun(List<Computation> previousOwned, List<Runnable> previousCleanups,
+                         Set<Source> previousSources) {
+        for (Computation child : previousOwned) {
+            child.dispose();
+        }
+        for (Runnable cleanup : previousCleanups) {
+            cleanup.run();
+        }
+        for (Source source : previousSources) {
+            if (!sources.contains(source)) {
+                source.unsubscribe(this);
+            }
+        }
+    }
+
     /** Resets this computation for good: it will never run again. */
     public final void dispose() {
         reset();
