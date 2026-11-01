@@ -237,17 +237,26 @@ A `<style>` block in a `.jasx` file is scoped to that file's markup, as with eve
 
 ## Serving pages
 
-The runtime is independent of any HTTP server. `WebApp` has three methods, one per kind of request:
+The runtime is independent of any HTTP server. An adapter describes each request with a `WebApp.Request` (a query parameter, a header, and whether it came over HTTPS) and sends back the `Response` it gets (status, headers, body):
 
 | Request | `WebApp` method |
 |---|---|
-| a page | `render(() -> <Page />)` returns its HTML |
-| `POST /_jasx/event?page=ID` | `event(pageId, body)` returns the status and body |
-| `GET /_jasx/stream?pages=ID:N,...` | `stream(WebApp.streamPages(pages), sink)` writes server-sent events until the browser leaves |
+| a page | `render(request, () -> <Page />)` |
+| `POST /_jasx/event?page=ID` | `event(request, body)` |
+| `GET /_jasx/stream?pages=ID:N,...` | `stream(request, eventStream)` writes server-sent events until the browser leaves |
+| `POST /_jasx/ping?page=ID` | `ping(request)` |
 
 The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server. Adapters for servlet containers and Spring Boot are planned.
 
 A page is kept for 2 minutes after its browser goes away (no stream and no event). After that, a browser that comes back reloads it. A page whose browser never connects (a crawler, a link preview, a prefetch, `curl`) is dropped after 30 seconds. `new WebApp(basePath, pageTimeout, firstConnectTimeout)` changes both.
+
+**Security comes built in**, whatever server you use:
+
+- **Sessions.** The first page a browser gets sets a `jasx_session` cookie, and each page answers only the browser that rendered it. Someone who copies a page id from your screen or a log can't use it.
+- **Other sites.** Events must be JSON, and requests the browser marks as coming from another site are refused, so another site can't make your browser click your buttons.
+- **Limits.** Event bodies are limited to 1 MiB, and one browser keeps at most 50 pages alive (its oldest is dropped first). `new WebApp(basePath, pageTimeout, firstConnectTimeout, new WebApp.Limits(maxEventBytes, maxPagesPerSession))` changes both.
+
+Pages need cookies to work. Rate limiting is up to your reverse proxy.
 
 **Many tabs over HTTP/1.1.** Browsers open only about six connections per server over HTTP/1.1, which is why the tabs share one stream. Sharing needs Web Locks and BroadcastChannel, which every current browser has, and a secure context: HTTPS, or `localhost` while developing. On plain HTTP from another host (a phone on your network trying `http://192.168.1.5:8080`), each tab keeps its own stream, and hidden tabs close theirs after 10 seconds. HTTP/2 removes the limit entirely, so prefer it in production. The JDK's built-in server (`WebServer`) speaks only HTTP/1.1: put a reverse proxy with HTTP/2 in front of it, or use a server adapter that supports HTTP/2.
 

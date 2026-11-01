@@ -520,6 +520,170 @@ class WebTest {
         }
     }
 
+    /** Sessions, same-site checks and limits (targets/web.md §6.3), through the API adapters call. */
+    @Nested
+    class Security {
+        /** A request as an adapter would describe it. */
+        record FakeRequest(Map<String, String> query, Map<String, String> headers, boolean secure) implements WebApp.Request {
+            FakeRequest {
+                Map<String, String> caseInsensitive = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                caseInsensitive.putAll(headers);
+                headers = caseInsensitive;
+            }
+
+            @Override
+            public String query(String name) {
+                return query.get(name);
+            }
+
+            @Override
+            public String header(String name) {
+                return headers.get(name);
+            }
+        }
+
+        /** A page request from a browser with session cookie {@code session} (null: none yet). */
+        private static FakeRequest pageRequest(String session) {
+            return new FakeRequest(Map.of(), session == null ? Map.of() : Map.of("Cookie", "theme=dark; jasx_session=" + session), false);
+        }
+
+        /** An event request, as the client sends it, from the browser with {@code session}. */
+        private static FakeRequest eventRequest(String pageId, String session, String... extraHeaders) {
+            Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("Content-Type", "application/json");
+            headers.put("Sec-Fetch-Site", "same-origin");
+            if (session != null) {
+                headers.put("Cookie", "jasx_session=" + session);
+            }
+            for (int i = 0; i < extraHeaders.length; i += 2) {
+                headers.put(extraHeaders[i], extraHeaders[i + 1]);
+            }
+            return new FakeRequest(Map.of("page", pageId), headers, false);
+        }
+
+        /** Renders a counter for a browser without a session; returns {html, session}. */
+        private String[] renderForNewBrowser(WebApp app) {
+            WebApp.Response page = app.render(pageRequest(null), () -> {
+                State<Integer> count = Web.state(0);
+                return Web.h("button", Button.create().onclick(() -> count.update(n -> n + 1)), Web.dynamic(() -> count.get()));
+            });
+            String session = find(page.headers().get("Set-Cookie"), "jasx_session=([^;]+)");
+            return new String[] {page.body(), session};
+        }
+
+        private String clickBody(String html) {
+            return "{\"handler\":" + handler(html, "click", 1) + ",\"type\":\"click\"}";
+        }
+
+        @Test
+        void aBrowserGetsASessionCookieWithItsFirstPageOnly() {
+            WebApp.Response first = app.render(pageRequest(null), () -> Web.h("p", null, "x"));
+            String cookie = first.headers().get("Set-Cookie");
+            assertTrue(cookie.matches("jasx_session=[A-Za-z0-9_-]{22}; Path=/; HttpOnly; SameSite=Lax"), cookie);
+            assertEquals("text/html; charset=utf-8", first.headers().get("Content-Type"));
+
+            String session = find(cookie, "jasx_session=([^;]+)");
+            WebApp.Response second = app.render(pageRequest(session), () -> Web.h("p", null, "y"));
+            assertFalse(second.headers().containsKey("Set-Cookie"), "the browser keeps its session");
+
+            WebApp.Response overHttps = app.render(new FakeRequest(Map.of(), Map.of(), true), () -> Web.h("p", null, "z"));
+            assertTrue(overHttps.headers().get("Set-Cookie").endsWith("; Secure"));
+        }
+
+        @Test
+        void aPageAnswersOnlyTheSessionThatRenderedIt() throws Exception {
+            String[] page = renderForNewBrowser(app);
+            String html = page[0];
+            String session = page[1];
+            String other = renderForNewBrowser(app)[1];
+
+            assertEquals(200, app.event(eventRequest(pageId(html), session), clickBody(html)).status());
+            // Another browser, or none, gets what an unknown page gets: nothing tells it the page exists.
+            assertEquals(410, app.event(eventRequest(pageId(html), other), clickBody(html)).status());
+            assertEquals(410, app.event(eventRequest(pageId(html), null), clickBody(html)).status());
+            assertEquals(410, app.ping(eventRequest(pageId(html), other)).status());
+            assertEquals(204, app.ping(eventRequest(pageId(html), session)).status());
+
+            // Its stream: the page isn't taken from its own browser, and the other browser is told to reload.
+            List<String> frames = new ArrayList<>();
+            FakeRequest stream = new FakeRequest(Map.of("pages", pageId(html) + ":0"),
+                    Map.of("Cookie", "jasx_session=" + other, "Sec-Fetch-Site", "same-origin"), false);
+            assertTrue(app.stream(stream, new WebApp.EventStream() {
+                @Override
+                public void open() {}
+
+                @Override
+                public void send(String frame) {
+                    frames.add(frame);
+                }
+            }).isEmpty());
+            assertEquals(List.of(": connected\n\n", frame(html, "{\"reload\":true}")), frames);
+        }
+
+        @Test
+        void eventsMustBeJsonFromTheSameSite() {
+            String[] page = renderForNewBrowser(app);
+            String id = pageId(page[0]);
+            String body = clickBody(page[0]);
+            assertEquals(415, app.event(eventRequest(id, page[1], "Content-Type", "text/plain"), body).status());
+            assertEquals(415, app.event(eventRequest(id, page[1], "Content-Type", "application/x-www-form-urlencoded"), body).status());
+            assertEquals(403, app.event(eventRequest(id, page[1], "Sec-Fetch-Site", "cross-site"), body).status());
+            assertEquals(403, app.event(eventRequest(id, page[1], "Sec-Fetch-Site", "same-site"), body).status());
+            assertEquals(200, app.event(eventRequest(id, page[1], "Content-Type", "application/json; charset=utf-8"), body).status());
+        }
+
+        @Test
+        void aStreamFromAnotherSiteIsRefusedBeforeItOpens() throws Exception {
+            boolean[] opened = {false};
+            FakeRequest crossSite = new FakeRequest(Map.of("pages", "a:0"), Map.of("Sec-Fetch-Site", "cross-site"), false);
+            var refused = app.stream(crossSite, new WebApp.EventStream() {
+                @Override
+                public void open() {
+                    opened[0] = true;
+                }
+
+                @Override
+                public void send(String frame) {}
+            });
+            assertEquals(403, refused.orElseThrow().status());
+            assertFalse(opened[0]);
+        }
+
+        @Test
+        void eventBodiesOverTheLimitAreRefused() {
+            try (WebApp small = new WebApp("/_jasx", Duration.ofMinutes(2), Duration.ofSeconds(30), new WebApp.Limits(100, 50))) {
+                String[] page = renderForNewBrowser(small);
+                String padded = clickBody(page[0]).replace("}", ",\"pad\":\"" + "x".repeat(200) + "\"}");
+                assertEquals(413, small.event(eventRequest(pageId(page[0]), page[1]), padded).status());
+                assertEquals(200, small.event(eventRequest(pageId(page[0]), page[1]), clickBody(page[0])).status());
+            }
+        }
+
+        @Test
+        void aSessionKeepsAtMostItsLimitOfPagesDroppingTheOldest() {
+            try (WebApp small = new WebApp("/_jasx", Duration.ofMinutes(2), Duration.ofSeconds(30), new WebApp.Limits(1024, 3))) {
+                String[] first = renderForNewBrowser(small);
+                String session = first[1];
+                List<String> ids = new ArrayList<>(List.of(pageId(first[0])));
+                for (int i = 0; i < 4; i++) {
+                    ids.add(pageId(small.render(pageRequest(session), () -> Web.h("p", null, "x")).body()));
+                }
+                String otherBrowser = pageId(renderForNewBrowser(small)[0]);
+                assertEquals(List.of(false, false, true, true, true), ids.stream().map(small::hasPage).toList());
+                assertTrue(small.hasPage(otherBrowser), "another session's pages are not affected");
+            }
+        }
+
+        @Test
+        void onlyCookieValuesWebAppIssuesAreRead() {
+            assertEquals("abcdefghijklmnopqrstuv", SessionCookie.read("a=1; jasx_session=abcdefghijklmnopqrstuv; b=2"));
+            assertEquals(null, SessionCookie.read("jasx_session=short"));
+            assertEquals(null, SessionCookie.read("jasx_session=abcdefghijklmnopqrstu!"));
+            assertEquals(null, SessionCookie.read("other=abcdefghijklmnopqrstuv"));
+            assertEquals(null, SessionCookie.read(null));
+        }
+    }
+
     /** .jasx compiled with the web target: its lowering, builders and runtime together (targets/web.md). */
     @Nested
     class CompiledMarkup {
@@ -736,13 +900,25 @@ class WebTest {
                         HttpResponse.BodyHandlers.ofString());
                 assertEquals(200, page.statusCode());
                 assertTrue(page.body().contains(">5<"), page.body());
+                // The browser's session (§6.3): sent back with every request, as a browser does.
+                String cookie = page.headers().firstValue("Set-Cookie").orElseThrow().split(";")[0];
 
                 String eventUrl = base + "/_jasx/event?page=" + pageId(page.body());
                 String event = "{\"handler\":" + handler(page.body(), "click", 1) + ",\"type\":\"click\"}";
-                HttpResponse<String> answer = client.send(HttpRequest.newBuilder(URI.create(eventUrl))
-                        .POST(HttpRequest.BodyPublishers.ofString(event)).build(), HttpResponse.BodyHandlers.ofString());
+                HttpRequest.Builder post = HttpRequest.newBuilder(URI.create(eventUrl))
+                        .POST(HttpRequest.BodyPublishers.ofString(event)).header("Content-Type", "application/json");
+                HttpResponse<String> answer = client.send(post.copy().header("Cookie", cookie).build(),
+                        HttpResponse.BodyHandlers.ofString());
                 assertEquals(200, answer.statusCode());
                 assertTrue(answer.body().contains("\"html\":\"6\""), answer.body());
+                assertEquals(410, client.send(post.build(), HttpResponse.BodyHandlers.ofString()).statusCode(),
+                        "without the browser's session, the page is unknown");
+
+                HttpResponse<String> huge = client.send(HttpRequest.newBuilder(URI.create(eventUrl)).header("Cookie", cookie)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("x".repeat(2 * 1024 * 1024))).build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertEquals(413, huge.statusCode());
 
                 HttpResponse<String> script = client.send(HttpRequest.newBuilder(URI.create(base + "/_jasx/web.js")).build(),
                         HttpResponse.BodyHandlers.ofString());

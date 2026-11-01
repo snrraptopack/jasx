@@ -23,6 +23,11 @@ final class SharedStream {
     /** At most this many pages on one connection; the rest of a longer list is ignored. */
     static final int MAX_PAGES = 100;
 
+    /** Where the connection writes: one server-sent event frame (or comment) at a time. */
+    interface FrameSink {
+        void send(String frame) throws IOException;
+    }
+
     /** A page this connection streams, and the version up to which the browser has it (or has been sent it). */
     private static final class Member {
         final String id;
@@ -62,7 +67,7 @@ final class SharedStream {
      * Batches that answer events are not pushed: their requests carried them. If one was lost, the browser
      * notices the missing version and asks again, and the catch-up includes it.
      */
-    void run(Map<String, Long> requested, Function<String, Page> pages, WebApp.StreamSink sink, int heartbeatSeconds) {
+    void run(Map<String, Long> requested, Function<String, Page> pages, FrameSink sink, int heartbeatSeconds) {
         List<Member> members = new ArrayList<>();
         try {
             // What each browser missed is taken before the greeting, so that from the greeting on the stream is
@@ -123,7 +128,7 @@ final class SharedStream {
         return member;
     }
 
-    private static void sendMissed(Member member, WebApp.StreamSink sink) throws IOException {
+    private static void sendMissed(Member member, FrameSink sink) throws IOException {
         if (member.missed.isEmpty()) {
             return;
         }
@@ -132,7 +137,7 @@ final class SharedStream {
         member.missed = List.of();
     }
 
-    private static void sendNewBatches(Member member, WebApp.StreamSink sink) throws IOException {
+    private static void sendNewBatches(Member member, FrameSink sink) throws IOException {
         for (BatchLog.Batch batch : member.page.batchesAfter(member.cursor)) {
             if (!batch.answer()) {
                 sink.send(frame(member.id, batch.json()));

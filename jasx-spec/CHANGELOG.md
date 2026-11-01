@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0-draft, revision 19
+
+### Added
+
+- `targets/web.md` §6.3, **security**, done by the runtime for every server adapter:
+  - **sessions:** a `jasx_session` cookie (HttpOnly, SameSite=Lax), and each page belongs to the session that rendered it. A request from another session is answered as for an unknown page;
+  - **requests from other sites:** event bodies must be declared as `application/json` (`415`), and requests whose `Sec-Fetch-Site` names another site are refused (`403`);
+  - **limits:** event bodies up to 1 MiB (`413`), and at most 50 pages per session, the oldest discarded first.
+
+### Changed
+
+- `targets/web.md` §8.1: the new status codes and the session cookie.
+
 ## 1.0-draft, revision 18
 
 ### Added

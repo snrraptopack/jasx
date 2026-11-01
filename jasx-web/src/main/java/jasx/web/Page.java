@@ -6,6 +6,8 @@ import jasx.ui.Effect;
 import jasx.ui.Event;
 import jasx.ui.Handler;
 import jasx.ui.Scheduler;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -41,6 +43,8 @@ final class Page implements Scheduler {
     private static final int MAX_FLUSH_ROUNDS = 100;
 
     final String id;
+    /** The browser session that rendered the page (targets/web.md §6.3): only it may act on the page. */
+    private final String session;
     private final ReentrantLock lock = new ReentrantLock();
     /**
      * Owns what the page creates outside holes (top-level holes, state and effects made while rendering or
@@ -69,8 +73,9 @@ final class Page implements Scheduler {
      */
     private volatile boolean connected;
 
-    Page(String id) {
+    Page(String id, String session) {
         this.id = id;
+        this.session = session;
         this.root = Computation.runWithOwner(null, () -> new Computation(this) {
             @Override
             protected void invalidate() {
@@ -85,6 +90,23 @@ final class Page implements Scheduler {
     /** The page whose lock this thread holds, or null. */
     static Page current() {
         return CURRENT.get();
+    }
+
+    /** The session that rendered the page. */
+    String session() {
+        return session;
+    }
+
+    /**
+     * Whether a request carrying {@code session} may act on the page. Compared in constant time, so the time an
+     * answer takes tells nothing about the value.
+     */
+    boolean belongsTo(String session) {
+        if (session == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(this.session.getBytes(StandardCharsets.US_ASCII),
+                session.getBytes(StandardCharsets.US_ASCII));
     }
 
     // ---------------------------------------------------------------------------------------------

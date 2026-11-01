@@ -2,13 +2,16 @@ package jasx.web.server;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsExchange;
 import jasx.web.WebApp;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -91,63 +94,90 @@ public final class WebServer {
             String path = exchange.getRequestURI().getPath();
             String method = exchange.getRequestMethod();
             String base = app.basePath();
+            WebApp.Request request = request(exchange);
 
             if (path.equals(base + "/web.js") && method.equals("GET")) {
-                send(exchange, 200, "text/javascript; charset=utf-8", WebApp.clientScript());
+                send(exchange, new WebApp.Response(200, WebApp.clientScript(),
+                        Map.of("Content-Type", "text/javascript; charset=utf-8")));
             } else if (path.equals(base + "/event") && method.equals("POST")) {
-                event(exchange);
+                event(exchange, request);
             } else if (path.equals(base + "/stream") && method.equals("GET")) {
-                stream(exchange);
+                stream(exchange, request);
             } else if (path.equals(base + "/ping") && method.equals("POST")) {
-                exchange.getRequestBody().readAllBytes();
-                WebApp.Response response = app.ping(pageId(exchange));
-                send(exchange, response.status(), "text/plain; charset=utf-8", response.body());
+                exchange.getRequestBody().readNBytes(1024);
+                send(exchange, app.ping(request));
             } else if (pages.containsKey(path) && method.equals("GET")) {
-                WebRequest request = new WebRequest(exchange.getRequestURI());
-                String html = app.render(() -> pages.get(path).apply(request));
-                exchange.getResponseHeaders().set("Cache-Control", "no-store");
-                send(exchange, 200, "text/html; charset=utf-8", html);
+                WebRequest page = new WebRequest(exchange.getRequestURI());
+                send(exchange, app.render(request, () -> pages.get(path).apply(page)));
             } else {
-                send(exchange, 404, "text/plain; charset=utf-8", "Not found");
+                send(exchange, new WebApp.Response(404, "Not found", Map.of("Content-Type", "text/plain; charset=utf-8")));
             }
         }
     }
 
-    private void event(HttpExchange exchange) throws IOException {
-        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-        WebApp.Response response = app.event(pageId(exchange), body);
-        send(exchange, response.status(), "application/json", response.body());
+    /** An event; a body over the limit is not read to its end (targets/web.md §6.3). */
+    private void event(HttpExchange exchange, WebApp.Request request) throws IOException {
+        int limit = app.limits().maxEventBytes();
+        byte[] bytes = exchange.getRequestBody().readNBytes(limit + 1);
+        if (bytes.length > limit) {
+            send(exchange, new WebApp.Response(413, ""));
+            return;
+        }
+        send(exchange, app.event(request, new String(bytes, StandardCharsets.UTF_8)));
     }
 
     /** The stream of server-sent events for the pages of a browser's tabs; blocks this (virtual) thread while open. */
-    private void stream(HttpExchange exchange) throws IOException {
-        exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
-        exchange.getResponseHeaders().set("Cache-Control", "no-store");
-        exchange.sendResponseHeaders(200, 0); // 0: chunked, of unknown length
+    private void stream(HttpExchange exchange, WebApp.Request request) throws IOException {
         OutputStream out = exchange.getResponseBody();
-        app.stream(WebApp.streamPages(queryParameter(exchange, "pages")), frame -> {
-            out.write(frame.getBytes(StandardCharsets.UTF_8));
-            out.flush();
+        Optional<WebApp.Response> refused = app.stream(request, new WebApp.EventStream() {
+            @Override
+            public void open() throws IOException {
+                exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                exchange.getResponseHeaders().set("Cache-Control", "no-store");
+                exchange.sendResponseHeaders(200, 0); // 0: chunked, of unknown length
+            }
+
+            @Override
+            public void send(String frame) throws IOException {
+                out.write(frame.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            }
         });
+        if (refused.isPresent()) {
+            send(exchange, refused.get());
+        }
     }
 
-    private static String pageId(HttpExchange exchange) {
-        return queryParameter(exchange, "page");
+    /** What WebApp reads of a request. The JDK's headers are already case-insensitive. */
+    private static WebApp.Request request(HttpExchange exchange) {
+        Map<String, List<String>> query = WebRequest.parseQuery(exchange.getRequestURI().getRawQuery());
+        return new WebApp.Request() {
+            @Override
+            public String query(String name) {
+                List<String> values = query.get(name);
+                return values == null || values.isEmpty() ? null : values.get(0);
+            }
+
+            @Override
+            public String header(String name) {
+                return exchange.getRequestHeaders().getFirst(name);
+            }
+
+            @Override
+            public boolean secure() {
+                return exchange instanceof HttpsExchange;
+            }
+        };
     }
 
-    private static String queryParameter(HttpExchange exchange, String name) {
-        return WebRequest.parseQuery(exchange.getRequestURI().getRawQuery()).getOrDefault(name, java.util.List.of())
-                .stream().findFirst().orElse(null);
-    }
-
-    private static void send(HttpExchange exchange, int status, String contentType, String body) throws IOException {
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+    private static void send(HttpExchange exchange, WebApp.Response response) throws IOException {
+        response.headers().forEach((name, value) -> exchange.getResponseHeaders().set(name, value));
+        byte[] bytes = response.body().getBytes(StandardCharsets.UTF_8);
         if (bytes.length == 0) {
-            exchange.sendResponseHeaders(status, -1); // -1: no body
+            exchange.sendResponseHeaders(response.status(), -1); // -1: no body
             return;
         }
-        exchange.getResponseHeaders().set("Content-Type", contentType);
-        exchange.sendResponseHeaders(status, bytes.length);
+        exchange.sendResponseHeaders(response.status(), bytes.length);
         exchange.getResponseBody().write(bytes);
     }
 }

@@ -159,6 +159,18 @@ Over HTTP/1.1, browsers open only about six connections per server, and every op
 
 A browser without Web Locks or BroadcastChannel gives each tab its own stream. Web Locks need a secure context, so this is also what happens on a page served over plain HTTP from a host other than `localhost`. Serving over HTTP/2 removes the connection limit altogether; the JDK's HTTP server (`WebServer`) supports only HTTP/1.1, so production deployments **SHOULD** use HTTP/2 (through their server or a reverse proxy).
 
+### 6.3 Security
+
+The runtime (`WebApp`) does the following itself, so that every server adapter gets it:
+
+1. **Sessions.** A page request from a browser without a session cookie gets one: `jasx_session`, 128 random bits, `Path=/; HttpOnly; SameSite=Lax`, and `Secure` when the request came over HTTPS. It has no expiry. Each page belongs to the session that rendered it. An event, a ping or a stream that names a page without carrying that session's cookie gets exactly what an unknown page gets (`410`, or a reload message, §6.1), so a page id that leaks is useless, and no answer tells whether a page id exists. Sessions are compared in constant time. Only cookie values of the form the runtime issues are read.
+2. **Requests from other sites.** The page id is a secret token per page, carried in the URL of every request but never in a cookie. In addition:
+   - an event's body **MUST** be declared as `application/json` (otherwise `415`). A page on another site can't send that content type without the browser asking the server first, and the server never allows it;
+   - an event, a ping or a stream whose `Sec-Fetch-Site` header is present and is neither `same-origin` nor `none` is refused with `403`. The client only ever calls its own origin.
+3. **Limits.** An event body larger than `maxEventBytes` (1 MiB by default) answers `413`, and adapters **SHOULD** stop reading at that size. A session keeps at most `maxPagesPerSession` pages alive (50 by default): rendering one more discards its oldest page. A stream names at most 100 pages (§6.2). JSON nesting is limited to 32 levels.
+
+Pages need cookies: a browser that refuses them can render pages but not use them. Two pages rendered at the same moment for a browser without a session can each issue a cookie. The later one wins, and the page bound to the earlier one reloads once (§6.1) in the session the browser kept. Rate limiting is not part of the runtime; put it in front of the server (a reverse proxy) where needed.
+
 ## 7. Events and input
 
 Handlers and events are `jasx.ui`'s (`ui.md` §4): a handler is an `Action` (`() -> ...`) or a `Handler` of the event's kind (`e -> ...`). `onsubmit` gives a `FormEvent`, `oninput` and `onchange` an `InputEvent`, `onkeydown` a `KeyEvent`, `onclick` a `MouseEvent`, and every other event attribute a plain `Event`. A handler runs on the server with the page's lock held.
@@ -190,7 +202,7 @@ The runtime serves its client script, events and streams under a base path, `/_j
 
 Each stream frame is `{"page": "ID", "batch": B}`, where `B` is a batch, a merged batch (§8.4), or `{"reload": true}`.
 
-A request body that isn't valid JSON, or an event without a numeric `handler`, answers `400`.
+A request body that isn't valid JSON, or an event without a numeric `handler`, answers `400`. An event whose body isn't declared as `application/json` answers `415`, one over the size limit `413`, and an event, ping or stream from another site `403` (§6.3). A page request without a session cookie sets one (§6.3).
 
 ### 8.2 Markup
 
