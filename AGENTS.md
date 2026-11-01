@@ -70,7 +70,7 @@ jasx-web/                  the web target: runtime jasx.web (Web, WebApp, Page, 
                            builders jasx.web.attrs.* generated from the html schema; src/test/js: client tests (jsdom)
 jasx-web-servlet/          the web target on Jakarta Servlet 6 containers: ServletAdapter (requests to WebApp), JasxServlet
                            (pages); tests on an embedded Tomcat
-jasx-web-spring-boot-starter/  web in Spring Boot: JasxWebAutoConfiguration (WebApp bean from jasx.web.* properties,
+jasx-web-spring-boot-starter/  web in Spring Boot: JasxWebAutoConfiguration (WebApp bean from jasx.web.* properties, Element pages,
                            the runtime's servlet, WebPage return values), WebPage; tests in a real Spring Boot app
 docs/web.md                user guide to the web target
 docs/discussions/          design proposals under discussion (not specified, not implemented)
@@ -102,7 +102,7 @@ These decisions are already made. Follow them unless the user changes them.
 | `jasx-ui` | shared runtime of interactive targets (`ui.md`): reactive values and their engine (`Computation`, `Scheduler`), typed events and handlers, `FormEvent.as` record binding; no dependencies | first version |
 | `jasx-web` | the `web` target (`targets/web.md`): holes on `jasx-ui`, `WebLowering`, builders with typed event overloads, pages and protocol (`WebApp`), JDK server (`WebServer`), browser client; no third-party dependencies | first version |
 | `jasx-web-servlet` | `web` on servlet containers: `ServletAdapter` translates requests and responses (the security checks stay in `WebApp`), `JasxServlet` serves pages; streams use async servlets on virtual threads; the servlet API is `compileOnly` (the container provides it) | first version |
-| `jasx-web-spring-boot-starter` | `web` in Spring Boot 3: auto-configuration (`WebApp` bean, `JasxWebProperties`, the runtime's async servlet, a lifecycle bean that closes pages before graceful shutdown), controller methods returning `WebPage` (`() -> <Page />`, so components run inside the page); Spring is `compileOnly` | first version |
+| `jasx-web-spring-boot-starter` | `web` in Spring Boot 3: auto-configuration (`WebApp` bean, `JasxWebProperties`, the runtime's async servlet, a lifecycle bean that closes pages before graceful shutdown), controller methods returning `Element` run inside a new page (`PageHandlerAdapter` through `WebMvcRegistrations`), `WebPage` (`() -> <Page />`) is the fallback when an app has its own `WebMvcRegistrations`; Spring is `compileOnly` | first version |
 
   Next: the order of work in "Current focus", more examples, then publishing. Later: an IntelliJ client for the language server (and later a deeper IntelliJ plugin), more language server features (rename, find references).
 - The Java package root is `jasx` (`jasx.parser`, `jasx.runtime`, `jasx.html`, …), matching the names the spec uses.

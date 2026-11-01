@@ -139,7 +139,7 @@ Early development. The specification is a draft.
 - a live search;
 - a page with a server clock and a chat, pushed from the server.
 
-[`examples/web-spring`](examples/web-spring) is the `web` target in Spring Boot: a team board whose pages are controller methods, whose tasks live in a `@Service`, and whose REST API updates every open board (`curl -X POST localhost:8080/api/tasks -d title="Ship it"`).
+[`examples/web-spring`](examples/web-spring) is the `web` target in Spring Boot: a team board whose pages are controller methods returning their markup, whose tasks live in a `@Service`, and whose REST API updates every open board (`curl -X POST localhost:8080/api/tasks -d title="Ship it"`).
 
 Each serves at http://localhost:8080.
 

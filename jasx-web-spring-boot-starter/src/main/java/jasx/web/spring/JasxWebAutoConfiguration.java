@@ -11,6 +11,8 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration;
+import org.springframework.boot.autoconfigure.web.servlet.WebMvcRegistrations;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.SmartLifecycle;
@@ -25,13 +27,15 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *   <li>a {@link WebApp} bean, from the {@link JasxWebProperties} (define your own bean to replace it);
  *   <li>the runtime's own requests (client script, events, streams, pings) under {@code jasx.web.base-path},
  *       served by an async servlet, so open streams don't hold the container's threads;
- *   <li>controller methods that return a {@link WebPage} render it as a new page.
+ *   <li>controller methods that return an {@code Element} run inside a new page, which is sent as the response
+ *       ({@link PageHandlerAdapter}); a {@link WebPage} return value works too, and is the fallback when another
+ *       {@code WebMvcRegistrations} replaces the starter's.
  * </ul>
  *
  * <p>The security checks are the {@link WebApp}'s (targets/web.md §6.3): sessions, same-site checks and limits.
  * With Spring Security, exclude the base path from Spring's CSRF check, which the runtime does its own way.
  */
-@AutoConfiguration
+@AutoConfiguration(before = WebMvcAutoConfiguration.class)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnClass(RequestMappingHandlerAdapter.class)
 @EnableConfigurationProperties(JasxWebProperties.class)
@@ -90,14 +94,34 @@ public class JasxWebAutoConfiguration {
     }
 
     /**
-     * Puts the {@link WebPage} handler first among Spring MVC's return value handlers, so that a {@code WebPage}
-     * renders even from a {@code @RestController}, whose body handler would otherwise claim it.
+     * Supplies Spring MVC's handler adapter: one that runs controller methods returning an {@code Element} inside a
+     * new page ({@link PageHandlerAdapter}). Spring Boot uses a single {@code WebMvcRegistrations}, so if the
+     * application defines its own, this one steps aside, and pages are returned as {@link WebPage}s instead.
      */
     @Bean
-    public SmartInitializingSingleton jasxWebPageHandler(ObjectProvider<RequestMappingHandlerAdapter> adapters, WebApp app) {
+    @ConditionalOnMissingBean(WebMvcRegistrations.class)
+    public WebMvcRegistrations jasxWebMvcRegistrations(WebApp app) {
+        return new WebMvcRegistrations() {
+            @Override
+            public RequestMappingHandlerAdapter getRequestMappingHandlerAdapter() {
+                return new PageHandlerAdapter(app);
+            }
+        };
+    }
+
+    /**
+     * Puts the page handler first among Spring MVC's return value handlers, so that pages render even from a
+     * {@code @RestController}, whose body handler would otherwise claim them.
+     */
+    @Bean
+    public SmartInitializingSingleton jasxPageHandler(ObjectProvider<RequestMappingHandlerAdapter> adapters, WebApp app) {
         return () -> adapters.forEach(adapter -> {
+            if (!(adapter instanceof PageHandlerAdapter)) {
+                LOG.log(System.Logger.Level.WARNING, "another WebMvcRegistrations replaces the JASX starter's: controller"
+                        + " methods must return a WebPage (return () -> <Page />), not an Element");
+            }
             List<HandlerMethodReturnValueHandler> handlers = new ArrayList<>();
-            handlers.add(new WebPageReturnValueHandler(app));
+            handlers.add(new PageReturnValueHandler(app));
             List<HandlerMethodReturnValueHandler> existing = adapter.getReturnValueHandlers();
             if (existing != null) {
                 handlers.addAll(existing);
@@ -105,4 +129,6 @@ public class JasxWebAutoConfiguration {
             adapter.setReturnValueHandlers(handlers);
         });
     }
+
+    private static final System.Logger LOG = System.getLogger(JasxWebAutoConfiguration.class.getName());
 }

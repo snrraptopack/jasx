@@ -1,6 +1,6 @@
 package board;
 
-import jasx.web.spring.WebPage;
+import jasx.runtime.Element;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,8 +12,8 @@ import static board.Views.*;
 
 /**
  * The pages: ordinary Spring MVC controller methods. Spring routes the request, binds its parameters and injects
- * the services; the method returns the page to render. The {@code () ->} lets the page's components run inside
- * the page, so the state they create belongs to it.
+ * the services; the method returns the page's markup. A method that returns an {@code Element} runs inside a new
+ * page, so the state its components create belongs to that page.
  */
 @Controller
 public class Pages {
@@ -25,16 +25,16 @@ public class Pages {
 
     /** The board. {@code /?show=open} starts with a filter. */
     @GetMapping("/")
-    public WebPage board(@RequestParam(defaultValue = "all") String show) {
-        return () -> <Board tasks={tasks} show={show} />;
+    public Element board(@RequestParam(defaultValue = "all") String show) {
+        return <Board tasks={tasks} show={show} />;
     }
 
     /** One task. An unknown id is a 404, as anywhere in Spring. */
     @GetMapping("/tasks/{id}")
-    public WebPage task(@PathVariable long id) {
+    public Element task(@PathVariable long id) {
         if (tasks.find(id).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no task " + id);
         }
-        return () -> <TaskPage tasks={tasks} id={id} />;
+        return <TaskPage tasks={tasks} id={id} />;
     }
 }

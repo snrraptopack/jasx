@@ -3,6 +3,7 @@ package jasx.web.spring;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jasx.runtime.Element;
 import jasx.ui.State;
 import jasx.web.Web;
 import jasx.web.WebApp;
@@ -15,6 +16,7 @@ import java.util.Iterator;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -26,39 +28,64 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /** The starter in a real Spring Boot application on a random port, talked to as a browser would. */
 class StarterTest {
     /** Pushed to the pages that show it, from outside any request. */
     static final State<String> NEWS = Web.state("first");
 
-    /** Pages as ordinary controller methods. */
+    /** Read by an effect that a page method creates. */
+    static final State<String> TOPIC = Web.state("a");
+    static final AtomicInteger EFFECT_RUNS = new AtomicInteger();
+
+    /** Pages as ordinary controller methods, returning their markup: the whole method runs inside the page. */
     @Controller
     static class Pages {
         @GetMapping("/counter/{start}")
-        WebPage counter(@PathVariable("start") int start) {
-            return () -> {
-                State<Integer> count = Web.state(start);
-                return Web.h("button", Button.create().onclick(() -> count.update(n -> n + 1)), Web.dynamic(() -> count.get()));
-            };
+        Element counter(@PathVariable("start") int start) {
+            State<Integer> count = Web.state(start);
+            return Web.h("button", Button.create().onclick(() -> count.update(n -> n + 1)), Web.dynamic(() -> count.get()));
         }
 
         @GetMapping("/news")
-        WebPage news() {
-            return () -> Web.h("p", null, Web.dynamic(() -> NEWS.get()));
+        Element news() {
+            return Web.h("p", null, Web.dynamic(() -> NEWS.get()));
+        }
+
+        /** An effect made in the method belongs to the page, and is disposed with it. */
+        @GetMapping("/effect")
+        Element effect() {
+            Web.effect(() -> {
+                TOPIC.get();
+                EFFECT_RUNS.incrementAndGet();
+            });
+            return Web.h("p", null, "watching");
+        }
+
+        @GetMapping("/missing/{id}")
+        Element missing(@PathVariable("id") long id) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no item " + id);
+        }
+
+        /** The fallback form: a function the starter calls inside the page. */
+        @GetMapping("/as-function")
+        WebPage asFunction() {
+            return () -> Web.h("p", null, "rendered from a WebPage");
         }
     }
 
-    /** A @RestController's body handler must not claim a WebPage. */
+    /** A @RestController's body handler must not claim a page. */
     @RestController
     static class Api {
         @GetMapping("/rest-page")
-        WebPage page() {
-            return () -> Web.h("p", null, "from a rest controller");
+        Element page() {
+            return Web.h("p", null, "from a rest controller");
         }
     }
 
@@ -138,6 +165,20 @@ class StarterTest {
         }
 
         @Test
+        void aWebPageFunctionStillWorks() throws Exception {
+            HttpResponse<String> page = get(base() + "/as-function");
+            assertEquals(200, page.statusCode());
+            assertTrue(page.body().contains("<p>rendered from a WebPage</p>"), page.body());
+        }
+
+        @Test
+        void aStatusExceptionFromAPageMethodReachesSpringAndDiscardsThePage() throws Exception {
+            int pagesBefore = app.pageCount();
+            assertEquals(404, get(base() + "/missing/7").statusCode());
+            assertEquals(pagesBefore, app.pageCount(), "the page the method failed in is discarded");
+        }
+
+        @Test
         void theClientScriptIsServed() throws Exception {
             HttpResponse<String> script = get(base() + "/_jasx/web.js");
             assertEquals(200, script.statusCode());
@@ -177,6 +218,35 @@ class StarterTest {
                 stream.body().close();
                 reader.interrupt();
             }
+        }
+    }
+
+    @Nested
+    @SpringBootTest(classes = Application.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+            properties = "jasx.web.max-pages-per-session=1")
+    class PageOwnership {
+        @LocalServerPort
+        int port;
+
+        @Test
+        void whatAPageMethodCreatesBelongsToThePage() throws Exception {
+            String base = "http://localhost:" + port;
+            HttpResponse<String> page = get(base + "/effect");
+            String cookie = cookieOf(page);
+            int runs = EFFECT_RUNS.get();
+
+            TOPIC.set("b"); // the page is alive: its effect runs again (on the page's flush)
+            for (int i = 0; i < 50 && EFFECT_RUNS.get() == runs; i++) {
+                Thread.sleep(20);
+            }
+            assertEquals(runs + 1, EFFECT_RUNS.get());
+
+            // One page per session here: a second page discards the first, and its effect with it.
+            CLIENT.send(HttpRequest.newBuilder(URI.create(base + "/counter/1")).header("Cookie", cookie).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            TOPIC.set("c");
+            Thread.sleep(300);
+            assertEquals(runs + 1, EFFECT_RUNS.get(), "the effect was disposed with its page");
         }
     }
 

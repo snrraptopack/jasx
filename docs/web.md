@@ -248,7 +248,7 @@ The runtime is independent of any HTTP server. An adapter describes each request
 
 The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server.
 
-**With Spring Boot** (3.x, with `spring-boot-starter-web`), add `dev.jasx:jasx-web-spring-boot-starter`. Pages are ordinary controller methods that return a `WebPage`:
+**With Spring Boot** (3.x, with `spring-boot-starter-web`), add `dev.jasx:jasx-web-spring-boot-starter`. Pages are ordinary controller methods that return their markup:
 
 ```java
 @Controller
@@ -260,18 +260,20 @@ class Pages {
     }
 
     @GetMapping("/")
-    WebPage home() {
-        return () -> <Home />;
+    Element home() {
+        return <Home />;
     }
 
     @GetMapping("/todos/{id}")
-    WebPage todo(@PathVariable long id) {
-        return () -> <TodoDetail todo={store.get(id)} />;
+    Element todo(@PathVariable long id) {
+        return <TodoDetail todo={store.get(id)} />;
     }
 }
 ```
 
-The `() ->` is there because the page's components must run inside the page, so the state they create belongs to it. Routing, path variables, request parameters, dependency injection and Spring Security work as usual. The starter serves the runtime's requests under `/_jasx` (on async requests, so open streams hold no threads), takes `server.servlet.context-path` into account, and closes pages when the application stops. Settings:
+A method that returns an `Element` runs inside a new page: Spring binds its arguments first, then the starter runs the method body within the page, so the state its components create belongs to that page. Routing, path variables, request parameters, dependency injection, exceptions (a `ResponseStatusException` is still a 404) and Spring Security work as usual.
+
+The starter does this through Spring Boot's `WebMvcRegistrations`, of which an application can have only one. If yours defines its own, return a `WebPage` instead, a function the starter calls inside the page: `WebPage home() { return () -> <Home />; }`. The starter serves the runtime's requests under `/_jasx` (on async requests, so open streams hold no threads), takes `server.servlet.context-path` into account, and closes pages when the application stops. Settings:
 
 ```properties
 jasx.web.base-path=/_jasx
