@@ -84,7 +84,6 @@ record NewTask(String title, String assignee) {}
 
 public Element Board(TaskService tasks, String show) {
     var filter = state(show); // this page's own state: each window filters on its own
-
     return (
         <Layout title="Board" tasks={tasks}>
             <form class="add" onsubmit={e -> {

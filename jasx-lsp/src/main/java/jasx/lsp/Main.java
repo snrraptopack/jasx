@@ -1,7 +1,10 @@
 package jasx.lsp;
 
+import jasx.compiler.ComponentIndex;
+import jasx.compiler.Target;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -11,6 +14,9 @@ import java.util.concurrent.Executors;
  */
 public final class Main {
     private Main() {}
+
+    /** How long typing must pause before javac checks the change (JasxLanguageServer). */
+    private static final long TYPING_PAUSE_MILLIS = 500;
 
     public static void main(String[] args) throws IOException {
         Transport transport = new Transport(System.in, System.out);
@@ -26,7 +32,10 @@ public final class Main {
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
-        }, background);
+        }, background, TYPING_PAUSE_MILLIS);
+        // The first javac run in a fresh JVM is several times slower than later ones; do it now, before the
+        // editor asks for anything.
+        background.execute(Main::warmUp);
 
         String message;
         while ((message = transport.read()) != null) {
@@ -37,5 +46,20 @@ public final class Main {
         }
         // The client closed the connection without 'exit'.
         System.exit(1);
+    }
+
+    /**
+     * Completes Java once in a small made-up file, with the bundled target: javac's classes get loaded and
+     * compiled by the JIT, and the index of the platform's types is built ({@link TypeIndex}).
+     */
+    private static void warmUp() {
+        try {
+            ClassLoader loader = Main.class.getClassLoader();
+            String text = "class Warm { Object page(String name) { return <p>{name.toUpperCase().length() + Str}</p>; } }";
+            JavaCompletions.at(Map.of("Warm.jasx", text), "Warm.jasx", text.indexOf("Str") + 3,
+                    Target.load("html", loader), new ComponentIndex(), System.getProperty("java.class.path"), null);
+        } catch (RuntimeException e) {
+            // only a warm-up: the first real request just takes longer
+        }
     }
 }

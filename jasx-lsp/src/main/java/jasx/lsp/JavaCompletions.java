@@ -17,14 +17,11 @@ import jasx.compiler.GeneratedFile;
 import jasx.compiler.JasxCompiler;
 import jasx.compiler.SourceFile;
 import jasx.compiler.Target;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -41,11 +38,7 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
-import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
-import javax.tools.SimpleJavaFileObject;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.ToolProvider;
 
 /**
  * Completion in Java code of a {@code .jasx} file: after {@code e.} the members of {@code e}'s type, and
@@ -132,65 +125,16 @@ final class JavaCompletions {
         if (!markerArrived) {
             return Completions.Result.NONE; // the file couldn't be lowered (a markup syntax error, say)
         }
-        try {
-            return analyse(lowered.files(), java, path, classpath, release, typed, nameStart);
-        } catch (RuntimeException e) {
+        JavacAnalysis analysis = JavacAnalysis.of(lowered.files(), java, path, classpath, release);
+        if (analysis == null) {
             return Completions.Result.NONE; // javac couldn't analyse it: no suggestions rather than an error
         }
-    }
-
-    // ---------------------------------------------------------------------------------------------
-    // Running javac
-    // ---------------------------------------------------------------------------------------------
-
-    private static Completions.Result analyse(List<GeneratedFile> generated, List<SourceFile> java, String path,
-            String classpath, Integer release, String typed, int nameStart) {
-        JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
-        List<JavaFileObject> units = new ArrayList<>();
-        JavaFileObject target = null;
-        for (GeneratedFile file : generated) {
-            JavaFileObject unit = inMemory(file.javaPath(), file.content());
-            units.add(unit);
-            if (file.source().path().equals(path)) {
-                target = unit;
-            }
-        }
-        for (SourceFile file : java) {
-            units.add(inMemory(file.path(), file.content()));
-        }
-
-        List<String> options = new ArrayList<>(List.of("-classpath", classpath, "-proc:none", "-encoding", "UTF-8",
-                "-nowarn", "-implicit:none",
-                // Keep analysing after errors: the marker itself is one.
-                "-XDshould-stop.ifError=FLOW"));
-        if (release != null) {
-            options.addAll(List.of("--release", release.toString()));
-        }
-        StandardJavaFileManager files = javac.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8);
-        JavacTask task = (JavacTask) javac.getTask(null, files, diagnostic -> {}, options, null, units);
         try {
-            List<CompilationUnitTree> trees = new ArrayList<>();
-            task.parse().forEach(trees::add);
-            task.analyze();
-            for (CompilationUnitTree unit : trees) {
-                if (target != null && unit.getSourceFile().toUri().equals(target.toUri())) { // javac wraps file objects
-                    return suggestionsAt(task, unit, new Importable(trees, classpath, release, typed), nameStart);
-                }
-            }
-            return Completions.Result.NONE;
-        } catch (java.io.IOException e) {
+            Importable importable = new Importable(analysis.group, classpath, release, typed);
+            return suggestionsAt(analysis.task, analysis.unit, importable, nameStart);
+        } catch (RuntimeException e) {
             return Completions.Result.NONE;
         }
-    }
-
-    private static JavaFileObject inMemory(String path, String content) {
-        URI uri = URI.create("string:///" + path.replace('\\', '/').replace(" ", "%20"));
-        return new SimpleJavaFileObject(uri, JavaFileObject.Kind.SOURCE) {
-            @Override
-            public CharSequence getCharContent(boolean ignoreEncodingErrors) {
-                return content;
-            }
-        };
     }
 
     /** The marker's tree: an identifier, or the name of a member select ({@code e.marker}). */
@@ -549,10 +493,6 @@ final class JavaCompletions {
             return field.asType();
         }
 
-        /** A type as people write it: {@code List<String>} rather than {@code java.util.List<java.lang.String>}. */
-        private static String simple(TypeMirror type) {
-            return type.toString().replaceAll("\\b(?:[a-z][\\w]*\\.)+([A-Z])", "$1");
-        }
 
         private void add(String label, int kind, String detail, String newText, String group) {
             add(label, kind, detail, newText, group, label);
@@ -595,6 +535,11 @@ final class JavaCompletions {
             at++;
         }
         return true;
+    }
+
+    /** A type as people write it: {@code List<String>} rather than {@code java.util.List<java.lang.String>}. */
+    static String simple(TypeMirror type) {
+        return type.toString().replaceAll("\\b(?:[a-z][\\w]*\\.)+([A-Z])", "$1");
     }
 
     private static String simpleName(String qualifiedName) {

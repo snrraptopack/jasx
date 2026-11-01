@@ -524,6 +524,62 @@ class LanguageServerTest {
             assertEquals(0, Workspace.importPlace("class D { Object x = <p>import a;</p>; }\n").line());
         }
 
+        // --- Hover beyond component tags ---------------------------------------------------------
+
+        /** Opens {@code file} with {@code text}, in which {@code |} marks the cursor, and returns the hover's Markdown. */
+        private String hoverAt(Path file, String text) {
+            int cursor = text.indexOf('|');
+            String before = text.substring(0, cursor);
+            int line = (int) before.chars().filter(c -> c == '\n').count();
+            int character = cursor - (before.lastIndexOf('\n') + 1);
+            open(file, text.substring(0, cursor) + text.substring(cursor + 1));
+            Object result = request("textDocument/hover", position(file, line, character)).get("result");
+            return result == null ? null : Json.string(Json.object(Json.object(result).get("contents")).get("value"));
+        }
+
+        @Test
+        void aStateVariableShowsItsType() throws IOException {
+            writeBuildInfo("web", List.of());
+            String hover = hoverAt(page, WEB_PAGE.replace("MARKUP", "<p>{cou|nt}</p>"));
+            assertTrue(hover != null && hover.contains("State<Integer> count"), String.valueOf(hover));
+        }
+
+        @Test
+        void aHandlersParameterShowsItsKindOfEvent() throws IOException {
+            writeBuildInfo("web", List.of());
+            String hover = hoverAt(page, WEB_PAGE.replace("MARKUP", "<button onclick={|e -> e.button()}>x</button>"));
+            assertTrue(hover != null && hover.contains("MouseEvent e"), String.valueOf(hover));
+
+            String method = hoverAt(page, WEB_PAGE.replace("MARKUP", "<button onclick={e -> e.butt|on()}>x</button>"));
+            assertTrue(method != null && method.contains("MouseEvent.button()"), String.valueOf(method));
+        }
+
+        @Test
+        void aMethodOfAGenericTypeShowsItsActualTypes() throws IOException {
+            writeBuildInfo("web", List.of());
+            String hover = hoverAt(page, WEB_PAGE.replace("MARKUP", "<p>{count.g|et()}</p>"));
+            assertTrue(hover != null && hover.contains("Integer State.get()"), String.valueOf(hover));
+        }
+
+        @Test
+        void anElementAndItsAttributesDescribeThemselves() {
+            String element = hoverAt(page, pageWith("<sec|tion class=\"x\"></section>;"));
+            assertTrue(element != null && element.contains("<section>") && element.contains("MDN"), String.valueOf(element));
+            String attribute = hoverAt(page, pageWith("<section cla|ss=\"x\"></section>;"));
+            assertTrue(attribute != null && attribute.contains("Global attribute"), String.valueOf(attribute));
+        }
+
+        @Test
+        void aPropShowsItsTypeAndHowItIsPassed() {
+            String hover = hoverAt(page, PAGE.replace("title=\"Hi\"", "tit|le=\"Hi\""));
+            assertTrue(hover != null && hover.contains("String title") && hover.contains("required"), String.valueOf(hover));
+        }
+
+        @Test
+        void nothingOnPlainText() {
+            assertNull(hoverAt(page, pageWith("<p>some te|xt</p>;")));
+        }
+
         @Test
         void stateMembersShowTheirValueType() throws IOException {
             writeBuildInfo("web", List.of());
@@ -553,6 +609,7 @@ class LanguageServerTest {
             info.put("compileClasspath", classpath);
             info.put("processorPath", List.of());
             info.put("release", null);
+            info.put("generatedSources", project.resolve("build/generated/sources/jasx/main").toString());
             Path file = project.resolve("build/jasx/editor/main.json");
             Files.createDirectories(file.getParent());
             Files.writeString(file, Json.write(info));
@@ -575,11 +632,13 @@ class LanguageServerTest {
             writeBuildInfo(List.of(library.toString()));
 
             change(page, text);
-            assertEquals(List.of(), diagnosticsOf(page));
+            // The made-up library has an index but no class, which javac reports; JASX knows the component.
+            List<String> jasxDiagnostics = diagnosticsOf(page).stream().filter(d -> !d.startsWith("javac@")).toList();
+            assertEquals(List.of(), jasxDiagnostics);
         }
 
         @Test
-        void javacErrorsInJasxFilesAreShownUntilTheFileChanges() throws IOException {
+        void javacErrorsFollowTheTextWhenTypingPauses() throws IOException {
             writeBuildInfo(List.of());
             String text = pageWith("<p>{undefinedName}</p>;");
 
@@ -587,8 +646,49 @@ class LanguageServerTest {
             // Line 6 is "    return <p>{undefinedName}": the name is at column 15.
             assertEquals(List.of("javac@6:15"), diagnosticsOf(page));
 
-            change(page, text + "\n"); // the error may have moved: it is no longer shown
+            // A change checks again once typing pauses (at once in this test): the error moved a line down.
+            change(page, text.replace("class Page {", "class Page {\n"));
+            assertEquals(List.of("javac@7:15"), diagnosticsOf(page));
+
+            change(page, PAGE);
             assertEquals(List.of(), diagnosticsOf(page));
+        }
+
+        @Test
+        void aJavacErrorIsHiddenWhileItsTextIsBeingEdited() throws IOException {
+            writeBuildInfo(List.of());
+            String text = pageWith("<p>{undefinedName}</p>;");
+            open(page, text);
+
+            // A server that waits for a pause: the change hides the error, the late check is dropped.
+            List<Runnable> waiting = new ArrayList<>();
+            sent.clear();
+            server = new JasxLanguageServer(json -> sent.add(Json.object(Json.parse(json))), waiting::add, 60_000);
+            request("initialize", Map.of("rootUri", project.toUri().toString()));
+            open(page, text);
+            waiting.forEach(Runnable::run); // the check that opening started
+            assertEquals(List.of("javac@6:15"), diagnosticsOf(page));
+
+            change(page, text + "\n");
+            assertEquals(List.of(), diagnosticsOf(page), "hidden until typing pauses: it may have moved");
+        }
+
+        @Test
+        void theGeneratedJavaFollowsTheEditor() throws IOException {
+            writeBuildInfo(List.of());
+            Path generated = project.resolve("build/generated/sources/jasx/main/app/Page.java");
+
+            open(page, PAGE);
+            assertTrue(Files.readString(generated).contains("Home()"), "written on open");
+
+            // An unsaved rename reaches the generated Java once typing pauses (at once in this test), so the
+            // editor's Java support sees it in .java files.
+            change(page, PAGE.replace("Home()", "Start()"));
+            assertTrue(Files.readString(generated).contains("Start()"), Files.readString(generated));
+
+            // A file with a JASX error keeps its last good Java.
+            change(page, PAGE.replace("Home()", "Broken()").replace("</Ui.Card>", "</Ui.Cards>"));
+            assertTrue(Files.readString(generated).contains("Start()"), "kept while the file has errors");
         }
 
         @Test

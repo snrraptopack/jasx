@@ -21,7 +21,7 @@ import org.gradle.work.DisableCachingByDefault;
 
 /**
  * Writes what an editor needs to know about a source set's build ({@link EditorInfo}: the target, the
- * classpaths, the annotation processor path and the Java release) to
+ * classpaths, the annotation processor path, the Java release and where compileJasx writes) to
  * {@code build/jasx/editor/<sourceSet>.json}, for the JASX language server.
  *
  * <p>The language server finds the file from a source directory ({@code src/main/java} gives
@@ -49,6 +49,10 @@ public abstract class JasxEditorInfo extends DefaultTask {
     @Optional
     public abstract Property<Integer> getRelease();
 
+    /** compileJasx's output directory, as an absolute path (a path, so that this task doesn't depend on it). */
+    @Input
+    public abstract Property<String> getGeneratedSources();
+
     @OutputFile
     public abstract RegularFileProperty getOutputFile();
 
@@ -67,7 +71,8 @@ public abstract class JasxEditorInfo extends DefaultTask {
     @TaskAction
     public void write() throws IOException {
         EditorInfo info = new EditorInfo(getTarget().get(), pathsOf(getJasxClasspath()),
-                pathsOf(getCompileClasspath()), pathsOf(getProcessorPath()), getRelease().getOrNull());
+                pathsOf(getCompileClasspath()), pathsOf(getProcessorPath()), getRelease().getOrNull(),
+                getGeneratedSources().get());
         Path file = getOutputFile().get().getAsFile().toPath();
         Files.createDirectories(file.getParent());
         Files.writeString(file, info.toJson(), StandardCharsets.UTF_8);

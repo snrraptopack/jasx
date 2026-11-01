@@ -2,12 +2,16 @@ package jasx.intellij;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.lsp.api.ProjectWideLspServerDescriptor;
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 /**
  * How IntelliJ runs the JASX language server for a project: {@code java -jar server/jasx-lsp.jar}, talking
@@ -34,7 +38,44 @@ final class JasxLspServerDescriptor extends ProjectWideLspServerDescriptor {
         if (!Files.isRegularFile(jar)) {
             throw new ExecutionException("The JASX language server is missing from the plugin: " + jar);
         }
-        return new GeneralCommandLine(java().toString(), "-jar", jar.toString());
+        return new GeneralCommandLine(java().toString(), "-jar", runnableCopyOf(jar).toString());
+    }
+
+    /**
+     * A copy of the server jar in the IDE's system directory, named after the jar's size and time, which the
+     * server runs from. A running JVM locks its jar on Windows, so running the plugin's own jar would keep the
+     * plugin from being updated while the IDE is open. Older copies are deleted when they are no longer in use.
+     */
+    private static Path runnableCopyOf(Path jar) throws ExecutionException {
+        try {
+            Path directory = PathManager.getSystemDir().resolve("jasx");
+            String name = "jasx-lsp-" + Files.size(jar) + "-" + Files.getLastModifiedTime(jar).toMillis() + ".jar";
+            Path copy = directory.resolve(name);
+            if (!Files.isRegularFile(copy)) {
+                Files.createDirectories(directory);
+                Files.copy(jar, copy, StandardCopyOption.REPLACE_EXISTING);
+            }
+            deleteOtherCopies(directory, copy);
+            return copy;
+        } catch (IOException e) {
+            return jar; // run the plugin's own jar after all
+        }
+    }
+
+    private static void deleteOtherCopies(Path directory, Path keep) {
+        try (DirectoryStream<Path> copies = Files.newDirectoryStream(directory, "jasx-lsp-*.jar")) {
+            for (Path copy : copies) {
+                if (!copy.equals(keep)) {
+                    try {
+                        Files.deleteIfExists(copy);
+                    } catch (IOException e) {
+                        // still in use by a server of another project: deleted another time
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // nothing to clean up then
+        }
     }
 
     /** The language id sent with each document; IntelliJ doesn't know {@code .jasx} by itself. */

@@ -27,8 +27,10 @@ import jasx.parser.Diagnostic;
  *       and {@code workspace/didChangeWatchedFiles}. Each of them re-analyses the file's group and
  *       publishes its diagnostics ({@code textDocument/publishDiagnostics}). {@code didOpen} and
  *       {@code didSave} also start a javac check of the group, if the build describes it
- *       ({@link Workspace#javacCheck}); its errors are published when it finishes;
- *   <li>{@code textDocument/definition} and {@code textDocument/hover} on component tags;
+ *       ({@link Workspace#javacCheck}), and so does {@code didChange} once typing pauses
+ *       ({@code typingPauseMillis} without another change); its errors are published when it finishes;
+ *   <li>{@code textDocument/definition} on component tags, and {@code textDocument/hover} on component
+ *       tags, other markup and Java names ({@link Workspace#hover});
  *   <li>{@code textDocument/completion} of tag and attribute names in markup ({@link Completions}), and of
  *       Java members and names in Java code, also inside {@code {...}} ({@link JavaCompletions}).
  * </ul>
@@ -54,14 +56,25 @@ final class JasxLanguageServer {
     private int nextRequestId = 1;
     private boolean shutdownRequested;
     private boolean exitRequested;
+    /** How long typing must pause before a change starts a javac check. */
+    private final long typingPauseMillis;
+    /** Counts changes, so that a check waiting for a pause can see that typing went on. */
+    private int changes;
 
     /**
-     * @param send       writes one message (a JSON string) to the client
-     * @param background runs javac checks; tests pass one that runs them at once
+     * @param send              writes one message (a JSON string) to the client
+     * @param background        runs javac checks, one at a time; tests pass one that runs them at once
+     * @param typingPauseMillis how long after a change, without another, its javac check starts
      */
-    JasxLanguageServer(Consumer<String> send, Executor background) {
+    JasxLanguageServer(Consumer<String> send, Executor background, long typingPauseMillis) {
         this.send = send;
         this.background = background;
+        this.typingPauseMillis = typingPauseMillis;
+    }
+
+    /** A server whose checks after a change start at once (for tests). */
+    JasxLanguageServer(Consumer<String> send, Executor background) {
+        this(send, background, 0);
     }
 
     /** True once the client sent {@code exit}: the server should stop. */
@@ -122,6 +135,7 @@ final class JasxLanguageServer {
                 String uri = Json.string(document.get("uri"));
                 workspace().open(uri, Json.string(document.get("text")));
                 publish(workspace().analyze(uri));
+                workspace().writeGeneratedSources(uri);
                 startJavacCheck(uri);
                 return null;
             }
@@ -132,11 +146,13 @@ final class JasxLanguageServer {
                 Map<String, Object> last = Json.object(changes.get(changes.size() - 1));
                 workspace().change(uri, Json.string(last.get("text")));
                 publish(workspace().analyze(uri));
+                startJavacCheckWhenTypingPauses(uri);
                 return null;
             }
             case "textDocument/didSave": {
                 String uri = documentUri(params);
                 publish(workspace().analyze(uri));
+                workspace().writeGeneratedSources(uri);
                 startJavacCheck(uri);
                 return null;
             }
@@ -300,19 +316,54 @@ final class JasxLanguageServer {
     /** Starts a javac check of the group of {@code uri} in the background, if it can run. */
     private void startJavacCheck(String uri) {
         Workspace.JavacCheck check = workspace().javacCheck(uri);
-        if (check == null) {
-            return;
+        if (check != null) {
+            background.execute(() -> run(check));
         }
+    }
+
+    /**
+     * Starts a javac check of the group of {@code uri} once typing pauses: if no other change came within
+     * {@code typingPauseMillis}. Checking on every keystroke would only produce results that are stale before
+     * they arrive. The check is prepared when the pause ends, from the text as it is then.
+     */
+    private void startJavacCheckWhenTypingPauses(String uri) {
+        int change = ++changes;
         background.execute(() -> {
-            try {
-                List<CompilerDiagnostic> diagnostics = check.run();
-                javacFinished(check, diagnostics);
-            } catch (IOException | RuntimeException e) {
-                synchronized (this) {
-                    log("JASX: the javac check failed: " + e);
+            pause(typingPauseMillis);
+            Workspace.JavacCheck check;
+            synchronized (this) {
+                boolean typingWentOn = change != changes;
+                if (!typingWentOn) {
+                    workspace().writeGeneratedSources(uri);
                 }
+                check = typingWentOn ? null : workspace().javacCheck(uri);
+            }
+            if (check != null) {
+                run(check);
             }
         });
+    }
+
+    private void run(Workspace.JavacCheck check) {
+        try {
+            List<CompilerDiagnostic> diagnostics = check.run();
+            javacFinished(check, diagnostics);
+        } catch (IOException | RuntimeException e) {
+            synchronized (this) {
+                log("JASX: the javac check failed: " + e);
+            }
+        }
+    }
+
+    private static void pause(long millis) {
+        if (millis <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private synchronized void javacFinished(Workspace.JavacCheck check, List<CompilerDiagnostic> diagnostics) {

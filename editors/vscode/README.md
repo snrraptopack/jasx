@@ -14,13 +14,14 @@ Support for `.jasx` files (Java with JSX-style markup): highlighting, and errors
 - **Completion** in markup: after `<`, the components the file can use (named as they resolve there: `Card`, `Ui.Card` or fully qualified) and the target's elements; in an opening tag, a component's props that aren't given yet (required ones first) or the attributes the target allows on an element. Nothing is offered in text or in attribute values.
 - **Completion** in Java code, also inside `{...}`, as javac sees it: members after `.` (an event handler `e -> e.` knows its kind of event), the types of a package after its name (`java.util.`), names in scope, types usable without an import (`java.lang`, the file's package, `.*` imports), keywords, and, once a type name has a first letter, every type the file could import (the JDK's `java.*` modules, the project's jars, its own sources), which adds the import when chosen.
 - **Go to Definition** (F12, or Ctrl+click) on a component tag opens the component's method.
-- **Hover** on a component tag shows its signature and how each prop is passed.
+- **Hover** on a component tag shows its signature and how each prop is passed; on a prop, its type and whether it is required; on an element or attribute of the target, what it is, with a link to MDN; on a name in Java code (also inside `{...}`), its type or signature as javac sees it: `State<Integer> count`, the `MouseEvent e` of a click handler, `Integer State.get()`, with Javadoc for your own code.
 
 **After a build** with the JASX Gradle or Maven plugin, the server also uses what the build knows (the plugins write it to `build/jasx/editor/<sourceSet>.json` or `target/jasx/editor/<sourceSet>.json` on every build):
 
 - the components of the project's dependencies (jars) are known;
 - the project's own target is used;
-- **Java type errors** (`javac: ...`) in `.jasx` files appear when you open or save a file. javac runs in the background, as the build would (same classpath, annotation processors and Java release). Errors in `.java` files are left to VS Code's Java support. A file's javac errors disappear when you edit it, and are checked again on save.
+- **Java type errors** (`javac: ...`) in `.jasx` files appear when you open or save a file, and half a second after you stop typing. javac runs in the background, as the build would (same classpath, annotation processors and Java release). Errors in `.java` files are left to VS Code's Java support. While you type, a file's javac errors are hidden (they may have moved), until the next check.
+- **The generated Java stays current.** The server rewrites the build's generated sources (`build/generated/sources/jasx/<set>`, or Maven's `target/generated-sources/jasx`) as you edit, so the editor's Java support sees a new or changed component in `.java` files without a build. Only files that changed are written; a file with JASX errors keeps its last good Java.
 
 Before the first build, the server uses the `html` target bundled with it, a tag using a component from a jar is reported as unknown, and javac doesn't run.
 

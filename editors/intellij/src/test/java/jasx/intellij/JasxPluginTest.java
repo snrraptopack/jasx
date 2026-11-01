@@ -20,8 +20,9 @@ public final class JasxPluginTest extends BasePlatformTestCase {
 
     public void testTheBundleGivesJasxFilesTheirGrammar() {
         TextMateService textMate = TextMateService.getInstance();
-        textMate.reloadEnabledBundles();
-        assertNotNull("no TextMate language for .jasx", textMate.getLanguageDescriptorByFileName("Page.jasx"));
+        textMate.reloadEnabledBundles(); // loads the bundles in the background
+        PlatformTestUtil.waitWithEventsDispatching("no TextMate language for .jasx",
+                () -> textMate.getLanguageDescriptorByFileName("Page.jasx") != null, 30);
     }
 
     public void testIntelliJStartsTheServerAndCompletesTheHandshake() {

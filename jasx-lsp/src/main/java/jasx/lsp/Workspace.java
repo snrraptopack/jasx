@@ -277,12 +277,7 @@ final class Workspace {
         if (analysis == null || analysis.build() == null || analysis.result().hasErrors()) {
             return null;
         }
-        List<SourceFile> java = new ArrayList<>();
-        analysis.texts().forEach((relative, text) -> {
-            if (relative.endsWith(".java")) {
-                java.add(new SourceFile(relative, text));
-            }
-        });
+        List<SourceFile> java = javaSources(analysis);
         int generation = javacGenerations.merge(analysis.base(), 1, Integer::sum);
         JavacRunner.BuildOptions options = analysis.build().javacOptions(javacWorkDirectory(analysis.base()));
         return new JavacCheck(analysis.base(), generation, analysis.result().files(), java,
@@ -303,6 +298,39 @@ final class Workspace {
         List<CompilerDiagnostic> inJasxFiles = diagnostics.stream().filter(d -> d.path().endsWith(".jasx")).toList();
         javacResults.put(check.base(), new JavacResult(check.texts(), inJasxFiles));
         return diagnosticsToPublish(analysis, null);
+    }
+
+    /**
+     * Brings the build's generated Java ({@link BuildInfo#generatedSources}) up to date with the last analysis
+     * of the group of {@code uri}, so that the editor's Java support sees the components as they are now in
+     * {@code .java} files: a new component, a renamed one, a changed prop, without running the build.
+     *
+     * <p>Only files whose content changed are written, so the editor reindexes nothing else. Nothing is ever
+     * deleted: a file with JASX errors has no generated Java, and its last good version stays until the file
+     * is fixed (or the build runs, which replaces the whole directory). Writing is best effort: a failure only
+     * leaves the editor's Java support a little behind.
+     */
+    void writeGeneratedSources(String uri) {
+        Analysis analysis = analysisOf(toPath(uri));
+        boolean buildSaysWhere = analysis != null && analysis.build() != null
+                && analysis.build().generatedSources() != null;
+        if (!buildSaysWhere) {
+            return;
+        }
+        Path directory = analysis.build().generatedSources();
+        for (GeneratedFile file : analysis.result().files()) {
+            Path target = directory.resolve(file.javaPath());
+            try {
+                boolean unchanged = Files.isRegularFile(target)
+                        && Files.readString(target, StandardCharsets.UTF_8).equals(file.content());
+                if (!unchanged) {
+                    Files.createDirectories(target.getParent());
+                    Files.writeString(target, file.content(), StandardCharsets.UTF_8);
+                }
+            } catch (IOException | UncheckedIOException e) {
+                // best effort, see above
+            }
+        }
     }
 
     /** A directory of its own for each group's javac checks, under one temporary directory. */
@@ -354,10 +382,62 @@ final class Workspace {
         return null; // a component of a dependency: no source to go to
     }
 
-    /** A description of the component whose tag is at the position, in Markdown, or null. */
+    /**
+     * What to show on hover at a position, in Markdown, or null: a component tag ({@link Hovers}), other
+     * markup (an element, an attribute, a prop: {@link MarkupHovers}), or a name in Java code
+     * ({@link JavaHovers}).
+     */
     String hover(String uri, int line, int column) {
         UseAt at = useAt(uri, line, column);
-        return at == null ? null : Hovers.component(at.use().component());
+        if (at != null) {
+            return Hovers.component(at.use().component());
+        }
+        Path file = toPath(uri);
+        Analysis analysis = analysisOf(file);
+        String relative = analysis != null ? analysis.relativePath(file) : null;
+        if (relative == null || !relative.endsWith(".jasx")) {
+            return null; // .java files are left to the editor's Java support
+        }
+        String text = analysis.texts().get(relative);
+        int offset = offsetOf(text, line, column);
+        String markup = MarkupHovers.at(text, relative, offset, analysis.target().schema(),
+                nameOffset -> componentNamedAt(analysis, relative, nameOffset));
+        if (markup != null) {
+            return markup;
+        }
+        ComponentIndex components = analysis.result().index().withFallback(analysis.dependencies());
+        return JavaHovers.at(analysis.result().files(), javaSources(analysis), relative, offset,
+                classpathOf(analysis), releaseOf(analysis), components);
+    }
+
+    /** The component that the tag name starting at {@code nameStart} resolved to, or null. */
+    private static ComponentIndex.Component componentNamedAt(Analysis analysis, String relative, int nameStart) {
+        for (CompilationResult.Use use : analysis.result().uses()) {
+            if (use.path().equals(relative) && use.nameStart() == nameStart) {
+                return use.component();
+            }
+        }
+        return null;
+    }
+
+    /** The group's {@code .java} files, with the text they were analysed with. */
+    private static List<SourceFile> javaSources(Analysis analysis) {
+        List<SourceFile> java = new ArrayList<>();
+        analysis.texts().forEach((relative, text) -> {
+            if (relative.endsWith(".java")) {
+                java.add(new SourceFile(relative, text));
+            }
+        });
+        return java;
+    }
+
+    /** The classpath for javac: the build's, or without build information the server's own. */
+    private static String classpathOf(Analysis analysis) {
+        return analysis.build() != null ? analysis.build().classpath() : System.getProperty("java.class.path");
+    }
+
+    private static Integer releaseOf(Analysis analysis) {
+        return analysis.build() != null ? analysis.build().release() : null;
     }
 
     /**
@@ -374,11 +454,8 @@ final class Workspace {
      * information the server's own classpath (the JDK, the JASX runtime and the bundled target).
      */
     private static Completions.Result javaCompletion(Analysis analysis, String relative, int offset) {
-        BuildInfo build = analysis.build();
-        String classpath = build != null ? build.classpath() : System.getProperty("java.class.path");
-        Integer release = build != null ? build.release() : null;
         return JavaCompletions.at(analysis.texts(), relative, offset, analysis.target(), analysis.dependencies(),
-                classpath, release);
+                classpathOf(analysis), releaseOf(analysis));
     }
 
     /**

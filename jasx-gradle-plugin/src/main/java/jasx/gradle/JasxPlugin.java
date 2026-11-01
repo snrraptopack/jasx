@@ -79,6 +79,7 @@ public final class JasxPlugin implements Plugin<Project> {
                     task.getCompileClasspath().from(sourceSet.getCompileClasspath());
                     task.getProcessorPath().from(sourceSet.getAnnotationProcessorPath());
                     task.getRelease().set(release);
+                    task.getGeneratedSources().set(outputDirectory.map(dir -> dir.getAsFile().getAbsolutePath()));
                     task.getOutputFile().set(project.getLayout().getBuildDirectory()
                             .file("jasx/editor/" + sourceSet.getName() + ".json"));
                 });

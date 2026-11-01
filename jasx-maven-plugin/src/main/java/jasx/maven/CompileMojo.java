@@ -131,7 +131,8 @@ public final class CompileMojo extends AbstractMojo {
 
     /** Writes {@code target/jasx/editor/<scope>.json} for the language server ({@link EditorInfo}). */
     private void writeEditorInfo(SourceScope sources, List<String> classpath, Integer javaRelease) throws IOException {
-        EditorInfo info = new EditorInfo(target, classpath, classpath, classpath, javaRelease);
+        EditorInfo info = new EditorInfo(target, classpath, classpath, classpath, javaRelease,
+                sources.generatedSources().toString());
         Path file = sources.buildDirectory().resolve(EditorInfo.relativePath(sources.name()));
         Files.createDirectories(file.getParent());
         Files.writeString(file, info.toJson(), StandardCharsets.UTF_8);

@@ -35,7 +35,7 @@ import javax.lang.model.util.Elements;
 final class TypeIndex {
     private TypeIndex() {}
 
-    /** The platform's public top-level types, by release ({@code 0}: the running JDK's). */
+    /** The platform's public top-level types, by release. */
     private static final Map<Integer, List<String>> PLATFORM = new ConcurrentHashMap<>();
 
     /** A classpath entry as it was when read: a change to any of these reads it again. */
@@ -49,7 +49,9 @@ final class TypeIndex {
      * {@code java.*} modules, as {@code elements} (a javac task for {@code release}) sees them.
      */
     static List<String> platform(Elements elements, Integer release) {
-        return PLATFORM.computeIfAbsent(release != null ? release : 0, unused -> readPlatform(elements));
+        // No release: the running JDK's own, the same types as --release of its version.
+        int key = release != null ? release : Runtime.version().feature();
+        return PLATFORM.computeIfAbsent(key, unused -> readPlatform(elements));
     }
 
     private static List<String> readPlatform(Elements elements) {

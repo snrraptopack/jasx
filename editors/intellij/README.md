@@ -9,6 +9,12 @@ The plugin is a thin client, like the VS Code extension. Everything it knows com
 
 The server runs on the IDE's own Java runtime, which has the compiler module the server needs to run javac. If a runtime lacks it, `JAVA_HOME` is used. Its messages are in the **Language Services** widget in the status bar.
 
+## `.java` files that use components
+
+A `.java` file calls components as the plain Java methods they compile to (`Pages.Home()`), so IntelliJ's own Java support must see the Java generated from `.jasx` files. It does when the project is a linked Gradle (or Maven) project built at least once: the JASX plugin adds `build/generated/sources/jasx/<set>` to the source set, and IntelliJ imports it as a generated source root. From then on, the language server keeps those files current as you edit `.jasx` files, so a new component or a changed prop is known in `.java` files without another build.
+
+If a `.java` file reports `No candidates found` for a component, the Gradle build it belongs to isn't linked: open its `build.gradle.kts` and choose **Link Gradle Project** in the banner (or use **+** in the Gradle tool window), then build it once.
+
 ## Which IDEs
 
 IntelliJ IDEA 2025.3 or later, the unified distribution, with or without a subscription. The plugin depends on IntelliJ's LSP API (`com.intellij.modules.lsp`), which JetBrains doesn't ship in open-source builds of IntelliJ (or in Android Studio), so it can't be installed there.

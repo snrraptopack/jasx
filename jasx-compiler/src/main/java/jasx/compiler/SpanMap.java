@@ -18,8 +18,18 @@ public final class SpanMap {
         }
     }
 
-    /** The source offset for a generated offset. */
-    public int toSource(int generatedOffset) {
+    /**
+     * Whether the generated offset is in Java code copied from the source, where offsets map character for
+     * character. Editor tooling uses it to tell the user's own Java (a name to hover or rename) from code
+     * synthesized for markup, which maps only to the markup as a whole.
+     */
+    public boolean isVerbatim(int generatedOffset) {
+        Span span = spanAt(generatedOffset);
+        return span != null && span.verbatim() && generatedOffset < span.generatedEnd();
+    }
+
+    /** The span that starts last at or before the generated offset, or null. */
+    private Span spanAt(int generatedOffset) {
         int lo = 0;
         int hi = spans.size() - 1;
         Span found = null;
@@ -33,6 +43,12 @@ public final class SpanMap {
                 hi = mid - 1;
             }
         }
+        return found;
+    }
+
+    /** The source offset for a generated offset. */
+    public int toSource(int generatedOffset) {
+        Span found = spanAt(generatedOffset);
         if (found == null) {
             return 0;
         }

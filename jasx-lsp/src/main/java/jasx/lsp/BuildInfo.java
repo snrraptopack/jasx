@@ -32,10 +32,12 @@ import jasx.compiler.TargetClassLoader;
  * @param classpath     the compile classpath, as one string for javac
  * @param processorPath the annotation processor path, as one string for javac
  * @param release       the Java release the build compiles for, or null
+ * @param generatedSources where the build writes the Java generated from {@code .jasx} files, or null if the
+ *     plugin that wrote the file is older and doesn't say
  * @param loader        the open class loader of the target's own lowering, or null (see {@link #close})
  */
 record BuildInfo(Path file, long modified, Target target, ComponentIndex dependencies, String classpath,
-        String processorPath, Integer release, TargetClassLoader loader) {
+        String processorPath, Integer release, Path generatedSources, TargetClassLoader loader) {
 
     /** Releases the target's class loader, if it was kept open. Call it when this is no longer used. */
     void close() {
@@ -105,7 +107,8 @@ record BuildInfo(Path file, long modified, Target target, ComponentIndex depende
                 loader.close();
             }
             return new BuildInfo(file, modified, target, dependencies, String.join(File.pathSeparator, info.compileClasspath()),
-                    String.join(File.pathSeparator, info.processorPath()), info.release(), keepOpen ? loader : null);
+                    String.join(File.pathSeparator, info.processorPath()), info.release(),
+                    info.generatedSources() != null ? Path.of(info.generatedSources()) : null, keepOpen ? loader : null);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
