@@ -257,6 +257,7 @@ The second command prints the Java generated for a sample file.
 | `jasx-web/` | The `web` target: runtime, lowering, browser client, JDK server |
 | `jasx-web-servlet/` | The `web` target on servlet containers (Tomcat, Jetty, Undertow) |
 | `jasx-web-spring-boot-starter/` | The `web` target in Spring Boot: pages as controller methods |
+| `jasx-web-test/` | Tests for `web` pages without a browser: click, type, submit, check the HTML |
 | `docs/` | Guides: [the `web` target](docs/web.md) |
 | `jasx-processor/` | Annotation processor that publishes a library's components |
 | `jasx-gradle-plugin/` | Gradle plugin `dev.jasx` |

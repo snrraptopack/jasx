@@ -11,6 +11,7 @@ This guide shows how to write pages with JASX's `web` target, using examples. Th
 - [Pushing from the server](#pushing-from-the-server)
 - [Styles](#styles)
 - [Serving pages](#serving-pages)
+- [Testing pages](#testing-pages)
 - [Pitfalls](#pitfalls)
 - [Reference](#reference)
 
@@ -319,6 +320,50 @@ A page is kept for 2 minutes after its browser goes away (no stream and no event
 Pages need cookies to work. Rate limiting is up to your reverse proxy.
 
 **Many tabs over HTTP/1.1.** Browsers open only about six connections per server over HTTP/1.1, which is why the tabs share one stream. Sharing needs Web Locks and BroadcastChannel, which every current browser has, and a secure context: HTTPS, or `localhost` while developing. On plain HTTP from another host (a phone on your network trying `http://192.168.1.5:8080`), each tab keeps its own stream, and hidden tabs close theirs after 10 seconds. HTTP/2 removes the limit entirely, so prefer it in production. The JDK's built-in server (`WebServer`) speaks only HTTP/1.1: put a reverse proxy with HTTP/2 in front of it, or use a server adapter that supports HTTP/2.
+
+## Testing pages
+
+`dev.jasx:jasx-web-test` tests pages without a browser, in plain JUnit tests. `TestPage` renders a component, then clicks, types and submits as a user would, and reads the page as it is after each update:
+
+```java
+class BoardTest {
+    private final TaskService tasks = new TaskService();
+
+    @Test
+    void addingATaskShowsIt() {
+        try (TestPage page = TestPage.render(() -> Views.Board(tasks, "all"))) {
+            page.submit("form", Map.of("title", "Write tests"));
+            assertEquals("Write tests", page.findAll("ul > li a").get(3).text());
+            assertEquals("", page.find("input[name=title]").value()); // the form was reset
+        }
+    }
+
+    @Test
+    void aChangeInOneWindowReachesTheOthers() {
+        try (TestPage mine = TestPage.render(() -> Views.Board(tasks, "all"));
+             TestPage theirs = TestPage.render(() -> Views.Board(tasks, "all"))) {
+            mine.click(".filters button", "Done");                      // a selector and the button's text
+            mine.click("ul > li input[type=checkbox]");
+            theirs.await(() -> assertTrue(theirs.text("p.hint").startsWith("3 open.")));
+        }
+    }
+}
+```
+
+| Method | What it does |
+|---|---|
+| `click(selector)`, `click(selector, text)` | clicks; a checkbox toggles, a submit button submits its form |
+| `type(selector, text)` | types into a field (fires `input`) |
+| `change(selector, value)` | chooses a select's option, or sets a field (fires `input` and `change`) |
+| `submit(selector)`, `submit(selector, fields)` | fills the named fields of the form (or of the form holding the element), then submits it |
+| `keydown(selector, key)`, `fire(selector, type)` | a key press; any event |
+| `find`, `findAll`, `has`, `text`, `html` | read the page; an element gives `text()`, `attribute(name)`, `hasClass(name)`, `value()`, `checked()` |
+| `await(() -> ...)` | repeats an assertion until it passes, for what the server pushes from elsewhere |
+| `navigatedTo()` | where `navigate(url)` sent the browser |
+
+Selectors are CSS: tags, `#id`, `.class`, `[attr]`, `[attr=value]`, descendant and `>` combinators, and lists separated by commas. A mistake fails with the page's HTML in the message.
+
+Each `TestPage` is a separate browser with its own session, going through the same requests a browser sends, so the page's handlers, holes, keyed lists and security checks all run for real. Events are sent at once (no 300 ms debounce to wait for). Pass an application's own `WebApp` (a Spring bean, say) with `TestPage.render(app, () -> ...)`. [`examples/web-spring`](../examples/web-spring) has a complete test.
 
 ## Pitfalls
 

@@ -26,7 +26,7 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 The user asked for items 1–4 to be done in this order, then the rest. Mark each item done here, with its commit, as it lands; keep this list as the hand-over point between sessions.
 
 1. **(done, spec revision 20)** **Server updates keep browser changes.** Before, the client's merge (`morphAttributes` in `web.js`) resets every attribute to what the server rendered, so a `<details>` the user opened closes again when its hole re-renders. Fix: the client remembers each element's last server-rendered attributes and changes only those the server changed (three-way merge); `class` merged per class name. Spec: `targets/web.md` §8.4 (merging). Design notes in `docs/discussions/browser-javascript.md` §6 (only this part; the rest of that document stays parked).
-2. **A testing library for pages** (like Phoenix's LiveViewTest): render a page in a test, click, type, submit, and check the HTML, without a browser, over `WebApp`'s public API. New module.
+2. **(done: `jasx-web-test`)** **A testing library for pages** (like Phoenix's LiveViewTest): render a page in a test, click, type, submit, and check the HTML, without a browser, over `WebApp`'s public API. New module.
 3. **Static templates:** send a hole's static markup once, and only the changed values afterwards (`targets/web.md` §10).
 4. **Forms and navigation:** (a) restore form input when a discarded page reloads; (b) file uploads; (c) navigation between pages without a full reload.
 5. **Benchmarks** of the `web` target (pages per server, update latency, payload sizes).
@@ -84,6 +84,8 @@ jasx-web-servlet/          the web target on Jakarta Servlet 6 containers: Servl
                            (pages); tests on an embedded Tomcat
 jasx-web-spring-boot-starter/  web in Spring Boot: JasxWebAutoConfiguration (WebApp bean from jasx.web.* properties, Element pages,
                            the runtime's servlet, WebPage return values), WebPage; tests in a real Spring Boot app
+jasx-web-test/             page tests without a browser: TestPage (render, click, type, submit, await pushes) over
+                           WebApp's public API, with its own small DOM (Dom, HtmlParser, Selector, Fields)
 docs/web.md                user guide to the web target
 docs/discussions/          design proposals under discussion (not specified, not implemented)
 examples/hello/            standalone example build (composite build of this repository)
@@ -115,6 +117,7 @@ These decisions are already made. Follow them unless the user changes them.
 | `jasx-web` | the `web` target (`targets/web.md`): holes on `jasx-ui`, `WebLowering`, builders with typed event overloads, pages and protocol (`WebApp`), JDK server (`WebServer`), browser client; no third-party dependencies | first version |
 | `jasx-web-servlet` | `web` on servlet containers: `ServletAdapter` translates requests and responses (the security checks stay in `WebApp`), `JasxServlet` serves pages; streams use async servlets on virtual threads; the servlet API is `compileOnly` (the container provides it) | first version |
 | `jasx-web-spring-boot-starter` | `web` in Spring Boot 3: auto-configuration (`WebApp` bean, `JasxWebProperties`, the runtime's async servlet, a lifecycle bean that closes pages before graceful shutdown), controller methods returning `Element` run inside a new page (`PageHandlerAdapter` through `WebMvcRegistrations`), `WebPage` (`() -> <Page />`) is the fallback when an app has its own `WebMvcRegistrations`; Spring is `compileOnly` | first version |
+| `jasx-web-test` | page tests without a browser: `TestPage` renders through `WebApp`'s public API (its own session), sends events as the client describes them (no debounce), applies answers and pushes to a small DOM, CSS selectors with a text filter, `await` for pushes; no dependencies besides `jasx-web` | first version |
 
   Next: the order of work in "Current focus", more examples, then publishing. Later: an IntelliJ client for the language server (and later a deeper IntelliJ plugin), more language server features (rename, find references).
 - The Java package root is `jasx` (`jasx.parser`, `jasx.runtime`, `jasx.html`, …), matching the names the spec uses.
@@ -162,6 +165,8 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 (cd jasx-web/src/test/js && npm install && npm test)   # web target: browser client tests in jsdom
 ./gradlew :jasx-ui:test                  # shared runtime: reactive engine, form binding
 ./gradlew :jasx-web-servlet:test         # servlet adapter on an embedded Tomcat
+./gradlew :jasx-web-test:test              # the page testing library
+./gradlew -p examples/web-spring test    # the example's page tests (TestPage)
 ./gradlew :jasx-web-spring-boot-starter:test   # the starter in a Spring Boot app (downloads Spring on first run)
 ./gradlew -p examples/web run            # serve the web example at http://localhost:8080 (PORT=... to change)
 ./gradlew -p examples/web-spring run     # the Spring Boot example at http://localhost:8080 (PORT=... to change)

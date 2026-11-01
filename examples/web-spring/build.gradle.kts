@@ -33,3 +33,14 @@ tasks.withType<JavaCompile>().configureEach {
 application {
     mainClass.set("board.Application")
 }
+
+// Page tests without a browser (jasx-web-test), on JUnit.
+dependencies {
+    testImplementation("dev.jasx:jasx-web-test:0.1.0-SNAPSHOT")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
+}
