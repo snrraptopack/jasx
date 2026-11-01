@@ -92,7 +92,9 @@ test("a click sends its handler and applies the answer", async () => {
 
   assert.equal(sent.length, 1);
   assert.equal(sent[0].url, "/_jasx/event?page=P1");
-  assert.deepEqual(sent[0].payload, { handler: 3, type: "click", value: null, checked: false, key: null, fields: null });
+  assert.deepEqual(sent[0].payload, {
+    handler: 3, type: "click", button: 0, x: 0, y: 0, ctrl: false, shift: false, alt: false, meta: false,
+  });
   assert.equal(document.querySelector("p").innerHTML, "<!--jx:4--><b>1</b><!--/jx:4-->");
 });
 
@@ -132,7 +134,7 @@ test("pending input is sent before another event", async () => {
   type(window, document.querySelector("input"), "typed");
   fire(window, document.querySelector("button"), "click");
   await wait();
-  assert.deepEqual(sent.map((s) => [s.payload.handler, s.payload.value]), [[7, "typed"], [8, null]]);
+  assert.deepEqual(sent.map((s) => [s.payload.handler, s.payload.value]), [[7, "typed"], [8, undefined]]);
 });
 
 test("a submit sends the form's fields once, and reset clears the form", async () => {
@@ -213,6 +215,26 @@ test("events that don't bubble reach only their own element", async () => {
   document.querySelector("input").focus();
   await wait();
   assert.deepEqual(sent.map((s) => s.payload.handler), [2]);
+});
+
+test("a key event sends its key, modifiers and the field's value", async () => {
+  const { window, document, sent } = await page(`<input data-jx-on="keydown:4">`);
+  const input = document.querySelector("input");
+  input.value = "hi";
+  input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true }));
+  await wait();
+  assert.deepEqual(sent[0].payload, {
+    handler: 4, type: "keydown", key: "Enter", ctrl: false, shift: true, alt: false, meta: false, value: "hi", checked: false,
+  });
+});
+
+test("a multiple select sends every selected value", async () => {
+  const { window, document, sent } = await page(
+    `<select multiple data-jx-on="change:6"><option value="a" selected>A</option><option value="b">B</option><option value="c" selected>C</option></select>`,
+  );
+  fire(window, document.querySelector("select"), "change");
+  await wait();
+  assert.deepEqual(sent[0].payload.values, ["a", "c"]);
 });
 
 test("a style sheet patch adds the CSS to the head", async () => {

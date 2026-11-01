@@ -11,6 +11,8 @@ import jasx.compiler.JasxCompiler;
 import jasx.compiler.JavacRunner;
 import jasx.compiler.SourceFile;
 import jasx.compiler.Target;
+import jasx.ui.Derived;
+import jasx.ui.State;
 import jasx.web.attrs.Button;
 import jasx.web.server.WebServer;
 import java.lang.reflect.Method;
@@ -360,6 +362,49 @@ class WebTest {
             assertTrue(body.contains("\"html\":\"1\""), body);
             // The component didn't run again: the hole showing how often components ran has no patch.
             assertEquals(1, body.split("\"op\":\"html\"", -1).length - 1, body);
+        }
+
+        @Test
+        void eachEventAttributeGivesItsHandlerItsKindOfEvent() {
+            String html = app.render(compile("""
+                    record Todo(String title, int count) {}
+                    static Element Page() {
+                      var log = state("");
+                      return (
+                        <div>
+                          <button onclick={() -> log.set("action")}>a</button>
+                          <button onclick={e -> log.set("mouse " + e.button() + " " + e.ctrl())}>m</button>
+                          <input onkeydown={e -> log.set("key " + e.key() + " " + e.value())} />
+                          <form onsubmit={e -> log.set("form " + e.as(Todo.class))}><input name="title" /></form>
+                          <p>{log}</p>
+                        </div>
+                      );
+                    }
+                    """));
+            String page = pageId(html);
+            assertTrue(app.event(page, "{\"handler\":" + handler(html, "click", 1) + ",\"type\":\"click\"}")
+                    .body().contains("\"html\":\"action\""));
+            assertTrue(app.event(page, "{\"handler\":" + handler(html, "click", 2) + ",\"type\":\"click\",\"button\":2,\"ctrl\":true}")
+                    .body().contains("\"html\":\"mouse 2 true\""));
+            assertTrue(app.event(page, "{\"handler\":" + handler(html, "keydown", 1) + ",\"type\":\"keydown\",\"key\":\"Enter\",\"value\":\"hi\"}")
+                    .body().contains("\"html\":\"key Enter hi\""));
+            String form = app.event(page, "{\"handler\":" + handler(html, "submit", 1)
+                    + ",\"type\":\"submit\",\"fields\":{\"title\":[\"Milk\"],\"count\":[\"2\"]}}").body();
+            assertTrue(form.contains("\"html\":\"form Todo[title=Milk, count=2]\""), form);
+        }
+
+        @Test
+        void aHandlerCantUseWhatItsKindOfEventDoesntHave() {
+            SourceFile file = new SourceFile("T.jasx", "import jasx.runtime.Element;\nimport static jasx.web.Web.*;\n\n"
+                    + "class T {\n  static Element Page() {\n"
+                    + "    return <button onclick={e -> System.out.println(e.field(\"x\"))}>x</button>;\n  }\n}\n");
+            CompilationResult result = new JasxCompiler(WEB).compile(List.of(file));
+            assertFalse(result.hasErrors(), () -> format(result.diagnostics()));
+            JavacRunner.Result compiled = JavacRunner.compile(result.files(), List.of(), CLASSPATH);
+            assertFalse(compiled.success());
+            CompilerDiagnostic error = compiled.diagnostics().get(0);
+            assertTrue(error.format().contains("T.jasx:6"), error.format()); // reported at its .jasx line
+            assertTrue(error.format().contains("field"), error.format());
         }
     }
 

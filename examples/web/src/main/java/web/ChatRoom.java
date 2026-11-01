@@ -1,6 +1,6 @@
 package web;
 
-import jasx.web.State;
+import jasx.ui.State;
 import jasx.web.Web;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;

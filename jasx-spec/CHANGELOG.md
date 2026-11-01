@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0-draft, revision 14
+
+### Added
+
+- **`ui.md` (draft): `jasx.ui`, the shared runtime of interactive targets.** Reactive values (`State`, `Derived`, `Effect`), the engine under them (`Computation`, and the `Scheduler` a target supplies), and typed events and handlers. They were part of the `web` target. They are now a library that any interactive target (a desktop target, say) can implement, so applications and components read the same on every such target. It is not part of the core: the core still has no state and no events.
+- **Typed events** (`ui.md` §4). Each event attribute gives its handler the most specific kind of event it has: `FormEvent` for `submit`, `InputEvent` for `input`, `change`, `focus` and `blur`, `KeyEvent` for keyboard events, `MouseEvent` for pointer events, and `Event` for the others. Using a method the kind doesn't have (`onclick={e -> e.field("x")}`) is a compile-time error. A handler that needs nothing from its event is an `Action`: `onclick={() -> save()}`.
+- **Forms as records** (`ui.md` §4.2): `e.as(NewTodo.class)` reads each record component from the form field of the same name.
+- `State.peek()` and `untracked(...)`, to read without subscribing.
+
+### Changed
+
+- `targets/web.md` §2, §4, §7: the state API, handlers and events are `jasx.ui`'s; `jasx.web.Handler` and `jasx.web.Event` are gone. `Web.state`, `derived` and `effect` remain, re-exported.
+- `targets/web.md` §8.3: an event carries the members its kind needs: `values` for a multiple select, `button`, `x` and `y` for mouse events, and modifier keys for keyboard and mouse events. Members that aren't sent read as empty.
+- Event handlers on `web` no longer run with no owner: they run with the page as owner (`ui.md` §2.1), so an effect created in a handler belongs to the page.
+
 ## 1.0-draft, revision 13
 
 ### Added

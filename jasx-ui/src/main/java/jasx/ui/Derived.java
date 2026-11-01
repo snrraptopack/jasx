@@ -1,9 +1,9 @@
-package jasx.web;
+package jasx.ui;
 
 import java.util.function.Supplier;
 
 /**
- * A value computed from other reactive values, made by {@link Web#derived} (targets/web.md §4). It is
+ * A value computed from other reactive values, made by {@link Reactive#derived} (jasx-spec/ui.md §2). It is
  * computed when first read, cached, and computed again on the next read after one of the values it read
  * changes. Reading it inside a hole makes the hole update when it changes.
  */
@@ -16,9 +16,14 @@ public final class Derived<T> extends Source {
     Derived(Supplier<T> fn) {
         this.fn = fn;
         Computation owner = Computation.current();
-        this.computation = new Computation(owner != null ? owner.page : null) {
+        this.computation = new Computation(owner != null ? owner.scheduler() : null) {
             @Override
-            void invalidate() {
+            protected void invalidate() {
+                markStale(); // computed lazily, on the next read: nothing to schedule
+            }
+
+            @Override
+            public void update() {
                 markStale();
             }
         };
@@ -29,7 +34,7 @@ public final class Derived<T> extends Source {
         read();
         synchronized (this) {
             if (stale) {
-                computation.reset();
+                computation.reset(); // drops the subscriptions of the previous computation
                 value = computation.track(fn);
                 stale = false;
             }

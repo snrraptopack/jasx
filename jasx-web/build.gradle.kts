@@ -11,6 +11,8 @@ plugins {
 
 dependencies {
     api(project(":jasx-runtime"))
+    // Reactive values and typed events, shared with other interactive targets (jasx-spec/ui.md).
+    api(project(":jasx-ui"))
     // The lowering runs inside the compiler, which provides these classes (semantics.md §7.4).
     compileOnly(project(":jasx-compiler"))
     testImplementation(project(":jasx-compiler"))
@@ -32,11 +34,26 @@ tasks.processResources {
 val generatedDir = layout.buildDirectory.dir("generated/sources/attrs/java/main")
 
 /**
+ * The kind of event each event attribute gives its handler (jasx-spec/ui.md §4); the others give a plain
+ * jasx.ui.Event. Keep it in step with the table in jasx.ui.Event.
+ */
+val eventKinds: Map<String, String> = buildMap {
+    listOf("input", "beforeinput", "change", "select", "invalid", "focus", "blur").forEach { put(it, "InputEvent") }
+    listOf("keydown", "keyup", "keypress").forEach { put(it, "KeyEvent") }
+    listOf("click", "dblclick", "auxclick", "contextmenu", "mousedown", "mouseup", "mousemove", "mouseover",
+        "mouseout", "mouseenter", "mouseleave", "wheel", "drag", "dragstart", "dragend", "dragenter",
+        "dragleave", "dragover", "drop").forEach { put(it, "MouseEvent") }
+    put("submit", "FormEvent")
+}
+
+/**
  * Generates one attribute builder per element (targets/web.md §2): each attribute has a static overload and
- * a Supplier overload for its dynamic form; each event attribute takes inline JavaScript or a Java Handler.
+ * a Supplier overload for its dynamic form; each event attribute takes inline JavaScript, a jasx.ui.Action, or
+ * a jasx.ui.Handler of its kind of event.
  */
 val generateAttributeBuilders = tasks.register("generateAttributeBuilders") {
     inputs.file(htmlSchema)
+    inputs.property("eventKinds", eventKinds.toSortedMap().toString())
     outputs.dir(generatedDir)
     doLast {
         val out = generatedDir.get().asFile.resolve("jasx/web/attrs")
@@ -74,8 +91,10 @@ val generateAttributeBuilders = tasks.register("generateAttributeBuilders") {
         base.append("    protected WebAttributes() {}\n\n")
         globals.toSortedMap().forEach { (name, spec) -> base.append(methods("T", name, spec)) }
         events.sorted().forEach { name ->
+            val kind = "jasx.ui." + (eventKinds[name.removePrefix("on")] ?: "Event")
             base.append("    public T $name(java.lang.String javaScript) {\n        return set(\"$name\", javaScript);\n    }\n\n")
-            base.append("    public T $name(jasx.web.Handler handler) {\n        return set(\"$name\", handler);\n    }\n\n")
+            base.append("    public T $name(jasx.ui.Action action) {\n        return set(\"$name\", action);\n    }\n\n")
+            base.append("    public T $name(jasx.ui.Handler<? super $kind> handler) {\n        return set(\"$name\", handler);\n    }\n\n")
         }
         base.append("}\n")
         out.resolve("WebAttributes.java").writeText(base.toString())

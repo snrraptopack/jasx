@@ -11,6 +11,9 @@ import java.util.StringJoiner;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import jasx.runtime.Element;
+import jasx.ui.Action;
+import jasx.ui.Computation;
+import jasx.ui.Handler;
 
 /**
  * Renders element values of a {@link Page} to HTML (targets/web.md §8.2), like the html target's renderer
@@ -246,9 +249,10 @@ final class Renderer {
             String name = attributes.name(i);
             Object value = attributes.value(i);
 
-            if (value instanceof Handler handler) {
+            boolean isHandler = value instanceof Handler<?> || value instanceof Action;
+            if (isHandler) {
                 if (!isStatic) {
-                    handlers.add(handlerEntry(name, handler));
+                    handlers.add(handlerEntry(name, value));
                 }
                 continue;
             }
@@ -288,10 +292,10 @@ final class Renderer {
      * {@code onclick} with a handler  →  {@code click:12}, or {@code input:13:300} with its debounce delay
      * (targets/web.md §7, §8.2).
      */
-    private String handlerEntry(String attributeName, Handler handler) {
+    private String handlerEntry(String attributeName, Object handler) {
         String type = attributeName.startsWith("on") ? attributeName.substring(2) : attributeName;
         int delay;
-        if (handler instanceof Handler.Debounced debounced) {
+        if (handler instanceof Debounced debounced) {
             delay = debounced.delay();
         } else {
             delay = type.equals("input") ? DEFAULT_INPUT_DELAY : 0;

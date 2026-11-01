@@ -1,17 +1,19 @@
 package jasx.web;
 
+import jasx.runtime.Element;
+import jasx.ui.Computation;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
-import jasx.runtime.Element;
 
 /**
  * A dynamic attribute of a page (targets/web.md §3): {@code class={expression}}. Its element is marked
- * {@code data-jx-id="N"} (§8.2), and when a value it read changes, it sends the new value as an {@code attr}
- * patch (§8.4).
+ * {@code data-jx-id="N"} (§8.2), and when a value it read changes, its page re-runs it ({@link #update}) and
+ * it sends the new value as an {@code attr} patch (§8.4).
  */
 final class AttributeHole extends Computation {
+    private final Page page;
     private final int elementId;
     private final String name;
     private final Supplier<?> value;
@@ -22,6 +24,7 @@ final class AttributeHole extends Computation {
 
     AttributeHole(Page page, int elementId, String name, Supplier<?> value, String scopeClass) {
         super(page);
+        this.page = page;
         this.elementId = elementId;
         this.name = name;
         this.value = value;
@@ -39,13 +42,9 @@ final class AttributeHole extends Computation {
         return hasSources();
     }
 
-    @Override
-    void invalidate() {
-        page.markDirty(this);
-    }
-
     /** Evaluates again after a value it read changed, and records a patch if the value changed. */
-    void rerun() {
+    @Override
+    public void update() {
         reset();
         Object newValue = evaluate();
         if (!Objects.equals(newValue, current)) {

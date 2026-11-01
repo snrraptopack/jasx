@@ -25,6 +25,7 @@ The core language is JASX as JSX is without React. The specification defines a s
 | [`diagnostics.md`](diagnostics.md) | Diagnostic codes, severities and the diagnostic JSON format | Yes |
 | [`targets/html.md`](targets/html.md) | The `html` reference target: renders markup to HTML | Yes |
 | [`targets/web.md`](targets/web.md) | The `web` target: server-driven pages whose dynamic positions update in the browser. **Draft** | Draft |
+| [`ui.md`](ui.md) | `jasx.ui`, the shared runtime of interactive targets: reactive values, scheduling, typed events and handlers. Not part of the core. **Draft** | Draft |
 | [`conformance.md`](conformance.md) | How conformance is defined and how the test suite is structured | Yes |
 | [`tests/`](tests/) | Conformance test fixtures | Yes |
 | [`CHANGELOG.md`](CHANGELOG.md) | Changes between drafts | No |
@@ -85,6 +86,7 @@ jasx-spec/
   semantics.md
   diagnostics.md
   conformance.md
+  ui.md
   CHANGELOG.md
   targets/
     html.md

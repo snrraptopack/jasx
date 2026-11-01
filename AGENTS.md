@@ -18,6 +18,8 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 - `html` exists only as a small **reference target**, so that core semantics can be tested (`jasx-spec/tests/render`).
 - **`web` is JASX's runtime target, decided by the user: server-driven, like Phoenix LiveView** (not state in the browser, not islands). Its spec is the draft `jasx-spec/targets/web.md`; the module is `jasx-web`. The user named it `web` (not `live`). Input must stay in the browser: never send every keystroke (`oninput` debounced by default, forms send fields on submit).
 - Reactivity is not part of the core. The core only says which positions are **static** or **dynamic** (`semantics.md` §8); `web` makes them reactive through its own lowering. Don't move reactive features into the core.
+- **State and events live in `jasx-ui`** (`jasx-spec/ui.md`, draft), a dependency-free library shared by interactive targets, so a future desktop target offers the same API. It is not the core and not the `html` target. A target supplies a `Scheduler` and its own holes (subclasses of `jasx.ui.Computation`), and implements the event kinds (`web`'s `WebEvent` implements them all).
+- **Order of work agreed with the user:** (1) robustness fixes from an external review (batch recovery, input revisions, lifecycle and failure isolation, table/SVG holes, LSP grouping, JSON bounds); (2) Java completion inside `.jasx` in the language server; (3) performance: keyed updates, DOM morphing, client commands, coalesced pushes; (4) session binding and CSRF in `WebApp`, then `jasx-web-servlet` and the Spring Boot starter on top of it (adapters must stay thin so other frameworks are easy).
 
 ## Current state
 
@@ -42,6 +44,7 @@ jasx-spec/                 normative specification (see jasx-spec/README.md)
   grammar.md, ast.md, ast.schema.json, semantics.md, diagnostics.md, conformance.md
   targets/html.md          reference target
   targets/web.md           the web target (draft)
+  ui.md                    jasx.ui: state, scheduling and typed events shared by interactive targets (draft)
   CHANGELOG.md
   tests/parse/   *.jasx -> *.ast.json          core: parser
   tests/errors/  *.jasx -> *.diagnostics.json  core: diagnostics
@@ -60,9 +63,12 @@ jasx-conformance/          JUnit runner for jasx-spec/tests (all levels)
 jasx-lsp/                  language server over stdio (no third-party deps): JASX and javac diagnostics, completion, definition, hover
 editors/vscode/            VS Code extension: TextMate grammar, language server client (extension.js), Node tests
 jasx-maven-plugin/         Maven plugin: goals compile, test-compile, source-names, test-source-names (hand-written plugin.xml)
-jasx-web/                  the web target: runtime jasx.web (Web, State, Derived, WebApp, Page, holes, Renderer), lowering
+jasx-ui/                   shared runtime of interactive targets: jasx.ui (State, Derived, Effect, Reactive, Computation,
+                           Scheduler; Event, InputEvent, KeyEvent, MouseEvent, FormEvent, Handler, Action, form-to-record binding)
+jasx-web/                  the web target: runtime jasx.web (Web, WebApp, Page, WebEvent, holes, Renderer), lowering
                            jasx.web.compiler.WebLowering, JDK server jasx.web.server.WebServer, client jasx/web/web.js,
                            builders jasx.web.attrs.* generated from the html schema; src/test/js: client tests (jsdom)
+docs/web.md                user guide to the web target
 examples/hello/            standalone example build (composite build of this repository)
 examples/hello-maven/      the same idea with Maven (needs ./gradlew publishToMavenLocal)
 examples/web/              the web target: counter, shared to-do list, live search, server push (clock and chat)
@@ -86,11 +92,12 @@ These decisions are already made. Follow them unless the user changes them.
 | `jasx-lsp` | language server (LSP over stdio, no third-party deps): JASX diagnostics while typing, javac diagnostics on save (with the build's classpath), completion of tag names and attributes/props in markup, go-to-definition and hover on components; `installServer` copies a self-contained jar into the VS Code extension | done (first version) |
 | `jasx-maven-plugin` | Maven plugin `dev.jasx:jasx-maven-plugin`: the same steps as the Gradle plugin, sharing `BuildSources`, `EditorInfo` and `JasxSourceNames` from the compiler | done; functional tests run real Maven builds of `examples/hello-maven` |
 | `editors/vscode` | TextMate grammar injected into VS Code's Java grammar; language server client; tests with `vscode-textmate` | done |
-| `jasx-web` | the `web` target (`targets/web.md`): reactive runtime (state, derived, effect, holes), `WebLowering`, pages and protocol (`WebApp`), JDK server (`WebServer`), browser client; no third-party dependencies | first version |
+| `jasx-ui` | shared runtime of interactive targets (`ui.md`): reactive values and their engine (`Computation`, `Scheduler`), typed events and handlers, `FormEvent.as` record binding; no dependencies | first version |
+| `jasx-web` | the `web` target (`targets/web.md`): holes on `jasx-ui`, `WebLowering`, builders with typed event overloads, pages and protocol (`WebApp`), JDK server (`WebServer`), browser client; no third-party dependencies | first version |
 
-  Next: a Spring Boot starter for `web` (`jasx-web-spring-boot-starter`), more examples, then publishing. Later: an IntelliJ client for the language server (and later a deeper IntelliJ plugin), more language server features (rename, find references).
+  Next: the order of work in "Current focus", then a Spring Boot starter for `web` (`jasx-web-spring-boot-starter`) on a servlet adapter, more examples, then publishing. Later: an IntelliJ client for the language server (and later a deeper IntelliJ plugin), more language server features (rename, find references).
 - The Java package root is `jasx` (`jasx.parser`, `jasx.runtime`, `jasx.html`, …), matching the names the spec uses.
-- `jasx-parser`, `jasx-runtime`, `jasx-compiler`, `jasx-lsp` and `jasx-web` must stay free of third-party runtime dependencies (the compiler has its own small JSON reader). Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
+- `jasx-parser`, `jasx-runtime`, `jasx-compiler`, `jasx-lsp`, `jasx-ui` and `jasx-web` must stay free of third-party runtime dependencies (the compiler has its own small JSON reader). Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
 - The compiler never references a target at compile time. It loads the target's descriptor and schema from the classpath (`Target.load`), and the target's lowering class if the descriptor names one.
 - The lowering interface (`MarkupLowering`, `MarkupTree`, `LoweringOutput`, `FactoryLowering`) is public API for third-party targets: keep it small, and change it only on purpose. Anything every target must get right (JASX errors, Java code byte for byte, component calls, line preservation) stays in the compiler, not in a lowering.
 
@@ -132,6 +139,7 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew -p examples/hello run          # serve the example at http://localhost:8080
 ./gradlew :jasx-web:test                 # web target: reactive core, pages, compiled .jasx, JDK server
 (cd jasx-web/src/test/js && npm install && npm test)   # web target: browser client tests in jsdom
+./gradlew :jasx-ui:test                  # shared runtime: reactive engine, form binding
 ./gradlew -p examples/web run            # serve the web example at http://localhost:8080 (PORT=... to change)
 ./gradlew :jasx-maven-plugin:test       # Maven plugin functional tests: downloads Maven 3.9.9 as a dependency,
                                          # installs the JASX artifacts in ~/.m2, builds examples/hello-maven (slow)
@@ -192,6 +200,7 @@ When running Java directly on Windows, separate classpath entries with `;`, not 
 - A child `{...}` starting with `{`, `if`, `for`, `while` or `do` is a **statement container** (`grammar.md` §6.7). Inside it, `<` at the start of a statement (after `;` outside parentheses, `}`, a block `{`, or a previous markup statement) is a markup statement; everywhere else §4 applies as usual. Bodies with markup statements must be blocks (`if (c) { <p/> }`). It lowers to `switch (0) { default -> { ArrayList jasx$childrenN ...; yield ...; } }` (`semantics.md` §6.8), which is why `return` is rejected inside.
 - A target's lowering class runs inside the compiler, loaded by `TargetClassLoader`: it sees the project's classpath and the JDK, but `jasx.compiler.*` and `jasx.parser.*` always come from the running compiler (so a target never brings its own copy of the interface). The build tools and the language server must load targets through it and keep it open while compiling; the language server keeps it open only for targets with their own lowering, because an open loader locks jars on Windows.
 - On the `web` target, every dynamic child and dynamic attribute is a lambda (`targets/web.md` §3), so the locals it reads must be effectively final, and a statement child can't assign the method's locals: code that compiles on `html` can fail on `web`. Components run once; only holes re-run. A hole that read no `State`/`Derived` on its first run gets no markers or id (§8.2). `State.toString()` is its value, so `{count}` works as a child.
+- Event attributes on `web` have three overloads: `String` (inline JavaScript), `jasx.ui.Action` (`() -> ...`) and `jasx.ui.Handler<? super K>` (`e -> ...`), where `K` is the event kind from `jasx.ui.Event`'s table (`ui.md` §4). The kind table is duplicated in `jasx-web/build.gradle.kts` (`eventKinds`); keep both in step. Handlers run with the page as owner and without tracking (`Computation.runWithOwner`).
 - `web`'s state can be shared by several pages (a `State` in a store or a static field): sources keep observers in a concurrent set, each page re-runs its holes under its own lock, and a change from another thread schedules a flush whose batch goes to the page's stream.
 - Character references are decoded in text only. Attribute strings use Java escapes, so `title="a&amp;b"` keeps `&amp;` literally.
 

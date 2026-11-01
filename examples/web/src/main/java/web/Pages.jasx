@@ -1,7 +1,7 @@
 package web;
 
 import jasx.runtime.Element;
-import jasx.web.State;
+import jasx.ui.State;
 import java.util.List;
 import web.ChatRoom.Message;
 import web.TodoStore.Todo;
@@ -38,9 +38,9 @@ public Element Home() {
     return (
         <Page title="Counter">
             <div class="counter">
-                <button onclick={e -> count.update(n -> n - 1)}>−</button>
+                <button onclick={() -> count.update(n -> n - 1)}>−</button>
                 <output>{count}</output>
-                <button onclick={e -> count.update(n -> n + 1)}>+</button>
+                <button onclick={() -> count.update(n -> n + 1)}>+</button>
             </div>
             <p>{count} × 2 = {doubled}</p>
             {if (count.get() >= 10) {
@@ -76,9 +76,9 @@ public Element Todos(TodoStore store) {
                 {for (Todo t : store.all()) {
                     if (!shows(filter.get(), t)) continue;
                     <li class={t.done() ? "done" : null}>
-                        <input type="checkbox" checked={t.done()} onchange={e -> store.toggle(t.id())} />
+                        <input type="checkbox" checked={t.done()} onchange={() -> store.toggle(t.id())} />
                         <span>{t.title()}</span>
-                        <button class="delete" onclick={e -> store.remove(t.id())} aria-label="Delete">✕</button>
+                        <button class="delete" onclick={() -> store.remove(t.id())} aria-label="Delete">✕</button>
                     </li>
                 }}
             </ul>
@@ -88,7 +88,7 @@ public Element Todos(TodoStore store) {
                 <FilterButton filter={filter} value="all" label="All" />
                 <FilterButton filter={filter} value="active" label="Active" />
                 <FilterButton filter={filter} value="done" label="Done" />
-                <button onclick={e -> store.clearDone()}>Clear done</button>
+                <button onclick={() -> store.clearDone()}>Clear done</button>
             </div>
             <p class="hint">Typing sends nothing: the form sends its fields once, when you press Enter. Open this page in two windows: a change in one appears in the other.</p>
         </Page>
@@ -97,7 +97,7 @@ public Element Todos(TodoStore store) {
 
 /** One filter button; the filter is shared state, so the button knows whether it is the active one. */
 Element FilterButton(State<String> filter, String value, String label) {
-    return <button class={filter.get().equals(value) ? "active" : null} onclick={e -> filter.set(value)}>{label}</button>;
+    return <button class={filter.get().equals(value) ? "active" : null} onclick={() -> filter.set(value)}>{label}</button>;
 }
 
 /** Whether the filter shows the item. */
@@ -144,12 +144,16 @@ public Element Search() {
 // Server push: state that changes without any event of this page
 // ---------------------------------------------------------------------------------------------------
 
+/** The chat form's fields: e.as(Post.class) reads each component from the field of the same name. */
+record Post(String name, String text) {}
+
 public Element Live(ChatRoom room) {
     return (
         <Page title="Server push">
             <p>The server's clock, pushed every second: <strong>{room.clock()}</strong></p>
             <form onsubmit={e -> {
-                room.post(e.field("name").strip(), e.field("text").strip());
+                Post post = e.as(Post.class);
+                room.post(post.name().strip(), post.text().strip());
                 e.resetForm();
             }}>
                 <input name="name" placeholder="Your name" required style="flex: 0 0 8rem" />

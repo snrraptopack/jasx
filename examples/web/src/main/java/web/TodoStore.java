@@ -1,6 +1,6 @@
 package web;
 
-import jasx.web.State;
+import jasx.ui.State;
 import jasx.web.Web;
 import java.util.ArrayList;
 import java.util.List;

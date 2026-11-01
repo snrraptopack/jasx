@@ -36,7 +36,7 @@ The builders (`jasx.web.attrs.<Tag>`) are generated from the schema, like those 
 |---|---|---|
 | boolean (`disabled`) | `disabled(boolean)` | `disabled(Supplier<Boolean>)` |
 | other (`class`, `value`, …) | `className(Object)` | `className(Supplier<?>)` |
-| event (`onclick`, …) | `onclick(String)`, inline JavaScript | `onclick(jasx.web.Handler)`, a Java handler |
+| event (`onclick`, …) | `onclick(String)`, inline JavaScript | `onclick(jasx.ui.Action)` and `onclick(jasx.ui.Handler<? super MouseEvent>)`, a Java handler of the event's kind (`ui.md` §4) |
 
 ## 3. Lowering
 
@@ -64,15 +64,16 @@ javac reports the error at its `.jasx` position. The fix is a `final` copy, or a
 
 ## 4. State
 
-`jasx.web.Web` provides:
+State is `jasx.ui`'s (`ui.md` §2), shared with other interactive targets. `jasx.web.Web` re-exports its functions, so `import static jasx.web.Web.*` is enough:
 
 | Function | Purpose |
 |---|---|
-| `State<T> state(T initial)` | A reactive value: `get()`, `set(value)`, `update(fn)`. |
+| `State<T> state(T initial)` | A reactive value: `get()`, `set(value)`, `update(fn)`, `peek()`. |
 | `Derived<T> derived(Supplier<T> fn)` | A cached value computed from other reactive values; recomputed lazily after one of them changes. |
-| `void effect(Runnable fn)` | Runs `fn` once when created, then after every update in which a value it read changed. |
+| `Effect effect(Runnable fn)` | Runs `fn` once when created, then after every update in which a value it read changed. |
+| `T untracked(Supplier<T> body)` | Runs `body` without subscribing to what it reads. |
 
-**Compile time identifies holes. Run time discovers dependencies.** When a hole, a `Derived` or an effect runs, the runtime records every `State` and `Derived` it reads, and subscribes to them.
+**Compile time identifies holes. Run time discovers dependencies.** When a hole, a `Derived` or an effect runs, the runtime records every `State` and `Derived` it reads, and subscribes to them (`ui.md` §2.2). Each page is the `Scheduler` of its holes and effects (`ui.md` §3).
 
 ### 4.1 Components run once
 
@@ -116,21 +117,13 @@ A **page** is one rendering of a root element, alive on the server while the bro
 
 ## 7. Events and input
 
-A handler is a `jasx.web.Handler`: a lambda `e -> ...` that receives a `jasx.web.Event`:
-
-| `Event` method | Value |
-|---|---|
-| `type()` | the DOM event type, such as `click` |
-| `value()` | the `value` of the element that has the handler, if it is a form field |
-| `checked()` | whether a checkbox or radio button is checked |
-| `key()` | the key of a keyboard event |
-| `field(name)`, `fields(name)`, `fieldNames()` | the fields of the form, for `submit` |
+Handlers and events are `jasx.ui`'s (`ui.md` §4): a handler is an `Action` (`() -> ...`) or a `Handler` of the event's kind (`e -> ...`). `onsubmit` gives a `FormEvent`, `oninput` and `onchange` an `InputEvent`, `onkeydown` a `KeyEvent`, `onclick` a `MouseEvent`, and every other event attribute a plain `Event`. A handler runs on the server with the page's lock held.
 
 **Input belongs to the browser.** Typing sends nothing to the server unless the page asks for it:
 
 - `onsubmit` on a form sends all its fields once, when it is submitted. The form's default submission is prevented.
 - `onchange` sends a field's value when it changes (for a text field, when it loses focus or Enter is pressed).
-- `oninput` is **debounced by default**: the event is sent 300 ms after the last keystroke. `Web.debounce(ms, handler)` sets another delay, on any event, and `Web.immediate(handler)` sends every event.
+- `oninput` is **debounced by default**: the event is sent 300 ms after the last keystroke. `Web.debounce(ms, handler)` sets another delay, on any event, and `Web.immediate(handler)` sends every event (both accept a `Handler` or an `Action`).
 - Before an event is sent, every pending debounced event is sent first, so a handler always sees the latest input (a submit right after typing carries the final text).
 - When a patch changes the `value` of the focused field and the user has typed in it since its last event was sent, the patch doesn't change the field, so typing is never overwritten. `checked`, `selected` and `value` are set as DOM properties.
 - Events are sent one at a time, in order. While its event is queued or running, an element has the class `jx-loading` and `aria-busy="true"`. A form whose submit is in progress ignores further submits.
@@ -165,10 +158,21 @@ A hole that read no `State` or `Derived` when it first ran can never change, so 
 ### 8.3 Events
 
 ```json
-{"handler": 12, "type": "submit", "value": null, "checked": false, "key": null, "fields": {"title": ["Milk"]}}
+{"handler": 12, "type": "submit", "fields": {"title": ["Milk"]}}
+{"handler": 13, "type": "keydown", "key": "Enter", "ctrl": false, "shift": false, "alt": false, "meta": false, "value": "hi", "checked": false}
 ```
 
-An event for a handler that no longer exists (its hole re-ran) is ignored.
+| Member | Sent | Read by |
+|---|---|---|
+| `handler`, `type` | always | |
+| `value`, `checked` | when the element with the handler is a form field | `InputEvent` |
+| `values` | for a `<select multiple>`: its selected values | `InputEvent.values()` |
+| `key` | for a keyboard event | `KeyEvent` |
+| `button`, `x`, `y` | for a mouse event (`clientX`, `clientY`) | `MouseEvent` |
+| `ctrl`, `shift`, `alt`, `meta` | for a keyboard or mouse event | `KeyEvent`, `MouseEvent` |
+| `fields` | for a submit, or any event on a form: each field's values, by name, in form order | `FormEvent` |
+
+A member that is not sent reads as empty (`""`, `false`, `0`, no fields). An event for a handler that no longer exists (its hole re-ran) is ignored.
 
 ### 8.4 Batches and patches
 

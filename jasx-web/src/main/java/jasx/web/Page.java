@@ -1,5 +1,11 @@
 package jasx.web;
 
+import jasx.ui.Action;
+import jasx.ui.Computation;
+import jasx.ui.Effect;
+import jasx.ui.Event;
+import jasx.ui.Handler;
+import jasx.ui.Scheduler;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -24,9 +30,12 @@ import java.util.concurrent.locks.ReentrantLock;
  * event, and each flush. State changed from another thread marks holes of the page dirty and schedules a
  * flush on a virtual thread, whose batch is pushed on the page's stream (§5).
  *
+ * <p>It is the {@link Scheduler} of its holes and effects (jasx-spec/ui.md §3): a hole whose state changed is
+ * {@linkplain #schedule scheduled}, and re-run by the next {@link #flush}.
+ *
  * <p>Ids of holes, elements and handlers come from one counter, so they are unique within the page.
  */
-final class Page {
+final class Page implements Scheduler {
     private static final System.Logger LOG = System.getLogger(Page.class.getName());
 
     /** The page whose lock this thread holds (rendering, an event, a flush), for {@link Web#navigate}. */
@@ -37,10 +46,14 @@ final class Page {
 
     final String id;
     private final ReentrantLock lock = new ReentrantLock();
-    /** Owns the page's top-level holes and reads; it is never re-run, only disposed with the page. */
+    /**
+     * Owns what the page creates outside holes (top-level holes, state and effects made while rendering or
+     * in a handler); it is never re-run, only disposed with the page.
+     */
     private final Computation root;
     private int nextId;
-    private final Map<Integer, Handler> handlers = new HashMap<>();
+    /** Each handler is a {@link Handler} or an {@link Action} (jasx-spec/ui.md §4.1). */
+    private final Map<Integer, Object> handlers = new HashMap<>();
     /** The style sheets the browser has (targets/web.md §9). */
     private final Set<StyleSheet> sheets = new LinkedHashSet<>();
 
@@ -58,11 +71,14 @@ final class Page {
 
     Page(String id) {
         this.id = id;
-        this.root = Computation.untracked(() -> new Computation(this) {
+        this.root = Computation.runWithOwner(null, () -> new Computation(this) {
             @Override
-            void invalidate() {
+            protected void invalidate() {
                 // Code outside holes is not reactive (targets/web.md §4.1): nothing to re-run.
             }
+
+            @Override
+            public void update() {}
         });
     }
 
@@ -80,7 +96,7 @@ final class Page {
      * the lock held, so that the components it calls create their state for this page.
      */
     String render(java.util.function.Supplier<?> rootValue, String scriptTag) {
-        return locked(() -> root.track(() -> {
+        return locked(() -> Computation.runWithOwner(root, () -> {
             Renderer renderer = new Renderer(this, false);
             String html = renderer.document(rootValue.get(), scriptTag);
             sheets.addAll(renderer.sheets());
@@ -97,12 +113,15 @@ final class Page {
         return ++nextId;
     }
 
-    /** Registers a handler; it is dropped when {@code owner} re-runs (targets/web.md §4.2). */
-    int addHandler(Handler handler, Computation owner) {
+    /**
+     * Registers a {@link Handler} or {@link Action}; it is dropped when {@code owner} re-runs (targets/web.md
+     * §4.2).
+     */
+    int addHandler(Object handler, Computation owner) {
         int handlerId = nextId();
         handlers.put(handlerId, handler);
         Computation by = owner != null ? owner : root;
-        by.onReset(() -> handlers.remove(handlerId));
+        by.onCleanup(() -> handlers.remove(handlerId));
         return handlerId;
     }
 
@@ -134,14 +153,15 @@ final class Page {
     String event(Map<String, Object> json) {
         lastSeen = System.nanoTime();
         return locked(() -> {
-            Handler handler = handlers.get(((Number) json.get("handler")).intValue());
+            Object handler = handlers.get(((Number) json.get("handler")).intValue());
             if (handler == null) {
                 return null; // its hole re-ran since the browser rendered it (§8.3)
             }
-            Event event = Event.fromJson(json);
-            Computation.untracked(() -> {
+            WebEvent event = WebEvent.fromJson(json);
+            // Reads in a handler subscribe nothing; what it creates belongs to the page.
+            Computation.runWithOwner(root, () -> {
                 try {
-                    handler.handle(event);
+                    invoke(handler, event);
                 } catch (Exception | AssertionError e) {
                     // The page stays usable: what the handler changed before failing is still sent.
                     LOG.log(System.Logger.Level.ERROR, "event handler failed (" + event + ")", e);
@@ -152,8 +172,22 @@ final class Page {
         });
     }
 
+    /**
+     * Calls a handler with its event. The event is every kind of event at once ({@link WebEvent}), so whatever
+     * kind the handler's attribute declared, it accepts it.
+     */
+    @SuppressWarnings("unchecked")
+    private static void invoke(Object handler, WebEvent event) throws Exception {
+        switch (handler) {
+            case Handler<?> withEvent -> ((Handler<Event>) withEvent).handle(event);
+            case Action action -> action.run();
+            default -> throw new IllegalStateException("not a handler: " + handler);
+        }
+    }
+
     /** Marks a hole or effect to re-run. From another thread, schedules a flush of this page. */
-    void markDirty(Computation computation) {
+    @Override
+    public void schedule(Computation computation) {
         dirty.add(computation);
         if (!lock.isHeldByCurrentThread()) {
             requestFlush();
@@ -191,22 +225,18 @@ final class Page {
             }
             List<Computation> now = new ArrayList<>(dirty);
             dirty.removeAll(now);
-            now.sort(Comparator.comparingLong(c -> c.order));
+            now.sort(Comparator.comparingLong(Computation::order));
 
-            // A hole inside another dirty hole is disposed when its parent re-runs, and then skipped.
+            // Holes first, then effects (jasx-spec/ui.md §3). A hole inside another dirty hole is disposed
+            // when its parent re-runs, and then skipped.
             for (Computation computation : now) {
-                if (computation.isDisposed()) {
-                    continue;
-                }
-                switch (computation) {
-                    case ChildHole hole -> hole.rerun();
-                    case AttributeHole hole -> hole.rerun();
-                    default -> {}
+                if (!(computation instanceof Effect) && !computation.isDisposed()) {
+                    computation.update();
                 }
             }
             for (Computation computation : now) {
                 if (computation instanceof Effect effect && !effect.isDisposed()) {
-                    effect.run();
+                    effect.update();
                 }
             }
         }

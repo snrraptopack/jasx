@@ -10,5 +10,6 @@ include(
     "jasx-maven-plugin",
     "jasx-conformance",
     "jasx-lsp",
+    "jasx-ui",
     "jasx-web",
 )

@@ -1,23 +1,23 @@
-package jasx.web;
+package jasx.ui;
 
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * A reactive value that computations can read: a {@link State} or a {@link Derived} (targets/web.md §4).
- * Reading it inside a running {@link Computation} subscribes that computation; {@link #changed} invalidates
- * every subscriber.
+ * A reactive value that computations can read: a {@link State} or a {@link Derived} (jasx-spec/ui.md §2).
+ * Reading it while a computation tracks subscribes that computation; {@link #changed} invalidates every
+ * subscriber.
  *
- * <p>A source can be shared by several pages (a chat's messages, say), and each page runs its computations on
- * its own thread, so the observers are a concurrent set.
+ * <p>A source can be shared by several schedulers (a chat's messages shown on several pages), each running its
+ * computations on its own thread, so the observers are a concurrent set.
  */
 abstract sealed class Source permits State, Derived {
     private final Set<Computation> observers = ConcurrentHashMap.newKeySet();
 
-    /** Subscribes the computation running now, if any. Call it on every read. */
+    /** Subscribes the computation tracking now, if any. Call it on every read. */
     final void read() {
-        Computation reader = Computation.current();
+        Computation reader = Computation.tracker();
         if (reader != null && !reader.isDisposed()) {
             observers.add(reader);
             reader.subscribedTo(this);

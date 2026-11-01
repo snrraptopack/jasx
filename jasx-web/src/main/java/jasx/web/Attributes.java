@@ -9,7 +9,7 @@ import java.util.function.Supplier;
  * are kept in the order they were set, which is their source order.
  *
  * <p>A value is a static value, a {@link Supplier} for a dynamic attribute (re-evaluated when the state it
- * reads changes), or a {@link Handler} for an event attribute.
+ * reads changes), or a {@link jasx.ui.Handler} or {@link jasx.ui.Action} for an event attribute.
  */
 public abstract class Attributes<T extends Attributes<T>> {
     private final List<String> names = new ArrayList<>();

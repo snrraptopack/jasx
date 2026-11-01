@@ -4,6 +4,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 import jasx.runtime.Element;
+import jasx.ui.Action;
+import jasx.ui.Derived;
+import jasx.ui.Effect;
+import jasx.ui.Event;
+import jasx.ui.Handler;
+import jasx.ui.Reactive;
+import jasx.ui.State;
 
 /**
  * The factory class of the web target (semantics.md §6.2, targets/web.md), and its API for applications.
@@ -84,24 +91,29 @@ public final class Web {
     // Reactive values (targets/web.md §4)
     // ---------------------------------------------------------------------------------------------
 
+    // They are jasx.ui's (jasx-spec/ui.md §2), re-exported so that `import static jasx.web.Web.*` is enough.
+
     /** A reactive value. Holes that read it update when it is set to a different value. */
     public static <T> State<T> state(T initial) {
-        return new State<>(initial);
+        return Reactive.state(initial);
     }
 
     /** A cached value computed from other reactive values, computed again after one of them changes. */
     public static <T> Derived<T> derived(Supplier<T> fn) {
-        return new Derived<>(fn);
+        return Reactive.derived(fn);
     }
 
     /**
      * Runs {@code fn} now, and again after every update in which a reactive value it read changed. Created in
      * a component, it stops when the component's hole re-runs (targets/web.md §4.2).
      */
-    public static void effect(Runnable fn) {
-        Computation owner = Computation.current();
-        Page page = owner != null ? owner.page : Page.current();
-        new Effect(page, fn).run();
+    public static Effect effect(Runnable fn) {
+        return Reactive.effect(fn);
+    }
+
+    /** Runs {@code body} without subscribing the hole running now to what it reads. */
+    public static <T> T untracked(Supplier<T> body) {
+        return Reactive.untracked(body);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -112,13 +124,23 @@ public final class Web {
      * {@code handler}, with its events sent {@code milliseconds} after the last one: for example a search
      * field, {@code oninput={debounce(500, e -> query.set(e.value()))}}.
      */
-    public static Handler debounce(int milliseconds, Handler handler) {
-        return new Handler.Debounced(milliseconds, handler);
+    public static <E extends Event> Handler<E> debounce(int milliseconds, Handler<E> handler) {
+        return new Debounced.OfHandler<>(milliseconds, handler);
+    }
+
+    /** {@code action}, with its events sent {@code milliseconds} after the last one. */
+    public static Action debounce(int milliseconds, Action action) {
+        return new Debounced.OfAction(milliseconds, action);
     }
 
     /** {@code handler}, with every event sent at once, even for {@code oninput}, which is debounced by default. */
-    public static Handler immediate(Handler handler) {
-        return new Handler.Debounced(0, handler);
+    public static <E extends Event> Handler<E> immediate(Handler<E> handler) {
+        return new Debounced.OfHandler<>(0, handler);
+    }
+
+    /** {@code action}, with every event sent at once. */
+    public static Action immediate(Action action) {
+        return new Debounced.OfAction(0, action);
     }
 
     /**

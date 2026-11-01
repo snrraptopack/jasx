@@ -160,8 +160,9 @@
 
   function trigger(element, handler, event) {
     if (event.type === "submit") event.preventDefault();
-    const key = event.type === "keydown" || event.type === "keyup" || event.type === "keypress" ? event.key : null;
-    const send = () => enqueue(element, handler.id, event.type, key, event.submitter || null);
+    // What the event itself carries is read now; the element's value is read when the event is sent.
+    const details = eventDetails(event);
+    const send = () => enqueue(element, handler.id, event.type, details, event.submitter || null);
     if (handler.delay > 0) {
       const id = handler.id;
       clearTimeout(pending.get(id)?.timer);
@@ -186,21 +187,46 @@
   const queue = [];
   let sending = false;
 
-  function enqueue(element, handler, type, key, submitter) {
+  function enqueue(element, handler, type, details, submitter) {
     if (type === "submit" && element.jxBusy) return; // no double submit
     // The payload is read now, so a debounced event carries the field's latest value.
-    const payload = describe(element, handler, type, key, submitter);
+    const payload = describe(element, handler, type, details, submitter);
     busy(element, +1);
     queue.push({ element, payload, type });
     pump();
   }
 
-  function describe(element, handler, type, key, submitter) {
-    const payload = { handler, type, value: null, checked: false, key, fields: null };
+  // The keys and pointer of keyboard and mouse events (jasx-spec/ui.md §4): KeyEvent and MouseEvent.
+  function eventDetails(event) {
+    const details = {};
+    const isKey = "key" in event && typeof event.key === "string";
+    const isMouse = "button" in event && "clientX" in event;
+    if (isKey) details.key = event.key;
+    if (isMouse) {
+      details.button = event.button;
+      details.x = event.clientX;
+      details.y = event.clientY;
+    }
+    if (isKey || isMouse) {
+      details.ctrl = event.ctrlKey;
+      details.shift = event.shiftKey;
+      details.alt = event.altKey;
+      details.meta = event.metaKey;
+    }
+    return details;
+  }
+
+  // The event as the server reads it (targets/web.md §8.3): the element's value if it is a field (InputEvent),
+  // the form's fields for a submit (FormEvent), and the event's own details.
+  function describe(element, handler, type, details, submitter) {
+    const payload = { handler, type, ...details };
     const isField = element.tagName === "INPUT" || element.tagName === "SELECT" || element.tagName === "TEXTAREA";
     if (isField) {
       payload.value = element.value;
       payload.checked = Boolean(element.checked);
+      if (element.tagName === "SELECT" && element.multiple) {
+        payload.values = Array.from(element.selectedOptions, (option) => option.value);
+      }
     }
     const form = element.tagName === "FORM" ? element : (type === "submit" ? element.form : null);
     if (form) payload.fields = formFields(form, submitter);

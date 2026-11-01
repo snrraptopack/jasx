@@ -1,5 +1,6 @@
 package jasx.web;
 
+import jasx.ui.Computation;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -7,16 +8,18 @@ import java.util.function.Supplier;
 /**
  * A dynamic child of a page (targets/web.md §3): {@code {expression}} or a statement child. It renders its
  * value between the markers {@code <!--jx:N-->} and {@code <!--/jx:N-->} (§8.2), and when a value it read
- * changes, it renders again and sends the new content as an {@code html} patch (§8.4).
+ * changes, its page re-runs it ({@link #update}) and it sends the new content as an {@code html} patch (§8.4).
  */
 final class ChildHole extends Computation {
     final int id;
+    private final Page page;
     private final Supplier<Object> value;
     /** The content as last sent to the browser, to skip patches that change nothing. */
     private String html;
 
     ChildHole(Page page, int id, Supplier<Object> value) {
         super(page);
+        this.page = page;
         this.id = id;
         this.value = value;
     }
@@ -36,13 +39,9 @@ final class ChildHole extends Computation {
         return "<!--jx:" + id + "-->" + html + "<!--/jx:" + id + "-->";
     }
 
-    @Override
-    void invalidate() {
-        page.markDirty(this);
-    }
-
     /** Renders again after a value it read changed, and records a patch if the content changed. */
-    void rerun() {
+    @Override
+    public void update() {
         reset();
         Renderer content = renderContent();
         page.useSheets(content.sheets()); // a css patch for any style sheet the page didn't have (§9)
