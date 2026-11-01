@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0-draft, revision 22
+
+### Added
+
+- `targets/web.md` §6.1, **form recovery**: before reloading a page the server no longer has, the client saves the values of its named fields (not passwords, hidden fields or files); the reloaded page gets them back, and fires `input` and `change` on each, so its handlers catch up.
+
 ## 1.0-draft, revision 21
 
 ### Added

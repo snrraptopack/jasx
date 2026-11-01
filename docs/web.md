@@ -232,7 +232,7 @@ public final class Clock {
 
 The browser keeps one stream open for all its tabs of your application (`GET /_jasx/stream`): one tab holds it and passes each update to the tab it is for, and when that tab closes another takes over. Nothing goes through it when nothing changes, apart from a keep-alive comment every 25 seconds.
 
-If the connection drops (a laptop asleep, a train tunnel), the browser reconnects and tells the server the last update it applied. The server sends what was missed as one update, keeping only the latest value of each spot, so a clock that ticked sixty times while you were away sends one value. If too much was missed, the page reloads.
+If the connection drops (a laptop asleep, a train tunnel), the browser reconnects and tells the server the last update it applied. The server sends what was missed as one update, keeping only the latest value of each spot, so a clock that ticked sixty times while you were away sends one value. If too much was missed, or the server discarded the page, the page reloads, and what the user had typed in its forms is put back (not passwords), with `input` and `change` fired so your handlers catch up.
 
 ## Styles
 

@@ -147,6 +147,8 @@ Writing a batch to a connection doesn't prove the browser received it, and the a
 
 A merged batch may cover versions the client had already applied (an event answer that arrived during the reconnection). Applying a patch again is harmless (§8.4), so the client applies a batch whose versions go beyond the last applied one.
 
+**Form recovery.** Before the client reloads a page (a reload message, a `410`, a missing hole end), it saves in `sessionStorage`, under the page's path and query, the values of the page's named fields, except `password`, `hidden`, `file` and button inputs. Each field is found again by its form (its `id`, or its position among the page's forms), its name, and its position among the fields of that name. When the reloaded page starts, the client puts saved values back into the matching fields, then fires `input` and `change` on each field that changed, so its handlers (and the server's state) catch up. Saved values are used once, and not at all after 5 minutes.
+
 ### 6.2 One stream for every tab
 
 Over HTTP/1.1, browsers open only about six connections per server, and every open stream holds one, so a few tabs of an application could block each other. The tabs of a browser therefore share one stream:

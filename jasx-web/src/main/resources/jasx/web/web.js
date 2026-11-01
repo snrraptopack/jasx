@@ -887,11 +887,90 @@
       return;
     }
     sessionStorage.setItem("jx-reload", String(Date.now()));
+    saveForms();
     location.reload();
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Form recovery (§6.1): what the user typed survives a reload of a discarded page
+  // ---------------------------------------------------------------------------------------------
+
+  const FORMS_KEY = "jx-forms:" + location.pathname + location.search;
+  /** Saved values older than this are not restored. */
+  const FORMS_MAX_AGE = 5 * 60 * 1000;
+  /** Fields whose values are never saved: secrets, values the page sets itself, and files. */
+  const NOT_RECOVERED = new Set(["password", "hidden", "file", "submit", "button", "reset", "image"]);
+
+  // Each recoverable field, with a key that finds it again in the reloaded page: its form (by id, or by its
+  // position among the page's forms), its name, and its position among the fields of that name.
+  function recoverableFields() {
+    const forms = Array.from(document.forms);
+    const seen = new Map();
+    const fields = [];
+    for (const field of document.querySelectorAll("input[name], select[name], textarea[name]")) {
+      if (field.tagName === "INPUT" && NOT_RECOVERED.has(field.type)) continue;
+      const form = field.form ? (field.form.id || "form" + forms.indexOf(field.form)) : "page";
+      const base = form + "|" + field.name;
+      const index = seen.get(base) || 0;
+      seen.set(base, index + 1);
+      fields.push({ key: base + "|" + index, field });
+    }
+    return fields;
+  }
+
+  function saveForms() {
+    const values = {};
+    for (const { key, field } of recoverableFields()) {
+      if (field.type === "checkbox" || field.type === "radio") values[key] = { checked: field.checked };
+      else if (field.tagName === "SELECT") values[key] = { selected: Array.from(field.selectedOptions, (o) => o.value) };
+      else values[key] = { value: field.value };
+    }
+    try {
+      sessionStorage.setItem(FORMS_KEY, JSON.stringify({ at: Date.now(), values }));
+    } catch (error) {
+      // Storage full or disabled: the reload goes on without recovery.
+    }
+  }
+
+  // Puts saved values back into the matching fields of the new page, and fires input and change for each
+  // field that changed, so that the page's handlers (and its server state) catch up with what the user had.
+  function restoreForms() {
+    const saved = sessionStorage.getItem(FORMS_KEY);
+    if (!saved) return;
+    sessionStorage.removeItem(FORMS_KEY);
+    let data;
+    try { data = JSON.parse(saved); } catch (error) { return; }
+    if (!data || Date.now() - data.at > FORMS_MAX_AGE) return;
+    for (const { key, field } of recoverableFields()) {
+      const value = data.values[key];
+      if (!value || !restoreField(field, value)) continue;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  /** Sets a field to a saved value; whether it changed. */
+  function restoreField(field, value) {
+    if ("checked" in value && (field.type === "checkbox" || field.type === "radio")) {
+      if (field.checked === value.checked) return false;
+      field.checked = value.checked;
+      return true;
+    }
+    if ("selected" in value && field.tagName === "SELECT") {
+      const before = Array.from(field.selectedOptions, (o) => o.value).join("\n");
+      for (const option of field.options) option.selected = value.selected.includes(option.value);
+      return before !== value.selected.join("\n");
+    }
+    if ("value" in value && field.value !== value.value) {
+      field.value = value.value;
+      return true;
+    }
+    return false;
   }
 
   rememberRendered(document.documentElement); // the page as the server rendered it
   indexHoles(document);
   listenFor(document);
+  restoreForms();
   connect(); // a tab that can't share streams at once; a shared stream opens when its leader is chosen
 })();

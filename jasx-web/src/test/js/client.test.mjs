@@ -33,7 +33,7 @@ after(() => openWindows.forEach((window) => window.close()));
  * is `id`; a page made with a `browser` (browserWithTabs) is one of its tabs, otherwise it can't share its
  * stream.
  */
-async function page(body, answer = () => null, scriptAttributes = "", { id = "P1", browser = null } = {}) {
+async function page(body, answer = () => null, scriptAttributes = "", { id = "P1", browser = null, storage = {} } = {}) {
   const sent = [];
   const streams = [];
   const pings = [];
@@ -44,6 +44,7 @@ async function page(body, answer = () => null, scriptAttributes = "", { id = "P1
       runScripts: "dangerously",
       resources: new ClientLoader(),
       beforeParse(window) {
+        for (const [key, value] of Object.entries(storage)) window.sessionStorage.setItem(key, value);
         if (browser) browser.install(window, id);
         else window.BroadcastChannel = undefined;
         window.fetch = async (url, init) => {
@@ -650,4 +651,48 @@ test("a template is kept: later patches carry only values", async () => {
   streams[0].push({ version: 1, patches: [{ op: "tpl", t: 1, s: [`<b>`, `</b>`] }, { op: "html", id: 1, t: 1, v: ["1"] }] });
   streams[0].push({ version: 2, patches: [{ op: "html", id: 1, t: 1, v: ["2"] }] });
   assert.equal(document.querySelector("b").textContent, "2");
+});
+
+// -------------------------------------------------------------------------------------------------
+// Form recovery (targets/web.md §6.1)
+// -------------------------------------------------------------------------------------------------
+
+const FORM = `<form id="post" data-jx-on="submit:2"><input name="title"><textarea name="body"></textarea>`
+  + `<input type="checkbox" name="urgent"><select name="to"><option>a</option><option>b</option></select>`
+  + `<input type="password" name="secret"></form>`;
+
+test("a reload saves what the user typed, except passwords", async () => {
+  const { window, document, streams } = await page(FORM);
+  document.querySelector("[name=title]").value = "Draft";
+  document.querySelector("[name=body]").value = "Long text";
+  document.querySelector("[name=urgent]").checked = true;
+  document.querySelector("[name=to]").value = "b";
+  document.querySelector("[name=secret]").value = "hunter2";
+  streams[0].push({ reload: true });
+  const saved = JSON.parse(window.sessionStorage.getItem("jx-forms:/page"));
+  assert.deepEqual(saved.values, {
+    "post|title|0": { value: "Draft" },
+    "post|body|0": { value: "Long text" },
+    "post|urgent|0": { checked: true },
+    "post|to|0": { selected: ["b"] },
+  });
+});
+
+test("the reloaded page gets the values back, and its handlers hear about them", async () => {
+  const values = { "page|q|0": { value: "shoes" }, "post|title|0": { value: "Draft" } };
+  const { document, sent } = await page(
+    `<input name="q" data-jx-on="input:5:50">` + FORM, () => null, "",
+    { storage: { "jx-forms:/page": JSON.stringify({ at: Date.now(), values }) } },
+  );
+  assert.equal(document.querySelector("[name=q]").value, "shoes");
+  assert.equal(document.querySelector("[name=title]").value, "Draft");
+  await wait(100);
+  assert.deepEqual(sent.map((s) => [s.payload.handler, s.payload.value]), [[5, "shoes"]], "the search hears its text");
+});
+
+test("old saved values are not restored", async () => {
+  const values = { "post|title|0": { value: "Stale" } };
+  const { document } = await page(FORM, () => null, "",
+    { storage: { "jx-forms:/page": JSON.stringify({ at: Date.now() - 10 * 60 * 1000, values }) } });
+  assert.equal(document.querySelector("[name=title]").value, "");
 });
