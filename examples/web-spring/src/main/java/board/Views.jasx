@@ -1,0 +1,183 @@
+package board;
+
+import board.TaskService.Task;
+import jasx.runtime.Element;
+import jasx.ui.State;
+import java.util.List;
+
+import static jasx.web.Web.*;
+
+// The board's components. They run once, when their page is rendered; afterwards only the {...} that read a
+// changed state run again, and the browser gets just their new content.
+
+<style>
+    body { font-family: system-ui, sans-serif; margin: 0; color: #1f2937; background: #f9fafb; }
+    header { display: flex; gap: 1rem; align-items: baseline; padding: 1rem 2rem; background: #111827; }
+    header a { color: white; font-weight: 600; text-decoration: none; font-size: 1.2rem; }
+    header span { color: #9ca3af; font-size: .9rem; }
+    .page { display: grid; grid-template-columns: 1fr 18rem; gap: 2rem; max-width: 64rem; margin: 2rem auto; padding: 0 2rem; }
+    aside { background: white; border: 1px solid #e5e7eb; border-radius: .5rem; padding: 1rem; align-self: start; }
+    aside h2 { font-size: 1rem; margin-top: 0; }
+    aside li { font-size: .85rem; color: #4b5563; margin-bottom: .4rem; }
+    form { display: flex; gap: .5rem; margin: 1rem 0; }
+    input:not([type=checkbox]), select { padding: .4rem .6rem; border: 1px solid #d1d5db; border-radius: .375rem; }
+    input[name=title], input[name=text] { flex: 1; }
+    button { padding: .4rem .9rem; border: 1px solid #d1d5db; border-radius: .375rem; background: white; cursor: pointer; }
+    ul { list-style: none; padding: 0; }
+    .filters { display: flex; gap: .5rem; margin-bottom: .5rem; }
+    .filters .active { background: #111827; color: white; }
+    .task { display: flex; gap: .75rem; align-items: center; background: white; border: 1px solid #e5e7eb; border-radius: .5rem; padding: .6rem .9rem; margin-bottom: .5rem; }
+    .task a { flex: 1; color: inherit; text-decoration: none; }
+    .task.done a { text-decoration: line-through; color: #9ca3af; }
+    .who { font-size: .8rem; background: #eef2ff; color: #3730a3; padding: .1rem .5rem; border-radius: 1rem; }
+    .hint { color: #6b7280; font-size: .9rem; }
+    .danger { color: #b91c1c; border-color: #fecaca; }
+    .jx-loading { opacity: .6; }
+</style>
+
+// ---------------------------------------------------------------------------------------------------
+// The frame of every page, with the activity feed: pushed to every open page when anything changes
+// ---------------------------------------------------------------------------------------------------
+
+public Element Layout(String title, TaskService tasks, List<Element> children) {
+    return (
+        <html lang="en">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>{title} · Team board</title>
+            </head>
+            <body>
+                <header>
+                    <a href="/">Team board</a>
+                    <span>Spring Boot + JASX</span>
+                </header>
+                <div class="page">
+                    <main>{children}</main>
+                    <aside>
+                        <h2>Activity</h2>
+                        <ul>
+                            {for (String line : tasks.activity()) {
+                                <li>{line}</li>
+                            }}
+                        </ul>
+                    </aside>
+                </div>
+            </body>
+        </html>
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The board
+// ---------------------------------------------------------------------------------------------------
+
+/** The add form's fields: e.as(NewTask.class) reads each component from the field of the same name. */
+record NewTask(String title, String assignee) {}
+
+public Element Board(TaskService tasks, String show) {
+    var filter = state(show); // this page's own state: each window filters on its own
+
+    return (
+        <Layout title="Board" tasks={tasks}>
+            <form onsubmit={e -> {
+                NewTask task = e.as(NewTask.class);
+                tasks.add(task.title().strip(), task.assignee());
+                e.resetForm();
+            }}>
+                <input name="title" placeholder="What needs doing?" required autocomplete="off" />
+                <select name="assignee">
+                    {for (String person : TaskService.PEOPLE) {
+                        <option>{person}</option>
+                    }}
+                </select>
+                <button>Add</button>
+            </form>
+
+            <div class="filters">
+                <FilterButton filter={filter} value="all" label="All" />
+                <FilterButton filter={filter} value="open" label="Open" />
+                <FilterButton filter={filter} value="done" label="Done" />
+            </div>
+
+            <ul>
+                {for (Task t : tasks.all()) {
+                    if (!t.shownBy(filter.get())) continue;
+                    <li key={t.id()} class={t.done() ? "task done" : "task"}>
+                        <input type="checkbox" checked={t.done()} onchange={() -> tasks.toggle(t.id())} />
+                        <a href={"/tasks/" + t.id()}>{t.title()}</a>
+                        <span class="who">{t.assignee()}</span>
+                    </li>
+                }}
+            </ul>
+
+            <p class="hint">{tasks.openCount()} open. Add one from a terminal and watch it appear:</p>
+            <pre class="hint">curl -X POST localhost:8080/api/tasks -d title="Ship it" -d assignee=Yaw</pre>
+        </Layout>
+    );
+}
+
+Element FilterButton(State<String> filter, String value, String label) {
+    return <button class={filter.get().equals(value) ? "active" : null} onclick={() -> filter.set(value)}>{label}</button>;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// One task
+// ---------------------------------------------------------------------------------------------------
+
+public Element TaskPage(TaskService tasks, long id) {
+    return (
+        <Layout title="Task" tasks={tasks}>
+            <p><a href="/">← Back to the board</a></p>
+            {if (tasks.find(id).isPresent()) {
+                <TaskDetail task={tasks.find(id).get()} tasks={tasks} />
+            } else {
+                <p>This task was deleted.</p>
+            }}
+        </Layout>
+    );
+}
+
+Element TaskDetail(Task task, TaskService tasks) {
+    long id = task.id();
+    return (
+        <article>
+            <form onsubmit={e -> tasks.rename(id, e.field("title").strip())}>
+                <input name="title" value={task.title()} required />
+                <button>Rename</button>
+            </form>
+
+            <p>
+                Assigned to
+                <select onchange={e -> tasks.assign(id, e.value())}>
+                    {for (String person : TaskService.PEOPLE) {
+                        <option selected={person.equals(task.assignee())}>{person}</option>
+                    }}
+                </select>
+                <label>
+                    <input type="checkbox" checked={task.done()} onchange={() -> tasks.toggle(id)} />
+                    Done
+                </label>
+            </p>
+
+            <h2>Comments</h2>
+            <ul>
+                {for (String comment : task.comments()) {
+                    <li>{comment}</li>
+                }}
+            </ul>
+            <form onsubmit={e -> {
+                tasks.comment(id, e.field("text").strip());
+                e.resetForm();
+            }}>
+                <input name="text" placeholder="Add a comment" required autocomplete="off" />
+                <button>Comment</button>
+            </form>
+
+            <button class="danger" onclick={() -> {
+                tasks.remove(id);
+                navigate("/");
+            }}>Delete task</button>
+        </article>
+    );
+}

@@ -77,6 +77,8 @@ docs/discussions/          design proposals under discussion (not specified, not
 examples/hello/            standalone example build (composite build of this repository)
 examples/hello-maven/      the same idea with Maven (needs ./gradlew publishToMavenLocal)
 examples/web/              the web target: counter, shared to-do list, live search, server push (clock and chat)
+examples/web-spring/       the web target in Spring Boot: a team board (controller pages, a @Service with state,
+                           a REST API whose changes reach open pages); application plugin, not the Boot plugin
 ```
 
 ## Implementation plan
@@ -150,6 +152,7 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew :jasx-web-servlet:test         # servlet adapter on an embedded Tomcat
 ./gradlew :jasx-web-spring-boot-starter:test   # the starter in a Spring Boot app (downloads Spring on first run)
 ./gradlew -p examples/web run            # serve the web example at http://localhost:8080 (PORT=... to change)
+./gradlew -p examples/web-spring run     # the Spring Boot example at http://localhost:8080 (PORT=... to change)
 ./gradlew :jasx-maven-plugin:test       # Maven plugin functional tests: downloads Maven 3.9.9 as a dependency,
                                          # installs the JASX artifacts in ~/.m2, builds examples/hello-maven (slow)
 (cd examples/hello-maven && mvn compile exec:java)   # the Maven example by hand, after ./gradlew publishToMavenLocal

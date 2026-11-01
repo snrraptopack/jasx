@@ -281,6 +281,8 @@ jasx.web.max-event-bytes=1048576
 jasx.web.max-pages-per-session=50
 ```
 
+[`examples/web-spring`](../examples/web-spring) is a complete application: `./gradlew -p examples/web-spring run`.
+
 With Spring Security, let the runtime's requests through Spring's CSRF check; the runtime protects them its own way (above): `http.csrf(csrf -> csrf.ignoringRequestMatchers("/_jasx/**"))`.
 
 **On a servlet container** (Tomcat 10.1+, Jetty 12, Undertow: Jakarta Servlet 6), add `dev.jasx:jasx-web-servlet` and register a `JasxServlet` with your pages:

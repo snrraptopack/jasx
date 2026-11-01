@@ -128,6 +128,7 @@ Early development. The specification is a draft.
 ```
 ./gradlew -p examples/hello run
 ./gradlew -p examples/web run
+./gradlew -p examples/web-spring run
 ```
 
 [`examples/hello`](examples/hello) is a small to-do page rendered to HTML with the `html` target; add `--args=--print` to print the HTML instead.
@@ -138,7 +139,9 @@ Early development. The specification is a draft.
 - a live search;
 - a page with a server clock and a chat, pushed from the server.
 
-Both serve at http://localhost:8080.
+[`examples/web-spring`](examples/web-spring) is the `web` target in Spring Boot: a team board whose pages are controller methods, whose tasks live in a `@Service`, and whose REST API updates every open board (`curl -X POST localhost:8080/api/tasks -d title="Ship it"`).
+
+Each serves at http://localhost:8080.
 
 ## Using JASX in a Gradle project
 
