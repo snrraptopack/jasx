@@ -2,3 +2,6 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.jar binary
+
+# GitHub has no JASX grammar yet: highlight .jasx files as Java (Linguist override).
+*.jasx linguist-language=Java
