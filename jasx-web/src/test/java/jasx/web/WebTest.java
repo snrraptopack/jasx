@@ -520,6 +520,86 @@ class WebTest {
         }
     }
 
+    /** Templates (targets/web.md §8.4): a shape's statics sent once, then only its values. */
+    @Nested
+    class Templates {
+        @Test
+        void markupKeepsStaticsAndValuesApartAndJoinsThemBack() {
+            Markup inner = new Markup().append("<b>").value("x").append("</b>");
+            Markup markup = new Markup().append("<p class=\"").value("a&amp;b").append("\">").append(inner).append("</p>");
+            assertEquals("<p class=\"a&amp;b\"><b>x</b></p>", markup.toString());
+            assertEquals(List.of("<p class=\"", "\"><b>", "</b></p>"), markup.statics());
+            assertEquals(List.of("a&amp;b", "x"), markup.values());
+            assertEquals(markup.toString().length(), markup.length());
+        }
+
+        /** A hole whose content has a sizable shape: a card with a title, a count and a link. */
+        private String renderCards(State<Integer> count) {
+            return app.render(() -> Web.h("div", null, Web.dynamic(() -> Web.h("article", null,
+                    Web.h("h2", null, "Inbox"),
+                    Web.h("p", null, "You have ", count.get(), " new messages waiting for you"),
+                    Web.h("a", jasx.web.attrs.A.create().href("/messages?page=" + count.get()), "Open the inbox")))));
+        }
+
+        @Test
+        void aShapeIsSentAsHtmlThenDefinedOnceThenOnlyItsValues() throws Exception {
+            State<Integer> count = Web.state(1);
+            String html = renderCards(count);
+            BlockingQueue<String> frames = new LinkedBlockingQueue<>();
+            Thread stream = openStream(html, 0, frames);
+            try {
+                assertEquals(": connected\n\n", frames.poll(5, TimeUnit.SECONDS));
+                count.set(2); // the shape is seen for the first time in a patch: HTML, numbered
+                String first = frames.poll(5, TimeUnit.SECONDS);
+                assertTrue(first.contains("\"html\":\"\\u003carticle>"), first);
+                count.set(3); // the second time: its statics once, then the values
+                String second = frames.poll(5, TimeUnit.SECONDS);
+                assertTrue(second.contains("{\"op\":\"tpl\",\"t\":1,\"s\":["), second);
+                assertTrue(second.contains("{\"op\":\"html\",\"id\":1,\"t\":1,\"v\":[\"Inbox\",\"You have \",\"3\""), second);
+                count.set(4); // from then on, only the values
+                String third = frames.poll(5, TimeUnit.SECONDS);
+                assertFalse(third.contains("\"tpl\""), third);
+                assertTrue(third.contains("\"t\":1,\"v\":[\"Inbox\",\"You have \",\"4\""), third);
+                assertTrue(third.length() < first.length(), "values are shorter than the HTML: " + third);
+            } finally {
+                stream.interrupt();
+            }
+        }
+
+        @Test
+        void aCatchUpKeepsTheTemplateEvenWhenItsFirstUseIsSuperseded() throws Exception {
+            State<Integer> count = Web.state(1);
+            String html = renderCards(count);
+            for (int n = 2; n <= 4; n++) {
+                count.set(n);
+                Thread.sleep(50); // each push is its own batch
+            }
+            BlockingQueue<String> frames = new LinkedBlockingQueue<>();
+            Thread stream = openStream(html, 0, frames); // a browser that missed everything
+            try {
+                frames.poll(5, TimeUnit.SECONDS);
+                String merged = frames.poll(5, TimeUnit.SECONDS);
+                assertTrue(merged.contains("{\"op\":\"tpl\",\"t\":1,"), "the definition is never dropped: " + merged);
+                assertTrue(merged.contains("\"t\":1,\"v\":[\"Inbox\",\"You have \",\"4\""), merged);
+                assertFalse(merged.contains("\"3\""), "earlier values of the hole are superseded: " + merged);
+            } finally {
+                stream.interrupt();
+            }
+        }
+
+        @Test
+        void aSmallHoleStaysHtml() {
+            String html = app.render(() -> {
+                State<Integer> n = Web.state(0);
+                return Web.h("button", Button.create().onclick(() -> n.update(x -> x + 1)), Web.dynamic(() -> n.get()));
+            });
+            int button = handler(html, "click", 1);
+            click(html, button);
+            String second = click(html, button).body();
+            assertTrue(second.contains("\"html\":\"2\""), "a template would be longer than \"2\": " + second);
+        }
+    }
+
     /** Sessions, same-site checks and limits (targets/web.md §6.3), through the API adapters call. */
     @Nested
     class Security {
@@ -831,9 +911,11 @@ class WebTest {
             // The first item was kept with its state and its handler: toggling it again closes it.
             assertTrue(click(html, toggleFirst).body().contains("\"html\":\"closed\""));
 
-            // Renaming the first to-do changes its record: only that item is rendered afresh.
+            // Renaming the first to-do changes its record: only that item is rendered afresh. Its shape was seen
+            // when "c" was added, so its statics go once in a tpl patch, and the item carries only its values (§8.4).
             String renamed = app.event(page, "{\"handler\":" + rename + ",\"type\":\"click\"}").body();
-            assertTrue(renamed.matches(".*\"items\":\\[\\{\"id\":\\d+,\"html\":\"[^}]*A[^}]*\"\\},\\d+,\\d+\\].*"), renamed);
+            assertTrue(renamed.contains("{\"op\":\"tpl\""), renamed);
+            assertTrue(renamed.matches(".*\"items\":\\[\\{\"id\":\\d+,\"t\":\\d+,\"v\":\\[[^\\]]*\"A\"[^\\]]*\\]\\},\\d+,\\d+\\].*"), renamed);
             assertEquals(204, click(html, toggleFirst).status(), "the replaced item's handler is gone");
         }
 

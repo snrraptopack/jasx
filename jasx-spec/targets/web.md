@@ -257,10 +257,11 @@ A member that is not sent reads as empty (`""`, `false`, `0`, no fields). An eve
 
 | Patch | Effect |
 |---|---|
-| `html` | the new content of hole `id`, which the client **merges** into the page (below) |
-| `list` | the items of keyed list `id` in their new order (§4.3): `items` holds the id of each kept item, or `{"id": N, "html": "..."}` for a new one |
+| `html` | the new content of hole `id`, which the client **merges** into the page (below): `html`, or a template's values (below) |
+| `list` | the items of keyed list `id` in their new order (§4.3): `items` holds the id of each kept item, or `{"id": N, "html": "..."}` for a new one (or `{"id": N, "t": T, "v": [...]}`, below) |
 | `attr` | sets attribute `name` of element `id`: a string, `true` for a bare attribute, or `null` to remove it |
 | `css` | adds a style sheet the page didn't have yet |
+| `tpl` | defines template `t`: its statics `s`, a list of strings (below) |
 | `navigate` | goes to `url` |
 | `reset` | resets the form of the event whose `seq` is `event` (§7), wherever the batch arrives: in the event's answer, after an earlier batch it waited for, or in a catch-up |
 
@@ -276,6 +277,8 @@ A **merged batch**, `{"from": A, "version": B, "patches": [...]}`, holds the pat
 
 In a merged batch (§6.1), an `html` patch supersedes earlier `html` and `list` patches of the same hole. A `list` patch supersedes nothing, because it refers to items created by earlier `list` patches.
 
+**Templates.** Rendered HTML consists of *statics*, what the renderer writes itself (tags, attribute names, quotes, the text of hole markers), and *values*, what comes from the page's data (escaped text, attribute values, the ids in hole markers): `statics[0] + values[0] + statics[1] + … + statics[n]`. Content with the same statics has the same *shape*. The server numbers the shapes of a page's patch content: the first time a shape is rendered, it is sent as `html`; the second time, a `tpl` patch defines it once (`{"op": "tpl", "t": T, "s": [...]}`, before the patch that uses it), and from then on content of that shape is sent as `"t": T, "v": [values]` in place of `"html"`, in `html` patches and in new list items. The client rebuilds the HTML from the template's statics and the values, and merges it as usual. A template is used only when its values are shorter than the HTML, so a hole such as `{count}` is still sent as `html`. A page numbers at most 500 shapes. A `tpl` patch supersedes nothing and is never superseded, so a catch-up (§6.1) always carries the definitions its patches use. A client that meets an unknown template reloads the page.
+
 Patches can be applied again harmlessly: `html` and `attr` set content and values, the client adds a style sheet only once, and a reset leaves alone the fields edited after its event. A patch whose hole or element isn't in the page (it was inside content replaced since) is ignored.
 
 ## 9. Styles
@@ -284,7 +287,7 @@ Style blocks work as on `html` (`targets/html.md` §3.5): `Web.styleSheet`, `Web
 
 ## 10. Not yet
 
-- **Client commands:** showing, hiding and toggling classes in the browser without a round trip.
-- **Static templates:** sending the static parts of a hole's markup once, and only the dynamic values afterwards.
+- **Browser code:** a design for plain JavaScript is under discussion (`docs/discussions/browser-javascript.md`).
+- **Templates from the compiler:** templates are found at run time, by shape (§8.4); the lowering could mark static parts at compile time, so that text written in the source is never sent again either.
 - **Warnings** JASX3001 (a state read outside a hole) and JASX3002 (a list without keys) stay reserved.
 - File uploads, and restoring form input after the page is discarded.

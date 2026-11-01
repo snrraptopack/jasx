@@ -161,6 +161,74 @@ final class Page implements Scheduler {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Templates (targets/web.md §8.4): the statics of a shape sent once, then only the values
+    // ---------------------------------------------------------------------------------------------
+
+    /** At most this many shapes are numbered per page; others are always sent as HTML. */
+    private static final int MAX_TEMPLATES = 500;
+
+    /** A shape the page has rendered: its number, and whether the browser has been sent its statics. */
+    private static final class Template {
+        final int number;
+        boolean sent;
+
+        Template(int number) {
+            this.number = number;
+        }
+    }
+
+    /** The shapes rendered in patches, by their statics. */
+    private final Map<List<String>, Template> templates = new HashMap<>();
+
+    /**
+     * How a patch carries {@code content}: {@code {"html": ...}}, or {@code {"t": N, "v": [...]}} for a shape the
+     * browser knows. A shape is numbered the first time it is rendered and sent as HTML; the second time, its
+     * statics go to the browser in a {@code tpl} patch, added before the patch that uses it, and from then on only
+     * the values are sent. A template is used only when it is shorter than the HTML. Must hold the lock.
+     */
+    Map<String, Object> content(Markup content) {
+        String html = content.toString();
+        List<String> values = content.values();
+        Map<String, Object> plain = new LinkedHashMap<>();
+        plain.put("html", html);
+        if (values.isEmpty()) {
+            return plain;
+        }
+        List<String> statics = content.statics();
+        Template template = templates.get(statics);
+        if (template == null) {
+            if (templates.size() < MAX_TEMPLATES) {
+                templates.put(statics, new Template(templates.size() + 1));
+            }
+            return plain;
+        }
+        if (!isShorter(html, values)) {
+            return plain;
+        }
+        if (!template.sent) {
+            Map<String, Object> definition = new LinkedHashMap<>();
+            definition.put("op", "tpl");
+            definition.put("t", template.number);
+            definition.put("s", statics);
+            patches.add(definition);
+            template.sent = true;
+        }
+        Map<String, Object> templated = new LinkedHashMap<>();
+        templated.put("t", template.number);
+        templated.put("v", values);
+        return templated;
+    }
+
+    /** Whether sending the values (with a few characters of JSON each) is shorter than sending the HTML. */
+    private static boolean isShorter(String html, List<String> values) {
+        int valuesLength = 16;
+        for (String value : values) {
+            valuesLength += value.length() + 4;
+        }
+        return valuesLength < html.length();
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Events and flushes (targets/web.md §5, §7)
     // ---------------------------------------------------------------------------------------------
 

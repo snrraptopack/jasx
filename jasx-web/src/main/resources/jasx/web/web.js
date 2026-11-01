@@ -80,14 +80,33 @@
 
   function apply(patch) {
     switch (patch.op) {
-      case "html": replaceHole(patch.id, patch.html); break;
+      case "html": replaceHole(patch.id, htmlOf(patch)); break;
       case "list": arrangeItems(patch.id, patch.items); break;
       case "attr": setAttribute(patch.id, patch.name, patch.value); break;
       case "css": addStyleSheet(patch.css); break;
+      case "tpl": templates.set(patch.t, patch.s); break;
       case "navigate": location.assign(patch.url); break;
       case "reset": resetForm(patch.event); break;
       default: console.warn("jasx: unknown patch", patch);
     }
+  }
+
+  // Templates (§8.4): the statics of a shape the server sent once, by number. Content that uses one carries only
+  // its values, already escaped: the HTML is statics[0] + values[0] + statics[1] + ... + statics[n].
+  const templates = new Map();
+
+  // The HTML of an html patch or a new list item: given as it is, or as a template's values.
+  function htmlOf(content) {
+    if (content.t === undefined) return content.html;
+    const statics = templates.get(content.t);
+    if (!statics) {
+      console.error("jasx: template " + content.t + " is unknown");
+      reload();
+      return "";
+    }
+    let html = statics[0];
+    for (let i = 0; i < content.v.length; i++) html += content.v[i] + statics[i + 1];
+    return html;
   }
 
   const styleSheets = new Set();
@@ -233,7 +252,7 @@
   function newItem(parent, entry) {
     const item = document.createDocumentFragment();
     item.appendChild(document.createComment("jx:" + entry.id));
-    item.appendChild(parseIn(parent, entry.html));
+    item.appendChild(parseIn(parent, htmlOf(entry)));
     item.appendChild(document.createComment("/jx:" + entry.id));
     rememberRendered(item);
     indexHoles(item);

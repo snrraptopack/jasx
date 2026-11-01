@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0-draft, revision 21
+
+### Added
+
+- `targets/web.md` §8.4, **templates**: the server numbers the shapes (statics) of a page's patch content; the second time a shape is rendered, a `tpl` patch defines it once, and later content of that shape carries only its values (`"t"`, `"v"`) in `html` patches and new list items, when that is shorter than the HTML. `tpl` patches are never dropped from a catch-up.
+
+### Changed
+
+- `targets/web.md` §10: static templates are no longer listed as missing; templates from the compiler are.
+
 ## 1.0-draft, revision 20
 
 ### Changed

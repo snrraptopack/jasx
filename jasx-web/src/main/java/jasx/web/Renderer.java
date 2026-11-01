@@ -43,7 +43,7 @@ final class Renderer {
 
     private final Page page;
     private final boolean isStatic;
-    private final StringBuilder out = new StringBuilder();
+    private final Markup out = new Markup();
     private boolean escapeText = true;
     /** Inside an element whose content can't hold markers: dynamic children are evaluated once. */
     private boolean noHoles;
@@ -71,6 +71,11 @@ final class Renderer {
         return out.toString();
     }
 
+    /** What was rendered, as statics and values (targets/web.md §8.4, templates). */
+    Markup markup() {
+        return out;
+    }
+
     Set<StyleSheet> sheets() {
         return sheets;
     }
@@ -95,14 +100,15 @@ final class Renderer {
         int sheetsAt = stylesAt >= 0 ? stylesAt : headEnd >= 0 ? headEnd : 0;
 
         // Insert at the later position first, so the earlier one stays valid.
+        StringBuilder page = new StringBuilder(out.toString());
         if (scriptAt >= sheetsAt) {
-            out.insert(scriptAt, scriptTag);
-            out.insert(sheetsAt, styles);
+            page.insert(scriptAt, scriptTag);
+            page.insert(sheetsAt, styles);
         } else {
-            out.insert(sheetsAt, styles);
-            out.insert(scriptAt, scriptTag);
+            page.insert(sheetsAt, styles);
+            page.insert(scriptAt, scriptTag);
         }
-        return out.toString();
+        return page.toString();
     }
 
     private String stylesElement() {
@@ -151,7 +157,7 @@ final class Renderer {
             }
             case WebElement.Keyed keyed -> child(keyed.element().get()); // alone, not in a list: just its element
             case WebElement.Text text -> text(text.value());
-            case WebElement.Raw raw -> out.append(raw.html());
+            case WebElement.Raw raw -> out.value(raw.html()); // markup from data: a value
             case WebElement.Dynamic dynamic -> dynamic(dynamic);
             case WebElement.Scoped scoped -> {
                 sheets.add(scoped.sheet());
@@ -268,7 +274,7 @@ final class Renderer {
 
     /** The content of script or style must not close the element early (targets/html.md §3.3). */
     private void checkRawText(String name, int contentStart) {
-        String content = out.substring(contentStart).toLowerCase(Locale.ROOT);
+        String content = out.toString().substring(contentStart).toLowerCase(Locale.ROOT);
         if (content.contains("</" + name)) {
             throw new IllegalArgumentException("the content of <" + name + "> must not contain \"</" + name + "\"");
         }
@@ -352,7 +358,7 @@ final class Renderer {
         out.append(' ').append(name);
         if (written instanceof String text) {
             out.append("=\"");
-            escape(text, true);
+            out.value(escape(text, true)); // the value is data; the name and quotes are the shape
             out.append('"');
         }
     }
@@ -361,25 +367,24 @@ final class Renderer {
     // Text
     // ---------------------------------------------------------------------------------------------
 
+    /** Text from the page's data: a value of the markup (§8.4, templates). */
     private void text(String text) {
-        if (escapeText) {
-            escape(text, false);
-        } else {
-            out.append(text);
-        }
+        out.value(escapeText ? escape(text, false) : text);
     }
 
     /** targets/html.md §3.2: escape {@code & < >}, and in attribute values also {@code "}. */
-    private void escape(String s, boolean inAttribute) {
+    private static String escape(String s, boolean inAttribute) {
+        StringBuilder escaped = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
             switch (c) {
-                case '&' -> out.append("&amp;");
-                case '<' -> out.append("&lt;");
-                case '>' -> out.append("&gt;");
-                case '"' -> out.append(inAttribute ? "&quot;" : "\"");
-                default -> out.append(c);
+                case '&' -> escaped.append("&amp;");
+                case '<' -> escaped.append("&lt;");
+                case '>' -> escaped.append("&gt;");
+                case '"' -> escaped.append(inAttribute ? "&quot;" : "\"");
+                default -> escaped.append(c);
             }
         }
+        return escaped.toString();
     }
 }

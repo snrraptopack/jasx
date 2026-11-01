@@ -39,7 +39,9 @@ final class ChildHole extends Computation {
     final int id;
     private final Page page;
     private final Supplier<?> value;
-    /** The content as last sent to the browser, without this hole's markers, to skip patches that change nothing. */
+    /** The content as last sent to the browser, without this hole's markers. */
+    private Markup markup;
+    /** Its HTML, to skip patches that change nothing. */
     private String html;
     /** In keyed-list mode, the items in order; null in plain mode. */
     private List<Item> items;
@@ -49,9 +51,9 @@ final class ChildHole extends Computation {
 
     /**
      * What one run rendered. In keyed-list mode, {@code items} are the items and {@code entries} the list patch's
-     * entries: the id of a kept item, or the id and HTML of a new one. Both are null in plain mode.
+     * entries: the id of a kept item, or the hole of a new one. Both are null in plain mode.
      */
-    private record Rendered(String html, Set<StyleSheet> sheets, List<Item> items, List<Object> entries) {}
+    private record Rendered(Markup markup, Set<StyleSheet> sheets, List<Item> items, List<Object> entries) {}
 
     ChildHole(Page page, int id, Supplier<?> value) {
         super(page);
@@ -65,12 +67,17 @@ final class ChildHole extends Computation {
      * reactive value (such as {@code {todo.title()}}) can never change, so it needs no markers; holes inside
      * its content still get theirs.
      */
-    String firstRender(Renderer parent) {
+    Markup firstRender(Renderer parent) {
         Rendered content = track(this::renderContent);
         parent.useSheets(content.sheets());
         items = content.items();
-        html = items != null ? itemsHtml(hasSources()) : content.html();
-        return hasSources() ? marked(id, html) : html;
+        setContent(items != null ? itemsMarkup(hasSources()) : content.markup());
+        return hasSources() ? marked(id, markup) : markup;
+    }
+
+    private void setContent(Markup content) {
+        markup = content;
+        html = content.toString();
     }
 
     /**
@@ -88,16 +95,20 @@ final class ChildHole extends Computation {
         boolean wasKeyed = before != null;
         items = content.items();
         if (isKeyedNow && wasKeyed) {
-            html = itemsHtml(true);
+            setContent(itemsMarkup(true));
             if (!onlyKeptInTheSameOrder(content.entries(), before)) {
-                patch("list", "items", content.entries());
+                patchList(content.entries());
             }
             return;
         }
-        String newHtml = isKeyedNow ? itemsHtml(true) : content.html();
-        if (!newHtml.equals(html)) {
-            html = newHtml;
-            patch("html", "html", newHtml);
+        Markup newMarkup = isKeyedNow ? itemsMarkup(true) : content.markup();
+        if (!newMarkup.toString().equals(html)) {
+            setContent(newMarkup);
+            Map<String, Object> patch = new LinkedHashMap<>();
+            patch.put("op", "html");
+            patch.put("id", id);
+            patch.putAll(page.content(newMarkup)); // "html", or a template's "t" and "v" (§8.4)
+            page.addPatch(patch);
         }
     }
 
@@ -119,7 +130,7 @@ final class ChildHole extends Computation {
         }
         Renderer content = new Renderer(page, false);
         content.child(children);
-        return new Rendered(content.html(), content.sheets(), null, null);
+        return new Rendered(content.markup(), content.sheets(), null, null);
     }
 
     /**
@@ -146,16 +157,35 @@ final class ChildHole extends Computation {
             ChildHole hole = new ChildHole(page, page.nextId(), child.element());
             Rendered itemContent = hole.track(hole::renderContent);
             hole.items = itemContent.items();
-            hole.html = hole.items != null ? hole.itemsHtml(hole.hasSources()) : itemContent.html();
+            hole.setContent(hole.items != null ? hole.itemsMarkup(hole.hasSources()) : itemContent.markup());
             sheets.addAll(itemContent.sheets());
             next.add(new Item(child.key(), child.element(), hole));
-
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("id", hole.id);
-            entry.put("html", hole.html);
-            entries.add(entry);
+            entries.add(hole); // its content is described when the list patch is made (patchList)
         }
         return new Rendered(null, sheets, next, entries);
+    }
+
+    /**
+     * The list patch: each entry is a kept item's id, or a new item's id with its content. Describing the content
+     * only now, not while rendering, keeps the page's first rendering from registering templates (§8.4).
+     */
+    private void patchList(List<Object> entries) {
+        List<Object> described = new ArrayList<>(entries.size());
+        for (Object entry : entries) {
+            if (entry instanceof ChildHole created) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", created.id);
+                item.putAll(page.content(created.markup));
+                described.add(item);
+            } else {
+                described.add(entry);
+            }
+        }
+        Map<String, Object> patch = new LinkedHashMap<>();
+        patch.put("op", "list");
+        patch.put("id", id);
+        patch.put("items", described);
+        page.addPatch(patch);
     }
 
     /** The previous item with this child's key and the same inputs, taken so it isn't used twice; or null. */
@@ -177,14 +207,14 @@ final class ChildHole extends Computation {
      * The items' HTML, each between its own markers when it can move or change: always once the list can change
      * ({@code listCanChange}), otherwise only an item that can change by itself.
      */
-    private String itemsHtml(boolean listCanChange) {
-        StringBuilder out = new StringBuilder();
+    private Markup itemsMarkup(boolean listCanChange) {
+        Markup out = new Markup();
         for (Item item : items) {
             ChildHole hole = item.hole();
             boolean needsMarkers = listCanChange || hole.hasSources();
-            out.append(needsMarkers ? marked(hole.id, hole.html) : hole.html);
+            out.append(needsMarkers ? marked(hole.id, hole.markup) : hole.markup);
         }
-        return out.toString();
+        return out;
     }
 
     /** Whether a run changed nothing in the browser: the same items, kept, in the same order. */
@@ -201,16 +231,12 @@ final class ChildHole extends Computation {
         return true;
     }
 
-    private void patch(String op, String name, Object content) {
-        Map<String, Object> patch = new LinkedHashMap<>();
-        patch.put("op", op);
-        patch.put("id", id);
-        patch.put(name, content);
-        page.addPatch(patch);
-    }
-
-    private static String marked(int id, String html) {
-        return "<!--jx:" + id + "-->" + html + "<!--/jx:" + id + "-->";
+    /** The content between the hole's markers; the id in a marker is a value, so that the shape doesn't change with it. */
+    private static Markup marked(int id, Markup content) {
+        String hole = String.valueOf(id);
+        return new Markup().append("<!--jx:").value(hole).append("-->")
+                .append(content)
+                .append("<!--/jx:").value(hole).append("-->");
     }
 
     // ---------------------------------------------------------------------------------------------

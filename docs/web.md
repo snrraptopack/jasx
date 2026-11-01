@@ -206,7 +206,7 @@ The loop reads `store.all()`, a state, so it runs again when the list changes. `
 </ul>
 ```
 
-When the list changes, an item whose key and values are unchanged is **kept**: its code doesn't run again, its components keep their state (an open menu stays open, an edit box keeps its text), and the browser doesn't touch it. Only new or changed items are sent, with the new order. Adding one to-do to a list of a thousand sends one `<li>`.
+When the list changes, an item whose key and values are unchanged is **kept**: its code doesn't run again, its components keep their state (an open menu stays open, an edit box keeps its text), and the browser doesn't touch it. Only new or changed items are sent, with the new order. Adding one to-do to a list of a thousand sends one `<li>`, and once the browser has seen the shape of an item, only its values: the server sends the markup of a repeated shape once, as a template.
 
 An item counts as changed when the values it uses change: toggling a to-do replaces its record, so only that row is rendered again. That's why list items should be immutable values such as records. If you change an object in place, the item looks the same and isn't updated.
 

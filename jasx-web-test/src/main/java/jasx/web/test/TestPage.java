@@ -57,6 +57,8 @@ public final class TestPage implements AutoCloseable {
     private int lastSeq;
     private final Map<Integer, Element> formsOfEvents = new HashMap<>();
     private String navigatedTo;
+    /** The statics of each template the server defined (targets/web.md §8.4), by number. */
+    private final Map<Long, List<Object>> templates = new HashMap<>();
     private boolean gone;
 
     private TestPage(WebApp app, boolean ownsApp, Supplier<?> root) {
@@ -421,13 +423,31 @@ public final class TestPage implements AutoCloseable {
 
     private void apply(Map<String, Object> patch) {
         switch (String.valueOf(patch.get("op"))) {
-            case "html" -> replaceHole(((Number) patch.get("id")).longValue(), (String) patch.get("html"));
+            case "html" -> replaceHole(((Number) patch.get("id")).longValue(), htmlOf(patch));
+            case "tpl" -> templates.put(((Number) patch.get("t")).longValue(), JsonReader.list(patch.get("s")));
             case "list" -> arrangeItems(((Number) patch.get("id")).longValue(), JsonReader.list(patch.get("items")));
             case "attr" -> setAttribute(((Number) patch.get("id")).longValue(), (String) patch.get("name"), patch.get("value"));
             case "navigate" -> navigatedTo = (String) patch.get("url");
             case "reset" -> resetForm(((Number) patch.get("event")).intValue());
             default -> { } // css: no styles here
         }
+    }
+
+    /** The HTML of an html patch or a new list item: given as it is, or as a template's values (§8.4). */
+    private String htmlOf(Map<String, Object> content) {
+        if (!content.containsKey("t")) {
+            return (String) content.get("html");
+        }
+        List<Object> statics = templates.get(((Number) content.get("t")).longValue());
+        if (statics == null) {
+            throw new AssertionError("the server used template " + content.get("t") + " before defining it");
+        }
+        List<Object> values = JsonReader.list(content.get("v"));
+        StringBuilder html = new StringBuilder((String) statics.get(0));
+        for (int i = 0; i < values.size(); i++) {
+            html.append((String) values.get(i)).append((String) statics.get(i + 1));
+        }
+        return html.toString();
     }
 
     /** An {@code html} patch: the hole's content is replaced. */
@@ -465,7 +485,7 @@ public final class TestPage implements AutoCloseable {
                 Map<String, Object> created = JsonReader.object(entry);
                 long itemId = ((Number) created.get("id")).longValue();
                 arranged.add(new Comment("jx:" + itemId));
-                arranged.addAll(HtmlParser.parse((String) created.get("html")).children);
+                arranged.addAll(HtmlParser.parse(htmlOf(created)).children);
                 arranged.add(new Comment("/jx:" + itemId));
             }
         }

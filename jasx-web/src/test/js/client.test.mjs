@@ -625,3 +625,29 @@ test("a checkbox the user ticked stays ticked when the server re-renders it unch
   streams[0].push({ version: 2, patches: [{ op: "html", id: 1, html: `<input type="checkbox" checked><span>3</span>` }] });
   assert.ok(box.checked, "the server checked it: applied");
 });
+
+// -------------------------------------------------------------------------------------------------
+// Templates (targets/web.md §8.4)
+// -------------------------------------------------------------------------------------------------
+
+test("a template's values fill its statics, in html patches and new list items", async () => {
+  const { document, streams } = await page(`<div><!--jx:7--><!--/jx:7--></div>` + LIST);
+  streams[0].push({ version: 1, patches: [
+    { op: "tpl", t: 1, s: [`<p class="`, `">`, `</p>`] },
+    { op: "html", id: 7, t: 1, v: ["note", "a &amp; b"] },
+  ] });
+  assert.equal(document.querySelector("div").innerHTML, `<!--jx:7--><p class="note">a &amp; b</p><!--/jx:7-->`);
+
+  streams[0].push({ version: 2, patches: [
+    { op: "tpl", t: 2, s: [`<li>`, `</li>`] },
+    { op: "list", id: 1, items: [2, { id: 9, t: 2, v: ["templated"] }, 3, 4] },
+  ] });
+  assert.deepEqual(Array.from(document.querySelectorAll("li"), (li) => li.textContent), ["a", "templated", "", "c"]);
+});
+
+test("a template is kept: later patches carry only values", async () => {
+  const { document, streams } = await page(`<div><!--jx:1--><!--/jx:1--></div>`);
+  streams[0].push({ version: 1, patches: [{ op: "tpl", t: 1, s: [`<b>`, `</b>`] }, { op: "html", id: 1, t: 1, v: ["1"] }] });
+  streams[0].push({ version: 2, patches: [{ op: "html", id: 1, t: 1, v: ["2"] }] });
+  assert.equal(document.querySelector("b").textContent, "2");
+});
