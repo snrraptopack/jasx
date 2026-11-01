@@ -21,6 +21,18 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 - **State and events live in `jasx-ui`** (`jasx-spec/ui.md`, draft), a dependency-free library shared by interactive targets, so a future desktop target offers the same API. It is not the core and not the `html` target. A target supplies a `Scheduler` and its own holes (subclasses of `jasx.ui.Computation`), and implements the event kinds (`web`'s `WebEvent` implements them all).
 - **Order of work agreed with the user:** (1) robustness fixes from an external review (done: spec revision 15); (2) Java completion inside `.jasx` in the language server (done: `JavaCompletions`); (3) performance: keyed updates and DOM morphing (done: spec revision 17), the shared stream across tabs (done: revision 18), then static templates; (4) session binding, same-site checks and limits in `WebApp` (done: revision 19, `SessionCookie`), then `jasx-web-servlet` and the Spring Boot starter on top of it (both done; adapters must stay thin so other frameworks are easy).
 
+## Remaining work (agreed with the user on 2026-11-01)
+
+The user asked for items 1–4 to be done in this order, then the rest. Mark each item done here, with its commit, as it lands; keep this list as the hand-over point between sessions.
+
+1. **Server updates keep browser changes.** Today the client's merge (`morphAttributes` in `web.js`) resets every attribute to what the server rendered, so a `<details>` the user opened closes again when its hole re-renders. Fix: the client remembers each element's last server-rendered attributes and changes only those the server changed (three-way merge); `class` merged per class name. Spec: `targets/web.md` §8.4 (merging). Design notes in `docs/discussions/browser-javascript.md` §6 (only this part; the rest of that document stays parked).
+2. **A testing library for pages** (like Phoenix's LiveViewTest): render a page in a test, click, type, submit, and check the HTML, without a browser, over `WebApp`'s public API. New module.
+3. **Static templates:** send a hole's static markup once, and only the changed values afterwards (`targets/web.md` §10).
+4. **Forms and navigation:** (a) restore form input when a discarded page reloads; (b) file uploads; (c) navigation between pages without a full reload.
+5. **Benchmarks** of the `web` target (pages per server, update latency, payload sizes).
+6. **Publishing to Maven Central.** Waits on the user: a license (Apache-2.0 suggested), a group id (`dev.jasx` needs the domain `jasx.dev` verified; otherwise `io.github.snrraptopack`), a Sonatype Central account and a GPG key.
+7. **Plain JavaScript in the browser:** parked in `docs/discussions/browser-javascript.md`; only when the user says so.
+
 ## Current state
 
 - `jasx-spec/` is the **normative source of truth**. `JASX-update1.md` is the **historical** design proposal: don't implement from it.
