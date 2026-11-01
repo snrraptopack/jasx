@@ -49,6 +49,7 @@ The lowering is factory lowering (`semantics.md` §6) with these changes:
 | dynamic attribute `a={e}` | `.a(() -> (e))` |
 | handler `onclick={e}` | `.onclick((e))`, unchanged |
 | keyed element `<li key={k}>...</li>` | `jasx.web.Web.keyed((k), () -> element)`: the key is evaluated once, the element is a function (§4.3) |
+| component `<Card title="t" />` | `jasx.web.Web.component(() -> app.Ui.Card("t"))`: the call of `semantics.md` §5.6, as a function (§4.4) |
 | prop | unchanged: evaluated once |
 
 ### 3.1 Captured variables
@@ -78,7 +79,7 @@ State is `jasx.ui`'s (`ui.md` §2), shared with other interactive targets. `jasx
 
 ### 4.1 Components run once
 
-A component method runs **once per instance**, when its element is rendered. Code in its body outside holes, `derived`, `effect` and handlers is not reactive:
+A component method runs **once per instance**, when its element is rendered: not when the markup expression is evaluated. A component whose element is never rendered never runs, and the components among another component's children run where it renders them. Code in its body outside holes, `derived`, `effect` and handlers is not reactive:
 
 ```java
 var count = state(0);
@@ -95,7 +96,7 @@ return <main>{loggedIn.get() ? <Dashboard /> : <Login />}</main>;  // reactive
 
 ### 4.2 Lifetime
 
-When a hole re-runs, everything created while it last ran (its holes, components, `Derived` values, effects and handlers) is disposed and created again, except the items of a keyed list that are kept (§4.3). A component inside a hole therefore loses its state when that hole re-runs, unless it is in a kept keyed item.
+When a hole re-runs, everything created while it last ran (its holes, components, `Derived` values, effects and handlers) is disposed and created again, except the items of a keyed list that are kept (§4.3) and the component instances that are kept (§4.4).
 
 ### 4.3 Keyed lists
 
@@ -113,6 +114,22 @@ An item updates by itself when a value its own code read changes, like any hole.
 - If the runtime can't read an element function's captured values, the items are taken as different and rendered afresh, which is always correct.
 - A list that mixes keyed and unkeyed children is a plain hole. An empty list stays a keyed list if it was one.
 - Keyed elements are functions, so the locals they read must be effectively final (§3.1): a key in a classic `for (int i ...)` loop needs a final copy of `i`.
+
+### 4.4 Component instances
+
+Each rendering of a component element is an **instance**: the component's method runs, and what it creates (its state, holes, `Derived` values, effects and handlers) belongs to the instance. An instance is a hole of its own, made from the element's function (§3), so a value its method read outside holes makes it run again, as a new instance; reads belong in holes (§4.1).
+
+When a hole re-runs, each component element it renders is matched with an instance the hole's previous run created, as keyed items are matched (§4.3), without a key: the same element function (the same place in the code) with **equal inputs**, its captured values equal (`equals`; a `State` is equal only to itself). Previous instances are considered in the order they were created, and each is used at most once. A matched instance is **kept**: its method doesn't run again, and it keeps everything it created, which goes on updating by itself. Its content in the hole's new content is its content as it is now. An element without a match is a new instance, and previous instances without one are disposed.
+
+```java
+<section>{String.valueOf(tick.get())} <Counter label="a" /></section>   // in a hole that re-runs on tick
+```
+
+When `tick` changes, the hole runs again, and `Counter` keeps its count: its label is the same. With `label={"tick " + tick.get()}`, its input changes, and it is a new instance with a new count.
+
+- As with keyed items, inputs **SHOULD** be immutable values. A component given a value that changes in place compares equal and isn't run again.
+- A component element where holes can't go (in `title`, `textarea`, `script` or `style`, or markup used as an attribute value) is rendered by running the component, every time.
+- A component element directly in a `table` is taken as a row (`targets/web.md` §8.2), because finding out would run it.
 
 ## 5. Update cycle
 

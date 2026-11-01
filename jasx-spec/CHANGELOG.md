@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0-draft, revision 25
+
+### Added
+
+- `semantics.md` §5.6 already let a custom lowering wrap a component call in a target-defined function; the reference implementation's lowering interface now has the hook (`MarkupLowering.component`, which writes the call with `LoweringOutput.call`), so the call itself is still written by the compiler.
+- `targets/web.md` §3, §4.4, **component instances**: a component element lowers to `jasx.web.Web.component(() -> call)`. Each rendering is an instance, a hole of its own; when a hole re-runs, an instance its previous run made from the same element function with equal captured values is kept, with its state, holes and handlers, and appears in the new content as it is now.
+
+### Changed
+
+- `targets/web.md` §4.1: a component runs when its element is rendered, not when the markup expression is evaluated, so a component that is never rendered never runs, and the components among another one's children run where it renders them.
+- `targets/web.md` §4.2: a component inside a hole no longer loses its state when the hole re-runs, unless its inputs changed.
+
 ## 1.0-draft, revision 24
 
 ### Added

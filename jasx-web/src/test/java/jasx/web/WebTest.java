@@ -946,6 +946,81 @@ class WebTest {
             assertEquals(1, body.split("\"op\":\"html\"", -1).length - 1, body);
         }
 
+        /** A counter component, and a page whose hole re-runs on "tick" with the counter inside it. */
+        private static final String COUNTER_IN_A_HOLE = """
+                static Element Counter(String label) {
+                  var count = state(0);
+                  return <button onclick={() -> count.update(n -> n + 1)}>{label}: {count}</button>;
+                }
+                static Element Page() {
+                  var tick = state(0);
+                  return (
+                    <div>
+                      <button onclick={() -> tick.update(n -> n + 1)}>tick</button>
+                      {tick.get() >= 0 ? <section>{String.valueOf(tick.get())} <Counter label=LABEL /></section> : null}
+                    </div>
+                  );
+                }
+                """;
+
+        @Test
+        void aComponentInAHoleKeepsItsStateWhenTheHoleRunsAgain() {
+            String html = app.render(compile(COUNTER_IN_A_HOLE.replace("LABEL", "\"a\"")));
+            int tick = handler(html, "click", 1);
+            int counter = handler(html, "click", 2);
+            assertTrue(click(html, counter).body().contains("\"html\":\"1\""));
+
+            // The hole re-runs; the counter's call is the same with the same props, so its instance is kept: the
+            // new content shows it as it is now (count 1, its hole's markers unchanged), and no new handler.
+            String counted = find(html, "a: (<!--jx:\\d+-->)0");
+            String ticked = app.event(pageId(html), "{\"handler\":" + tick + ",\"type\":\"click\"}").body();
+            assertTrue(ticked.contains("a: " + counted.replace("<", "\\u003c") + "1"), ticked);
+
+            // Its handler still works, on its state.
+            assertTrue(click(html, counter).body().contains("\"html\":\"2\""));
+        }
+
+        @Test
+        void aComponentWhosePropsChangedStartsAfresh() {
+            String html = app.render(compile(COUNTER_IN_A_HOLE.replace("LABEL", "{\"tick \" + tick.get()}")));
+            int tick = handler(html, "click", 1);
+            int counter = handler(html, "click", 2);
+            assertTrue(click(html, counter).body().contains("\"html\":\"1\""));
+
+            // The label it captured changed: a new instance, with a new count, and the old handler is gone.
+            String ticked = app.event(pageId(html), "{\"handler\":" + tick + ",\"type\":\"click\"}").body();
+            assertTrue(ticked.matches(".*tick 1: \\\\u003c!--jx:\\d+-->0.*"), ticked);
+            assertEquals(204, click(html, counter).status(), "the replaced instance's handler is gone");
+        }
+
+        @Test
+        void aListWithoutKeysKeepsTheComponentsOfUnchangedItems() {
+            String html = app.render(compile("""
+                    static Element Item(String title) {
+                      var open = state(false);
+                      return <li><button onclick={() -> open.set(!open.get())}>{title}</button>{open.get() ? "open" : "closed"}</li>;
+                    }
+                    static Element Page() {
+                      var titles = state(List.of("a", "b"));
+                      return (
+                        <div>
+                          <button onclick={() -> titles.update(l -> List.of("new", l.get(0), l.get(1)))}>add</button>
+                          <ul>{for (String t : titles.get()) { <Item title={t} /> }}</ul>
+                        </div>
+                      );
+                    }
+                    """));
+            int add = handler(html, "click", 1);
+            int toggleA = handler(html, "click", 2);
+            assertTrue(click(html, toggleA).body().contains("\"html\":\"open\""));
+
+            // A new item first: the list is sent again as a whole, but "a" is matched by its captured title, so it
+            // is still open, and its handler still works.
+            String added = app.event(pageId(html), "{\"handler\":" + add + ",\"type\":\"click\"}").body();
+            assertTrue(added.matches(".*new\\\\u003c/button>.*closed.*>a\\\\u003c/button>.*open.*>b\\\\u003c/button>.*closed.*"), added);
+            assertTrue(click(html, toggleA).body().contains("\"html\":\"closed\""));
+        }
+
         @Test
         void aKeyedListKeepsUnchangedItemsWithTheirStateAndSendsOnlyNewOnes() {
             String html = app.render(compile("""

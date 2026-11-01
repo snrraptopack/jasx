@@ -24,10 +24,16 @@ public interface LoweringOutput {
     void code(MarkupTree.Code code);
 
     /**
-     * Writes a nested markup expression: calls the lowering for an intrinsic element, a fragment or a keyed
-     * element, and writes the call of a component.
+     * Writes a nested markup expression: calls the lowering for an intrinsic element, a fragment, a keyed
+     * element or a component.
      */
     void markup(MarkupTree.Markup markup);
+
+    /**
+     * Writes the call of a component, as semantics.md §5.6 requires: {@code app.Page.Card("t", ...)}, its
+     * arguments in parameter order. For {@link MarkupLowering#component}, which must call it exactly once.
+     */
+    void call(MarkupTree.ComponentCall call);
 
     /**
      * Writes a value: a literal as it is, an expression in parentheses ({@code (expression)}), and markup

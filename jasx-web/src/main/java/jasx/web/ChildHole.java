@@ -34,6 +34,13 @@ import java.util.stream.Stream;
  *
  * <p>An item is itself a {@code ChildHole} in plain mode: when a value its own code read changes, it renders
  * again and sends an {@code html} patch for itself.
+ *
+ * <p><b>Component instances</b> (§4.4). A component element is a function ({@code Web.component}), and each
+ * instance is a {@code ChildHole} too, made from it by the renderer. A hole remembers the instances its last
+ * run created; when it runs again, an instance whose call is the same code with equal captured values
+ * ({@link Captures#same}) is kept ({@link #keptInstance}), with its state, holes and handlers, instead of
+ * running the component again. Content refers to its holes rather than copying them ({@link Markup#hole}), so
+ * a kept instance appears in the new content as it is now.
  */
 final class ChildHole extends Computation {
     final int id;
@@ -45,6 +52,14 @@ final class ChildHole extends Computation {
     private String html;
     /** In keyed-list mode, the items in order; null in plain mode. */
     private List<Item> items;
+    /** Whether its content is written between markers: it read a reactive value on its first run (§8.2). */
+    private boolean hasMarkers;
+    /** The component instances its last successful run created or kept, in the order it met them. */
+    private List<ChildHole> instances = List.of();
+    /** During a run: the instances it has created or kept so far; otherwise null. */
+    private List<ChildHole> runInstances;
+    /** During a run again: the previous run's instances not kept yet; null otherwise (and on a first run). */
+    private List<ChildHole> keepable;
 
     /** A keyed item: its key, the function that made it (to compare inputs), and its own hole. */
     private record Item(Object key, Supplier<?> element, ChildHole hole) {}
@@ -63,16 +78,77 @@ final class ChildHole extends Computation {
     }
 
     /**
-     * The first rendering, as part of {@code parent}: the content between its markers. A hole that read no
-     * reactive value (such as {@code {todo.title()}}) can never change, so it needs no markers; holes inside
-     * its content still get theirs.
+     * The first rendering, as part of {@code parent}, which then adds the hole to its content
+     * ({@link Markup#hole}). A hole that read no reactive value (such as {@code {todo.title()}}) can never
+     * change, so it needs no markers; holes inside its content still get theirs.
      */
-    Markup firstRender(Renderer parent) {
-        Rendered content = track(this::renderContent);
-        parent.useSheets(content.sheets());
+    void firstRender(Renderer parent) {
+        parent.useSheets(renderFirstTime().sheets());
+    }
+
+    /** Runs for the first time, and keeps what it rendered. */
+    private Rendered renderFirstTime() {
+        Rendered content = run(false, () -> track(this::renderContent));
         items = content.items();
         setContent(items != null ? itemsMarkup(hasSources()) : content.markup());
-        return hasSources() ? marked(id, markup) : markup;
+        hasMarkers = hasSources();
+        return content;
+    }
+
+    /** Whether its content is written between its markers ({@code <!--jx:N-->}). */
+    boolean hasMarkers() {
+        return hasMarkers;
+    }
+
+    /**
+     * Its content as it is now, for the markup of whatever contains it: between its markers if it has them or
+     * {@code alwaysMarked}.
+     */
+    Markup currentMarkup(boolean alwaysMarked) {
+        return alwaysMarked || hasMarkers ? marked(id, markup) : markup;
+    }
+
+    /**
+     * Runs {@code body} as a run of this hole, keeping track of the component instances it creates and keeps:
+     * on success they become the instances the next run can keep; on failure the previous ones stay.
+     */
+    private Rendered run(boolean again, Supplier<Rendered> body) {
+        runInstances = new ArrayList<>();
+        keepable = again ? new ArrayList<>(instances) : null;
+        try {
+            Rendered content = body.get();
+            instances = List.copyOf(runInstances);
+            return content;
+        } finally {
+            runInstances = null;
+            keepable = null;
+        }
+    }
+
+    /**
+     * During a run, for the renderer: an instance the previous run created from the same code with equal
+     * captured values (targets/web.md §4.4), now kept by this run; or null if there is none to keep.
+     */
+    ChildHole keptInstance(Supplier<?> call) {
+        if (keepable == null) {
+            return null;
+        }
+        for (ChildHole candidate : keepable) {
+            if (!candidate.isDisposed() && Captures.same(candidate.value, call)) {
+                keepable.remove(candidate);
+                keep(candidate); // not disposed when this run succeeds (ui.md §2.5)
+                runInstances.add(candidate);
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /** During a run, for the renderer: an instance this run created, which the next run may keep. */
+    void addInstance(ChildHole instance) {
+        if (runInstances != null) {
+            runInstances.add(instance);
+        }
     }
 
     private void setContent(Markup content) {
@@ -88,7 +164,7 @@ final class ChildHole extends Computation {
     @Override
     public void update() {
         List<Item> before = items;
-        Rendered content = retrack(this::renderContent);
+        Rendered content = run(true, () -> retrack(this::renderContent));
         page.useSheets(content.sheets()); // a css patch for any style sheet the page didn't have (§9)
 
         boolean isKeyedNow = content.items() != null;
@@ -128,7 +204,7 @@ final class ChildHole extends Computation {
         if (keyedList) {
             return renderItems(keyed);
         }
-        Renderer content = new Renderer(page, false);
+        Renderer content = new Renderer(page, false, this);
         content.child(children);
         return new Rendered(content.markup(), content.sheets(), null, null);
     }
@@ -155,9 +231,7 @@ final class ChildHole extends Computation {
                 continue;
             }
             ChildHole hole = new ChildHole(page, page.nextId(), child.element());
-            Rendered itemContent = hole.track(hole::renderContent);
-            hole.items = itemContent.items();
-            hole.setContent(hole.items != null ? hole.itemsMarkup(hole.hasSources()) : itemContent.markup());
+            Rendered itemContent = hole.renderFirstTime();
             sheets.addAll(itemContent.sheets());
             next.add(new Item(child.key(), child.element(), hole));
             entries.add(hole); // its content is described when the list patch is made (patchList)
@@ -210,9 +284,7 @@ final class ChildHole extends Computation {
     private Markup itemsMarkup(boolean listCanChange) {
         Markup out = new Markup();
         for (Item item : items) {
-            ChildHole hole = item.hole();
-            boolean needsMarkers = listCanChange || hole.hasSources();
-            out.append(needsMarkers ? marked(hole.id, hole.markup) : hole.markup);
+            out.hole(item.hole(), listCanChange);
         }
         return out;
     }

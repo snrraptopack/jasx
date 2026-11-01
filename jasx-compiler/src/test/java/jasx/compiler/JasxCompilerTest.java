@@ -1211,6 +1211,28 @@ class JasxCompilerTest {
         }
 
         @Test
+        void aLoweringCanWrapComponentCallsButTheCompilerWritesThem() {
+            CompilationResult r = new JasxCompiler(FUNCTIONS).compile(List.of(file("""
+                    static Element Item(String text) { return <li>{text}</li>; }
+                    static Element Test() { return <ul><Item text="a" /></ul>; }
+                    """)));
+            assertFalse(r.hasErrors(), () -> format(r.diagnostics()));
+            String java = r.files().get(0).content();
+            assertTrue(java.contains("testtarget.Functions.component(() -> T.Item(\"a\"))"), java);
+        }
+
+        @Test
+        void aLoweringMustWriteEveryComponentCall() {
+            Target forgetting = withLowering(testtarget.BrokenLowerings.ForgettingCalls.class);
+            IllegalStateException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> new JasxCompiler(forgetting).compile(List.of(file("""
+                            static Element Item() { return <li />; }
+                            static Element Test() { return <ul><Item /></ul>; }
+                            """))));
+            assertTrue(e.getMessage().contains("did not write the call of the component"), e.getMessage());
+        }
+
+        @Test
         void aLoweringMustNotWriteAPieceOfCodeTwice() {
             Target duplicating = withLowering(testtarget.BrokenLowerings.Duplicating.class);
             IllegalStateException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,

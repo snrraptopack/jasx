@@ -27,6 +27,14 @@ public class FunctionLowering extends FactoryLowering {
         out.write("))", child.end() - 1);
     }
 
+    /** {@code <Card />}  →  {@code testtarget.Functions.component(() -> app.T.Card())} (semantics.md §5.6) */
+    @Override
+    public void component(MarkupTree.ComponentCall call, LoweringOutput out) {
+        out.write("testtarget.Functions.component(() -> ", call.start());
+        out.call(call);
+        out.write(")", call.closeAnchor());
+    }
+
     /** {@code title={expression}}  →  {@code .title(testtarget.Functions.attribute(() -> (expression)))} */
     @Override
     protected void attributeValue(MarkupTree.Attribute attribute, LoweringOutput out) {

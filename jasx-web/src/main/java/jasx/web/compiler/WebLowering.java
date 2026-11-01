@@ -14,6 +14,7 @@ import jasx.compiler.Target;
  *   {for (...) { ... }}     →  jasx.web.Web.dynamic(() -> switch (0) { ... })
  *   class={expression}      →  .className(() -> (expression))
  *   &lt;li key={k}&gt;...&lt;/li&gt;       →  jasx.web.Web.keyed((k), () -> jasx.web.Web.h("li", ...))
+ *   &lt;Card title="t" /&gt;      →  jasx.web.Web.component(() -> app.Ui.Card("t"))
  * </pre>
  *
  * <p>Handlers, props and keys are evaluated once, as in factory lowering. The class runs inside the compiler
@@ -52,6 +53,18 @@ public final class WebLowering extends FactoryLowering {
         out.write(", () -> ", keyed.start());
         out.markup(keyed.element());
         out.write(")", keyed.closeAnchor());
+    }
+
+    /**
+     * {@code <Card title="t" />}  →  {@code jasx.web.Web.component(() -> app.Ui.Card("t"))}: the call (written by
+     * the compiler, semantics.md §5.6) is a function, so that a hole running again can keep the component
+     * instance with its state instead of calling the component again (targets/web.md §3, §4.4).
+     */
+    @Override
+    public void component(MarkupTree.ComponentCall call, LoweringOutput out) {
+        out.write("jasx.web.Web.component(() -> ", call.start());
+        out.call(call);
+        out.write(")", call.closeAnchor());
     }
 
     /** A dynamic attribute {@code a={expression}}  →  {@code .a(() -> (expression))}; others unchanged. */

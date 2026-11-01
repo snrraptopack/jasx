@@ -3,6 +3,7 @@ package jasx.compiler;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -793,8 +794,26 @@ final class Lowering {
                 case MarkupTree.Intrinsic element -> lowering.intrinsic(element, this);
                 case MarkupTree.Fragment fragment -> lowering.fragment(fragment, this);
                 case MarkupTree.Keyed keyed -> lowering.keyed(keyed, this);
-                case MarkupTree.ComponentCall call -> componentCall(call);
+                case MarkupTree.ComponentCall call -> {
+                    lowering.component(call, this);
+                    if (!callsWritten.remove(call)) {
+                        throw new IllegalStateException(problem("did not write the call of the component at "
+                                + where(call.start())));
+                    }
+                }
             }
+        }
+
+        /** Calls written by {@link #call}, until {@link #markup} checks them off. */
+        private final Set<MarkupTree.ComponentCall> callsWritten = new HashSet<>();
+
+        @Override
+        public void call(MarkupTree.ComponentCall call) {
+            if (!callsWritten.add(call)) {
+                throw new IllegalStateException(problem("wrote the call of the component at " + where(call.start())
+                        + " twice"));
+            }
+            componentCall(call);
         }
 
         @Override

@@ -7,10 +7,11 @@ package jasx.compiler;
  * <p>The compiler does everything around it: it parses, normalizes children, resolves and checks components,
  * checks attributes against the target's schema, reports every JASX error, copies the Java code, writes
  * component calls and statement containers, and maps javac's diagnostics back to the {@code .jasx} file. A
- * lowering only decides what intrinsic elements, fragments, keys and children become, by writing Java text
- * around the pieces of the {@link MarkupTree}. Because the user's code reaches the output only as
- * {@link MarkupTree.Code} that the lowering places but can't change, the requirements of §7.4 (Java code
- * unchanged, components called as §5.6 says, line preservation) hold for every lowering.
+ * lowering only decides what intrinsic elements, fragments, keys and children become, and what surrounds a
+ * component call, by writing Java text around the pieces of the {@link MarkupTree}. Because the user's code
+ * reaches the output only as {@link MarkupTree.Code} that the lowering places but can't change, and component
+ * calls only through {@link LoweringOutput#call}, the requirements of §7.4 (Java code unchanged, components
+ * called as §5.6 says, line preservation) hold for every lowering.
  *
  * <p>The default is {@link FactoryLowering}, which writes {@code F.h(...)} calls on the target's factory. A
  * target that only wants to change some positions (say, pass dynamic children as functions) extends it and
@@ -39,4 +40,14 @@ public interface MarkupLowering {
      * contract (§3.4): for example an expression that is null or a list.
      */
     void componentChild(MarkupTree.Child child, LoweringOutput out);
+
+    /**
+     * Writes a component element. The call itself (semantics.md §5.6) is always written by the compiler, when
+     * the lowering calls {@link LoweringOutput#call} exactly once; a lowering may write text around it, for
+     * example to pass the call as a function that creates a component instance (§5.6). The default writes the
+     * call alone.
+     */
+    default void component(MarkupTree.ComponentCall call, LoweringOutput out) {
+        out.call(call);
+    }
 }

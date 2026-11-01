@@ -21,6 +21,8 @@ import jasx.ui.Handler;
  *
  * <ul>
  *   <li>a dynamic child becomes a {@link ChildHole}, written between {@code <!--jx:N-->} markers;
+ *   <li>a component element becomes a component instance, a {@link ChildHole} too, or is kept from the previous
+ *       run of the hole being rendered (targets/web.md §4.4);
  *   <li>a dynamic attribute becomes an {@link AttributeHole}, and its element gets {@code data-jx-id};
  *   <li>event handlers are registered with the page and listed in {@code data-jx-on}.
  * </ul>
@@ -43,6 +45,8 @@ final class Renderer {
 
     private final Page page;
     private final boolean isStatic;
+    /** The hole whose run this renders, which keeps component instances between runs; null for the page itself. */
+    private final ChildHole owner;
     private final Markup out = new Markup();
     private boolean escapeText = true;
     /** Inside an element whose content can't hold markers: dynamic children are evaluated once. */
@@ -56,8 +60,14 @@ final class Renderer {
     private int bodyEnd = -1;
 
     Renderer(Page page, boolean isStatic) {
+        this(page, isStatic, null);
+    }
+
+    /** A renderer for a run of {@code owner}, which may keep component instances from its previous run. */
+    Renderer(Page page, boolean isStatic, ChildHole owner) {
         this.page = page;
         this.isStatic = isStatic;
+        this.owner = owner;
     }
 
     /** Markup used as an attribute value, rendered to HTML once. */
@@ -159,6 +169,7 @@ final class Renderer {
             case WebElement.Text text -> text(text.value());
             case WebElement.Raw raw -> out.value(raw.html()); // markup from data: a value
             case WebElement.Dynamic dynamic -> dynamic(dynamic);
+            case WebElement.Component component -> component(component);
             case WebElement.Scoped scoped -> {
                 sheets.add(scoped.sheet());
                 if (scoped.element() instanceof WebElement.Tag tag) {
@@ -186,7 +197,31 @@ final class Renderer {
             return;
         }
         ChildHole hole = new ChildHole(page, page.nextId(), dynamic.value());
-        out.append(hole.firstRender(this));
+        hole.firstRender(this);
+        out.hole(hole, false);
+    }
+
+    /**
+     * A component element (targets/web.md §4.4): the instance the previous run of the owner made from an equal
+     * call, kept as it is; otherwise a new instance, which runs the component now. Where holes can't go (or in a
+     * static renderer), the component simply runs.
+     */
+    private void component(WebElement.Component component) {
+        if (isStatic || noHoles) {
+            child(component.call().get());
+            return;
+        }
+        ChildHole kept = owner != null ? owner.keptInstance(component.call()) : null;
+        if (kept != null) {
+            out.hole(kept, false); // its style sheets are the page's already
+            return;
+        }
+        ChildHole instance = new ChildHole(page, page.nextId(), component.call());
+        instance.firstRender(this);
+        if (owner != null) {
+            owner.addInstance(instance);
+        }
+        out.hole(instance, false);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -268,6 +303,7 @@ final class Renderer {
             case WebElement.Scoped scoped -> isRowOrHole(scoped.element());
             case WebElement.Unscoped unscoped -> isRowOrHole(unscoped.element());
             case WebElement.Keyed keyed -> true; // keyed children of a table are rows; looking would run their code
+            case WebElement.Component component -> true; // the same for components
             case null, default -> false;
         };
     }

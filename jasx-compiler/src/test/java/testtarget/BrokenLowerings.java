@@ -35,6 +35,18 @@ public final class BrokenLowerings {
         }
     }
 
+    /** Writes {@code null} for every component instead of its call. */
+    public static class ForgettingCalls extends FactoryLowering {
+        public ForgettingCalls(Target target) {
+            super(target);
+        }
+
+        @Override
+        public void component(MarkupTree.ComponentCall call, LoweringOutput out) {
+            out.write("null", call.start());
+        }
+    }
+
     /** Writes a line break, which would shift the lines of the generated file. */
     public static class LineBreaking extends FactoryLowering {
         public LineBreaking(Target target) {

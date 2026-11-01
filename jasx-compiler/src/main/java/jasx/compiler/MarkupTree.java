@@ -109,9 +109,10 @@ public final class MarkupTree {
 
     /**
      * A component element such as {@code <Card title="t" />}, which always lowers to a direct call
-     * (semantics.md §5.6). The compiler writes the call; a lowering only places it, with
-     * {@link LoweringOutput#markup}. Its children are converted to elements by
-     * {@link MarkupLowering#componentChild}, and markup in its props is lowered by the target.
+     * (semantics.md §5.6). The compiler writes the call, when the lowering asks for it with
+     * {@link LoweringOutput#call} (from {@link MarkupLowering#component}, which may write text around it).
+     * Its children are converted to elements by {@link MarkupLowering#componentChild}, and markup in its props
+     * is lowered by the target.
      */
     public static final class ComponentCall implements Markup {
         private final String className;
@@ -150,6 +151,11 @@ public final class MarkupTree {
         @Override
         public int end() {
             return end;
+        }
+
+        /** The anchor for text written after the call: the element's closing tag, or the {@code >} of {@code />}. */
+        public int closeAnchor() {
+            return closeAnchor;
         }
     }
 

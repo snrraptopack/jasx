@@ -232,7 +232,17 @@ When the list changes, an item whose key and values are unchanged is **kept**: i
 
 An item counts as changed when the values it uses change: toggling a to-do replaces its record, so only that row is rendered again. That's why list items should be immutable values such as records. If you change an object in place, the item looks the same and isn't updated.
 
-Without keys, the list is rendered again as a whole, and the browser merges the new HTML into the page: unchanged elements stay, with their focus and typed text, but component state inside the list starts afresh.
+Without keys, the list is rendered again as a whole, and the browser merges the new HTML into the page: unchanged elements stay, with their focus and typed text. Components keep their state too, as in any hole that runs again (below), but every item's HTML is sent again; keys are what let the server send only the new ones.
+
+### Components in a hole that runs again
+
+When a hole runs again, a component it renders with the same props as last time is **kept**: it doesn't run again, and keeps its state, its holes and its handlers. Only a component whose props changed starts afresh.
+
+```java
+{loggedIn.get() ? <main>{user.get().name()} <Counter label="clicks" /></main> : <Login />}
+```
+
+When `user` changes, the hole runs again and `Counter` keeps its count. Props are compared with `equals` (a `State` only with itself), so pass immutable values: a list changed in place looks the same and isn't passed again.
 
 A merge never undoes what happened in the browser unless the server changed it: a `<details>` the user opened stays open, a ticked checkbox stays ticked, and a class added by a script stays, until the server renders a different value for that attribute.
 
@@ -425,7 +435,8 @@ Each `TestPage` is a separate browser with its own session, going through the sa
 
   Use a `final` copy, a ternary, or a `state`.
 - **Reading state outside a hole doesn't follow it.** `var n = count.get();` in the component body is read once.
-- **A component inside a hole that re-runs is created again**, with fresh state, unless it is a kept item of a keyed list. Give list items keys, and keep other state that must survive higher up, or in a store.
+- **A component whose props changed is created again**, with fresh state, when the hole around it runs again. Keep state that must survive a change of props higher up, or in a store.
+- **A component runs when its element is rendered**, not when the markup is evaluated: one that is never rendered never runs, and the components you pass as children run where the parent places them.
 - **Keys in a classic `for (int i ...)` loop** need a final copy of `i`: a keyed item is a function, so what it reads must be effectively final.
 - **A hole directly in a `<table>` holds rows.** It is placed in a `<tbody>`, as the browser would do. To fill a `<thead>` from a hole, put the hole inside the `<thead>`.
 - **If a hole throws while updating**, the error is logged and the hole keeps showing what it showed, with working buttons. It tries again on the next change.

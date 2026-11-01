@@ -50,6 +50,15 @@ public final class Web {
         return new WebElement.Keyed(key, element);
     }
 
+    /**
+     * A component element, as lowered markup makes it (targets/web.md §3): {@code <Card title="t" />} becomes
+     * {@code component(() -> app.Ui.Card("t"))}. The call is a function, so that a hole running again can keep
+     * the instance, with its state, instead of running the component again (§4.4).
+     */
+    public static Element component(Supplier<?> call) {
+        return new WebElement.Component(call);
+    }
+
     /** A keyed element already built. It is never kept between runs, because its inputs can't be compared. */
     public static Element keyed(Object key, Element element) {
         return new WebElement.Keyed(key, () -> element);

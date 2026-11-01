@@ -21,6 +21,12 @@ public sealed interface WebElement extends Element {
      */
     record Keyed(Object key, Supplier<?> element) implements WebElement {}
 
+    /**
+     * A component element: the call of the component, as a function, so that a hole running again can keep the
+     * instance it made before instead of running the component again (targets/web.md §4.4).
+     */
+    record Component(Supplier<?> call) implements WebElement {}
+
     /** Text, escaped when rendered. */
     record Text(String value) implements WebElement {}
 
