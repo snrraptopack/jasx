@@ -4,9 +4,37 @@
 // and applies the batches of patches the server answers or pushes on the page's stream, in version order.
 // Typing stays in the browser: input events are debounced, and edits the server hasn't received yet are
 // never overwritten. If a batch goes missing, it reconnects and the server sends what it missed (§6.1).
-// The tabs of an application share one stream (§6.2).
+// The tabs of an application share one stream (§6.2). A link to another page of the application loads it
+// without reloading the browser's page (§6.4): this client stops, and one for the new page starts.
 (() => {
   "use strict";
+
+  // Everything this client registers is recorded, so that it can stop completely when a navigation starts a
+  // client for the next page (§6.4): listeners on the document and window, and timers. Inside the client,
+  // setTimeout and setInterval are these, so every timer is recorded and does nothing once it has stopped.
+  let stopped = false;
+  const registrations = [];
+  const timers = new Set();
+
+  function listen(target, type, listener, options) {
+    target.addEventListener(type, listener, options);
+    registrations.push([target, type, listener, options]);
+  }
+
+  const setTimeout = (fn, ms) => {
+    const id = window.setTimeout(() => {
+      timers.delete(id);
+      if (!stopped) fn();
+    }, ms);
+    timers.add(id);
+    return id;
+  };
+
+  const setInterval = (fn, ms) => {
+    const id = window.setInterval(() => { if (!stopped) fn(); }, ms);
+    timers.add(id);
+    return id;
+  };
 
   const script = document.currentScript;
   const pageId = script.dataset.jxPage;
@@ -31,7 +59,7 @@
   // A batch is {version, patches}, or {from, version, patches} when it merges several (a catch-up).
   // A merged batch may overlap versions already applied: applying a patch again is harmless (§8.4).
   function receive(batch) {
-    if (!batch) return;
+    if (!batch || stopped) return; // an answer that arrives after a navigation is for the old page
     if (batch.reload) { reload(); return; }
     if (batch.version <= applied) return;
     const from = batch.from ?? batch.version;
@@ -444,7 +472,7 @@
   // and once it is sent, those revisions are the server's. A field has unsent edits while its revision is
   // ahead of what the server received; such a field is kept as the user left it, if the server will
   // receive it (it has a handler, or its form has) or the user is still in it.
-  document.addEventListener("input", (event) => {
+  listen(document, "input", (event) => {
     const field = event.target;
     field.jxRevision = (field.jxRevision || 0) + 1;
   }, true);
@@ -511,7 +539,7 @@
         const type = entry.split(":")[0];
         if (!listening.has(type)) {
           listening.add(type);
-          document.addEventListener(type, onEvent, true);
+          listen(document, type, onEvent, true);
         }
       }
     }
@@ -730,6 +758,8 @@
   const channel = shared ? new BroadcastChannel("jasx-stream:" + base) : null;
   /** Whether this tab holds the stream: the leader, or a tab that can't share. */
   let leading = !shared;
+  /** Releases the Web Lock this tab holds as leader (a navigation hands it to the next page's client). */
+  let releaseLock = null;
   /** The other tabs' pages the leader streams: page id -> {since, seen}. */
   const members = new Map();
 
@@ -856,14 +886,15 @@
     channel.onmessage = (message) => onMessage(message.data);
     // Every tab asks for the lock; the first holds it until it closes, and the others wait their turn.
     navigator.locks.request("jasx-stream:" + base, () => {
+      if (stopped) return undefined; // granted after a navigation stopped this client: let it go at once
       lead();
-      return new Promise(() => {}); // held for as long as the tab lives
+      return new Promise((resolve) => { releaseLock = resolve; }); // held until the tab closes or navigates
     });
     announce(false); // to a leader that is already there
-    window.addEventListener("pagehide", () => {
+    listen(window, "pagehide", () => {
       if (!leading) channel.postMessage({ type: "leave", page: pageId });
     });
-    window.addEventListener("pageshow", (event) => {
+    listen(window, "pageshow", (event) => {
       if (event.persisted && !leading) announce(true); // back from the back-forward cache
     });
   }
@@ -878,7 +909,7 @@
   let hiddenTimer = null;
   let pingTimer = null;
 
-  document.addEventListener("visibilitychange", () => {
+  listen(document, "visibilitychange", () => {
     const visible = document.visibilityState !== "hidden";
     if (shared) {
       if (visible && !leading) announce(false);
@@ -1008,6 +1039,105 @@
       return true;
     }
     return false;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Navigation (§6.4): a link to another page of the application, without reloading the browser's page
+  // ---------------------------------------------------------------------------------------------
+
+  /** The path and query shown now: a popstate that keeps them is a change of hash, not of page. */
+  let shownPath = location.pathname + location.search;
+
+  listen(document, "click", (event) => {
+    const link = navigableLink(event);
+    if (!link) return;
+    event.preventDefault();
+    navigate(link.href, true);
+  });
+
+  listen(window, "popstate", () => {
+    if (location.pathname + location.search !== shownPath) navigate(location.href, false);
+  });
+
+  // The link a click follows, if it is one this client can load itself: a plain click on a link to another
+  // page of the same origin, not to the runtime's own requests, not opening a new window or downloading, and
+  // not inside an element marked data-jx-reload.
+  function navigableLink(event) {
+    const plainClick = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+    if (event.defaultPrevented || !plainClick || !event.target.closest) return null;
+    const link = event.target.closest("a[href]");
+    if (!link || link.hasAttribute("download") || link.closest("[data-jx-reload]")) return null;
+    const target = link.getAttribute("target");
+    if (target && target !== "_self") return null;
+    const url = new URL(link.href, location.href);
+    if (url.origin !== location.origin || url.pathname.startsWith(base + "/")) return null;
+    const samePage = url.pathname === location.pathname && url.search === location.search;
+    if (samePage && url.hash) return null; // an anchor on this page: the browser scrolls to it
+    return link;
+  }
+
+  // Fetches the page at `url` and shows it in place of this one: its title, new style sheets and body, and a
+  // client for it, started after this one stops. Anything unexpected (not HTML, not a JASX page, a network
+  // error) loads it the ordinary way instead.
+  async function navigate(url, push) {
+    let next;
+    try {
+      const response = await fetch(url, { headers: { Accept: "text/html" } });
+      const type = response.headers.get("Content-Type") || "";
+      if (!response.ok || !type.includes("text/html")) throw new Error("not a page");
+      next = new DOMParser().parseFromString(await response.text(), "text/html");
+    } catch (error) {
+      location.assign(url);
+      return;
+    }
+    const nextScript = next.querySelector("script[data-jx-page]");
+    if (!nextScript || !next.body) {
+      location.assign(url);
+      return;
+    }
+    stop();
+    if (push) history.pushState({}, "", url); // before the next client starts: it reads the location
+    document.title = next.title;
+    addStyles(next.head);
+    const client = document.createElement("script"); // a script element made here runs, unlike a parsed one
+    for (const attribute of nextScript.attributes) client.setAttribute(attribute.name, attribute.value);
+    nextScript.remove();
+    document.body.replaceWith(document.importNode(next.body, true));
+    document.body.appendChild(client);
+    scrollToTarget(new URL(url, location.href).hash);
+  }
+
+  // The next page's style elements that this page doesn't have yet.
+  function addStyles(head) {
+    const present = new Set(Array.from(document.head.querySelectorAll("style"), (style) => style.textContent));
+    for (const style of head.querySelectorAll("style")) {
+      if (!present.has(style.textContent)) document.head.appendChild(document.importNode(style, true));
+    }
+  }
+
+  function scrollToTarget(hash) {
+    const target = hash ? document.getElementById(decodeURIComponent(hash.substring(1))) : null;
+    if (target) target.scrollIntoView();
+    else window.scrollTo(0, 0);
+  }
+
+  // Stops this client for good: its listeners and timers, its stream (or its part in the shared one), and
+  // its queued events, which were for this page.
+  function stop() {
+    stopped = true;
+    for (const [target, type, listener, options] of registrations) target.removeEventListener(type, listener, options);
+    for (const id of timers) {
+      window.clearTimeout(id);
+      window.clearInterval(id);
+    }
+    if (source) source.close();
+    if (channel) {
+      if (!leading) channel.postMessage({ type: "leave", page: pageId });
+      channel.close();
+    }
+    if (releaseLock) releaseLock();
+    queue.length = 0;
+    pending.clear();
   }
 
   rememberRendered(document.documentElement); // the page as the server rendered it

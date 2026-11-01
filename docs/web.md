@@ -10,6 +10,7 @@ This guide shows how to write pages with JASX's `web` target, using examples. Th
 - [Lists](#lists)
 - [Pushing from the server](#pushing-from-the-server)
 - [Styles](#styles)
+- [Moving between pages](#moving-between-pages)
 - [Serving pages](#serving-pages)
 - [Testing pages](#testing-pages)
 - [Pitfalls](#pitfalls)
@@ -276,6 +277,12 @@ So keep each view's styles in its own file, next to its markup, and write them w
 ```
 
 Styles every view shares, such as those of form controls, go in the layout's file as `:global(...)` rules. A rule nested inside a `:global` rule is scoped to its file again, so write a shared state as its own rule: `:global(button:hover) { ... }`. [`examples/web-spring`](../examples/web-spring) has one file per view (`Layout.jasx`, `BoardView.jasx`, `TaskView.jasx`), each with its own styles.
+
+## Moving between pages
+
+Links between your pages need nothing special. A plain click on `<a href="/tasks/2">` fetches that page and shows it in place: the browser keeps its connection and scripts, swaps in the new page's body, title and styles, and updates the history, so back and forward work. It feels like a single-page application, while each page is still an ordinary server-rendered page, with its own URL.
+
+The browser loads a link the ordinary way when it opens a new window (`target="_blank"`, ctrl+click), downloads (`download`), leaves your site, or answers with something other than a page (a PDF, JSON). Mark a link, or an element around links, with `data-jx-reload` to always load it the ordinary way.
 
 ## Serving pages
 

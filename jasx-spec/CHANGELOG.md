@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0-draft, revision 24
+
+### Added
+
+- `targets/web.md` §6.4, **navigation**: a plain click on a link to another page of the application fetches that page and shows it in place (title, new styles, body), after the current client stops completely, and a client for the new page starts; history and back/forward follow. Anything that isn't a JASX page is loaded the ordinary way, and `data-jx-reload` opts a link out.
+
 ## 1.0-draft, revision 23
 
 ### Added

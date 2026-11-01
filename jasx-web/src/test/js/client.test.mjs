@@ -33,11 +33,12 @@ after(() => openWindows.forEach((window) => window.close()));
  * is `id`; a page made with a `browser` (browserWithTabs) is one of its tabs, otherwise it can't share its
  * stream.
  */
-async function page(body, answer = () => null, scriptAttributes = "", { id = "P1", browser = null, storage = {} } = {}) {
+async function page(body, answer = () => null, scriptAttributes = "", { id = "P1", browser = null, storage = {}, pages = {} } = {}) {
   const sent = [];
   const streams = [];
   const pings = [];
   const uploads = [];
+  const fetched = [];
   const dom = new JSDOM(
     `<!DOCTYPE html><html><head></head><body>${body}<script src="/_jasx/web.js" data-jx-page="${id}" ${scriptAttributes} defer></script></body></html>`,
     {
@@ -49,6 +50,14 @@ async function page(body, answer = () => null, scriptAttributes = "", { id = "P1
         if (browser) browser.install(window, id);
         else window.BroadcastChannel = undefined;
         window.fetch = async (url, init) => {
+          if (!init || !init.method) { // a GET: a page, for a navigation (§6.4)
+            const path = new URL(url, "http://localhost").pathname;
+            const html = pages[path];
+            fetched.push(path);
+            return html === undefined
+              ? { ok: false, status: 404, headers: { get: () => "text/plain" }, text: async () => "" }
+              : { ok: true, status: 200, headers: { get: () => "text/html; charset=utf-8" }, text: async () => html };
+          }
           if (url.includes("/ping")) {
             pings.push(url);
             return { status: 204 };
@@ -91,7 +100,7 @@ async function page(body, answer = () => null, scriptAttributes = "", { id = "P1
   await new Promise((resolve) => dom.window.addEventListener("load", resolve));
   const window = dom.window;
   openWindows.push(window);
-  return { window, document: window.document, sent, streams, pings, uploads };
+  return { window, document: window.document, sent, streams, pings, uploads, fetched };
 }
 
 /**
@@ -721,4 +730,56 @@ test("a submit uploads the chosen files first, and the event names them by token
   assert.equal(uploads[0].headers["X-Jasx-Type"], "image/png");
   assert.equal(uploads[1].headers["X-Jasx-Type"], "application/octet-stream");
   assert.deepEqual(sent[0].payload.fields, { title: ["Holiday"], photos: ["jx-upload:T1", "jx-upload:T2"] });
+});
+
+// -------------------------------------------------------------------------------------------------
+// Navigation (targets/web.md §6.4)
+// -------------------------------------------------------------------------------------------------
+
+const NEXT_PAGE = `<!DOCTYPE html><html><head><title>Next</title><style>.next{color:red}</style></head>`
+  + `<body><h1>Next page</h1><button data-jx-on="click:4">go</button>`
+  + `<script src="/_jasx/web.js" data-jx-page="P2" defer></script></body></html>`;
+
+test("a link to another page loads it in place and starts a client for it", async () => {
+  const { window, document, streams, sent, fetched } = await page(
+    `<h1>First</h1><a href="/next">Next</a>`, () => null, "", { pages: { "/next": NEXT_PAGE } });
+  const click = fire(window, document.querySelector("a"), "click");
+  assert.ok(click.defaultPrevented, "the browser's own navigation is prevented");
+  await wait(100);
+  assert.deepEqual(fetched, ["/next"]);
+  assert.equal(window.location.pathname, "/next", "history moved on");
+  assert.equal(document.title, "Next");
+  assert.equal(document.querySelector("h1").textContent, "Next page");
+  assert.ok(Array.from(document.head.querySelectorAll("style")).some((s) => s.textContent.includes(".next")));
+  assert.ok(streams[0].closed, "the first page's client stopped");
+  assert.equal(streams.at(-1).url, "/_jasx/stream?pages=P2:0", "a client for the new page connected");
+
+  fire(window, document.querySelector("button"), "click");
+  await wait();
+  assert.equal(sent.at(-1).url, "/_jasx/event?page=P2", "events go to the new page, once");
+  assert.equal(sent.filter((s) => s.payload.handler === 4).length, 1);
+});
+
+test("links that aren't the application's pages, or ask for a new window, are left to the browser", async () => {
+  const { window, document, fetched } = await page(
+    `<a id="blank" href="/x" target="_blank">x</a><a id="file" href="/x" download>x</a>`
+    + `<div data-jx-reload><a id="reload" href="/x">x</a></div><a id="away" href="https://example.com/">x</a>`
+    + `<a id="runtime" href="/_jasx/web.js">x</a><a id="plain" href="/x">x</a>`,
+  );
+  for (const id of ["blank", "file", "reload", "away", "runtime"]) {
+    window.addEventListener("click", (e) => e.preventDefault(), { once: true }); // keep jsdom from navigating
+    const click = fire(window, document.getElementById(id), "click");
+    assert.ok(!fetched.length, id + " was not fetched");
+    assert.ok(click.defaultPrevented, id); // prevented by the test's own listener, not by the client
+  }
+  const withCtrl = fire(window, document.getElementById("plain"), "click", { ctrlKey: true });
+  assert.ok(!withCtrl.defaultPrevented, "ctrl+click opens a new tab: left alone");
+});
+
+test("a response that isn't a JASX page is loaded the ordinary way", async () => {
+  const { window, document, fetched } = await page(`<a href="/report.pdf">PDF</a>`, () => null, "", { pages: {} });
+  fire(window, document.querySelector("a"), "click");
+  await wait(50);
+  assert.deepEqual(fetched, ["/report.pdf"]);
+  assert.equal(document.querySelector("a").textContent, "PDF", "the page wasn't replaced");
 });

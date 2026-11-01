@@ -100,6 +100,7 @@ public Element Counter() {
   - A field being typed in is never overwritten by the server.
 - **State set from anywhere is pushed.** A scheduled job, a message listener, or another user's action updates every open page that shows it, over server-sent events.
 - **Plain HTTP.** Events are POST requests and updates come back as server-sent events. There's no WebSocket library, so it runs on the JDK's own HTTP server (`WebServer`), on any servlet container (`jasx-web-servlet`), in Spring Boot (`jasx-web-spring-boot-starter`), or on any server through `WebApp`. The tabs of a browser share one stream.
+- **Links feel instant.** Links between pages load in place, without reloading the browser's page, with history, back and forward.
 - **Safe by default.** Each page answers only the browser that rendered it, events from other sites are refused, and requests have size limits, whatever server you use.
 
 ```kotlin

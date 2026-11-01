@@ -173,6 +173,17 @@ The runtime (`WebApp`) does the following itself, so that every server adapter g
 
 Pages need cookies: a browser that refuses them can render pages but not use them. Two pages rendered at the same moment for a browser without a session can each issue a cookie. The later one wins, and the page bound to the earlier one reloads once (§6.1) in the session the browser kept. Rate limiting is not part of the runtime; put it in front of the server (a reverse proxy) where needed.
 
+### 6.4 Navigation
+
+A click on a link to another page of the application loads that page without reloading the browser's page:
+
+1. The client follows a link itself when it is a plain click (main button, no modifier key) on an `a` with an `href` of the same origin, outside the base path, without `download`, without a `target` other than `_self`, and not inside an element with `data-jx-reload`. A link to an anchor of the same page is left to the browser.
+2. It fetches the URL. If the answer is not a successful `text/html` response with the client script (`data-jx-page`), or the request fails, the browser loads the URL the ordinary way.
+3. Otherwise the client **stops**: it removes its listeners and timers, closes its stream (or leaves the shared one, §6.2, handing on the Web Lock if it led), and drops its queued events. It pushes the URL to the history, takes the new page's title, adds the style elements the page doesn't have yet, replaces the body with the new page's, and starts a client for the new page, which connects as a page loaded the ordinary way does. The window scrolls to the URL's anchor, or to the top.
+4. Going back or forward in the history to another path or query loads that page the same way.
+
+The page left behind is discarded by the server when its timeout passes (§6), as for a tab that was closed.
+
 ## 7. Events and input
 
 Handlers and events are `jasx.ui`'s (`ui.md` §4): a handler is an `Action` (`() -> ...`) or a `Handler` of the event's kind (`e -> ...`). `onsubmit` gives a `FormEvent`, `oninput` and `onchange` an `InputEvent`, `onkeydown` a `KeyEvent`, `onclick` a `MouseEvent`, and every other event attribute a plain `Event`. A handler runs on the server with the page's lock held.
