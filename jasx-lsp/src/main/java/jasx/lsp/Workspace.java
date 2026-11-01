@@ -411,6 +411,63 @@ final class Workspace {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Outline
+    // ---------------------------------------------------------------------------------------------
+
+    /** A range of a file in LSP positions. */
+    record Range(int startLine, int startColumn, int endLine, int endColumn) {}
+
+    /** A declaration of the outline, in LSP positions: the whole of it, its name, and what it contains. */
+    record OutlineSymbol(String name, String detail, int kind, Range range, Range selection, List<OutlineSymbol> children) {}
+
+    /** The last outline of each file, kept for while the file has JASX errors (and so no generated Java). */
+    private final Map<Path, List<OutlineSymbol>> lastOutlines = new HashMap<>();
+
+    /**
+     * The outline of an analysed {@code .jasx} file ({@link Outline}). While the file has JASX errors, the last
+     * outline it had, so that the editor's Structure view doesn't empty while the user types.
+     */
+    List<OutlineSymbol> outline(String uri) {
+        Path file = toPath(uri);
+        Analysis analysis = analysisOf(file);
+        String relative = analysis != null ? analysis.relativePath(file) : null;
+        if (relative == null || !relative.endsWith(".jasx")) {
+            return List.of();
+        }
+        GeneratedFile generated = analysis.result().files().stream()
+                .filter(f -> f.source().path().equals(relative)).findFirst().orElse(null);
+        if (generated == null) {
+            return lastOutlines.getOrDefault(file, List.of());
+        }
+        Set<Integer> componentNames = new HashSet<>();
+        for (CompilationResult.Declaration declaration : analysis.result().declarations()) {
+            if (declaration.path().equals(relative)) {
+                componentNames.add(declaration.nameStart());
+            }
+        }
+        LineMap lines = new LineMap(analysis.texts().get(relative));
+        List<OutlineSymbol> outline = inPositions(Outline.of(generated, componentNames), lines);
+        lastOutlines.put(file, outline);
+        return outline;
+    }
+
+    private static List<OutlineSymbol> inPositions(List<Outline.Symbol> symbols, LineMap lines) {
+        List<OutlineSymbol> result = new ArrayList<>();
+        for (Outline.Symbol symbol : symbols) {
+            result.add(new OutlineSymbol(symbol.name(), symbol.detail(), symbol.kind(),
+                    range(lines, symbol.start(), symbol.end()), range(lines, symbol.nameStart(), symbol.nameEnd()),
+                    inPositions(symbol.children(), lines)));
+        }
+        return result;
+    }
+
+    private static Range range(LineMap lines, int start, int end) {
+        LineMap.Position from = lines.position(start);
+        LineMap.Position to = lines.position(end);
+        return new Range(from.line() - 1, from.column(), to.line() - 1, to.column());
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // References and rename
     // ---------------------------------------------------------------------------------------------
 

@@ -734,6 +734,82 @@ class LanguageServerTest {
             assertTrue(renameAt(positionOf(shelf, text, "Shelf", 1), "Rack").get("error").contains("file"));
         }
 
+        // --- Outline -----------------------------------------------------------------------------
+
+        private static final String SHELF = """
+                package app;
+
+                import jasx.runtime.Element;
+
+                class Shelf {
+                  private final String label = "x";
+
+                  static class Tiles {
+                    static Element Badge() { return <b>x</b>; }
+                  }
+
+                  static Element Home() { return <div><Tiles.Badge /></div>; }
+
+                  static String helper(int count) { return "" + count; }
+                }
+                """;
+
+        /** The outline as "name:kind" with children in brackets, from a client that takes nested symbols. */
+        private String nestedOutline(Path file, String text) {
+            sent.clear();
+            server = new JasxLanguageServer(json -> sent.add(Json.object(Json.parse(json))), Runnable::run);
+            Map<String, Object> capabilities = Map.of("textDocument",
+                    Map.of("documentSymbol", Map.of("hierarchicalDocumentSymbolSupport", true)));
+            request("initialize", Map.of("rootUri", project.toUri().toString(), "capabilities", capabilities));
+            open(file, text);
+            List<?> symbols = (List<?>) request("textDocument/documentSymbol",
+                    Map.of("textDocument", Map.of("uri", uri(file)))).get("result");
+            return describe(symbols);
+        }
+
+        private static String describe(List<?> symbols) {
+            List<String> parts = new ArrayList<>();
+            for (Object s : symbols) {
+                Map<String, Object> symbol = Json.object(s);
+                List<?> children = (List<?>) symbol.get("children");
+                parts.add(symbol.get("name") + ":" + symbol.get("kind") + (children.isEmpty() ? "" : describe(children)));
+            }
+            return parts.toString();
+        }
+
+        @Test
+        void theOutlineNestsDeclarationsAndMarksComponents() throws IOException {
+            Path shelf = Files.writeString(project.resolve("src/main/java/app/Shelf.jasx"), SHELF);
+            // 5 class, 8 field, 12 function (a component), 6 method.
+            assertEquals("[Shelf:5[label:8, Tiles:5[Badge:12], Home:12, helper:6]]", nestedOutline(shelf, SHELF));
+        }
+
+        @Test
+        void aFileClassIsNotInTheOutline() {
+            // Ui.jasx has a top-level method, so JASX wraps it in a class Ui; the outline shows the method alone.
+            assertEquals("[Card:12]", nestedOutline(ui, UI));
+        }
+
+        @Test
+        void theOutlineStaysWhileTheFileHasErrors() throws IOException {
+            Path shelf = Files.writeString(project.resolve("src/main/java/app/Shelf.jasx"), SHELF);
+            String before = nestedOutline(shelf, SHELF);
+            change(shelf, SHELF.replace("<b>x</b>", "<b>x</c>"));
+            List<?> symbols = (List<?>) request("textDocument/documentSymbol",
+                    Map.of("textDocument", Map.of("uri", uri(shelf)))).get("result");
+            assertEquals(before, describe(symbols));
+        }
+
+        @Test
+        void anOlderClientGetsAFlatOutline() {
+            open(ui, UI);
+            List<?> symbols = (List<?>) request("textDocument/documentSymbol",
+                    Map.of("textDocument", Map.of("uri", uri(ui)))).get("result");
+            Map<String, Object> card = Json.object(symbols.get(0));
+            assertEquals("Card", card.get("name"));
+            assertTrue(card.containsKey("location"), card.toString());
+        }
+
         @Test
         void renamesThatWouldBreakCodeAreRefused() throws IOException {
             open(page, PAGE);

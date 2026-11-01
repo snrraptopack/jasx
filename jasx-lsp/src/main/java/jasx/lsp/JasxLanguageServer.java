@@ -34,6 +34,8 @@ import jasx.parser.Diagnostic;
  *   <li>{@code textDocument/references}, {@code textDocument/prepareRename} and {@code textDocument/rename}
  *       of components, props and Java names ({@link JavaReferences}); a rename that would break code is
  *       refused with a message ({@code RequestFailed});
+ *   <li>{@code textDocument/documentSymbol}: the outline of a {@code .jasx} file ({@link Outline}), nested if
+ *       the client supports it, otherwise flat;
  *   <li>{@code textDocument/completion} of tag and attribute names in markup ({@link Completions}), and of
  *       Java members and names in Java code, also inside {@code {...}} ({@link JavaCompletions}).
  * </ul>
@@ -54,6 +56,8 @@ final class JasxLanguageServer {
     private Workspace workspace;
     /** Whether the client accepts snippets ({@code $1}) in completions; if not, plain text is sent. */
     private boolean snippetSupport;
+    /** Whether the client takes a nested outline (DocumentSymbol); if not, a flat one (SymbolInformation). */
+    private boolean hierarchicalOutline;
     /** Whether the client lets the server register file watchers ({@code client/registerCapability}). */
     private boolean watcherRegistration;
     /** The id of the server's next request to the client. */
@@ -182,6 +186,8 @@ final class JasxLanguageServer {
                 return hover(params);
             case "textDocument/completion":
                 return completion(params);
+            case "textDocument/documentSymbol":
+                return documentSymbols(params);
             case "textDocument/references":
                 return references(params);
             case "textDocument/prepareRename":
@@ -216,6 +222,9 @@ final class JasxLanguageServer {
         Map<String, Object> renameCapabilities = Json.object(Json.object(Json.object(
                 params.get("capabilities")).get("textDocument")).get("rename"));
         boolean prepareSupport = Boolean.TRUE.equals(renameCapabilities.get("prepareSupport"));
+        Map<String, Object> symbolCapabilities = Json.object(Json.object(Json.object(
+                params.get("capabilities")).get("textDocument")).get("documentSymbol"));
+        hierarchicalOutline = Boolean.TRUE.equals(symbolCapabilities.get("hierarchicalDocumentSymbolSupport"));
         Map<String, Object> watchedFiles = Json.object(Json.object(Json.object(
                 params.get("capabilities")).get("workspace")).get("didChangeWatchedFiles"));
         watcherRegistration = Boolean.TRUE.equals(watchedFiles.get("dynamicRegistration"));
@@ -230,6 +239,7 @@ final class JasxLanguageServer {
         capabilities.put("definitionProvider", true);
         capabilities.put("hoverProvider", true);
         capabilities.put("referencesProvider", true);
+        capabilities.put("documentSymbolProvider", true);
         // With prepareRename, the editor asks first, and shows why a rename is refused before the user types.
         capabilities.put("renameProvider", prepareSupport ? Map.of("prepareProvider", true) : true);
         // '<' starts a tag name, ' ' an attribute name, '.' the rest of a qualified component name.
@@ -283,6 +293,56 @@ final class JasxLanguageServer {
             return null;
         }
         return Map.of("contents", Map.of("kind", "markdown", "value", markdown));
+    }
+
+    /** The file's outline: DocumentSymbols nested as declared, or flat SymbolInformation for older clients. */
+    private Object documentSymbols(Map<String, Object> params) {
+        String uri = documentUri(params);
+        List<Workspace.OutlineSymbol> outline = workspace().outline(uri);
+        List<Object> result = new ArrayList<>();
+        if (hierarchicalOutline) {
+            for (Workspace.OutlineSymbol symbol : outline) {
+                result.add(documentSymbol(symbol));
+            }
+        } else {
+            addFlat(uri, outline, null, result);
+        }
+        return result;
+    }
+
+    private static Map<String, Object> documentSymbol(Workspace.OutlineSymbol symbol) {
+        List<Object> children = new ArrayList<>();
+        for (Workspace.OutlineSymbol child : symbol.children()) {
+            children.add(documentSymbol(child));
+        }
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("name", symbol.name());
+        if (symbol.detail() != null) {
+            json.put("detail", symbol.detail());
+        }
+        json.put("kind", symbol.kind());
+        json.put("range", range(symbol.range()));
+        json.put("selectionRange", range(symbol.selection()));
+        json.put("children", children);
+        return json;
+    }
+
+    private static void addFlat(String uri, List<Workspace.OutlineSymbol> symbols, String container, List<Object> into) {
+        for (Workspace.OutlineSymbol symbol : symbols) {
+            Map<String, Object> json = new LinkedHashMap<>();
+            json.put("name", symbol.name());
+            json.put("kind", symbol.kind());
+            json.put("location", Map.of("uri", uri, "range", range(symbol.range())));
+            if (container != null) {
+                json.put("containerName", container);
+            }
+            into.add(json);
+            addFlat(uri, symbol.children(), symbol.name(), into);
+        }
+    }
+
+    private static Map<String, Object> range(Workspace.Range range) {
+        return range(range.startLine(), range.startColumn(), range.endLine(), range.endColumn());
     }
 
     /** A Location for every place the symbol at the position is written. */
