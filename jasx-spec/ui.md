@@ -57,6 +57,12 @@ A run that throws must not leave half a computation behind. A target re-runs hol
 
 So one failing expression leaves the rest of a page or window, and its own previous output, usable. Effects follow the same rule. A derived value whose computation throws stays stale and passes the exception to its reader; the next change of a value it read tells its readers again.
 
+### 2.5 Keeping what a previous run created
+
+During `retrack`, a computation may **keep** a computation its previous run created (`keep(child)`): the child becomes part of the new run, is not disposed when that run succeeds, and goes on updating by itself. If the run fails, the child goes back to the previous run, which is restored as a whole. A target uses it for the items of a keyed list, so that an item whose key and inputs didn't change keeps its state, its holes and its handlers.
+
+### 2.6 Atomic updates
+
 `State.update(fn)` reads the value, applies `fn` and stores the result as one step, so concurrent updates of a shared state never lose a change. Subscribers are told afterwards, outside that step.
 
 ## 3. Scheduling

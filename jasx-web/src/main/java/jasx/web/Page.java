@@ -285,13 +285,16 @@ final class Page implements Scheduler {
         streamOpen = true;
         touch();
         try {
+            // What the browser missed is taken before the greeting, so that from the greeting on, the stream is
+            // live: a batch made later is pushed (or, for an event's answer, carried by its request).
+            boolean canCatchUp = log.covers(since);
+            long cursor = since;
+            List<BatchLog.Batch> missed = canCatchUp ? log.after(cursor) : List.of();
             sink.send(": connected\n\n");
-            if (!log.covers(since)) {
+            if (!canCatchUp) {
                 sink.send(RELOAD_FRAME);
                 return;
             }
-            long cursor = since;
-            List<BatchLog.Batch> missed = log.after(cursor);
             if (!missed.isEmpty()) {
                 sink.send("data: " + BatchLog.merged(missed) + "\n\n");
                 cursor = missed.get(missed.size() - 1).version();

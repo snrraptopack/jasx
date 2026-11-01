@@ -41,9 +41,18 @@ public final class Web {
         return new WebElement.Fragment(children != null ? children : NO_CHILDREN);
     }
 
-    /** Attaches a key (semantics.md §6.4). Keys don't preserve instances yet (targets/web.md §10). */
-    public static Element keyed(Object key, Element element) {
+    /**
+     * A keyed element, as lowered markup makes it (targets/web.md §3): {@code <li key={id}>...</li>} becomes
+     * {@code keyed(id, () -> h("li", ...))}. The element is a function, so that in a list the runtime can keep
+     * an item whose key and inputs didn't change without running its code again (§4.3).
+     */
+    public static Element keyed(Object key, Supplier<?> element) {
         return new WebElement.Keyed(key, element);
+    }
+
+    /** A keyed element already built. It is never kept between runs, because its inputs can't be compared. */
+    public static Element keyed(Object key, Element element) {
+        return new WebElement.Keyed(key, () -> element);
     }
 
     /** A text element. Its text is escaped when rendered. */

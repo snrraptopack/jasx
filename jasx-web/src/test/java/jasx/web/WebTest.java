@@ -23,6 +23,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -282,6 +283,18 @@ class WebTest {
             } finally {
                 stream.interrupt();
             }
+        }
+
+        @Test
+        void aCatchUpKeepsListPatchesUnlessTheWholeHoleIsReplacedLater() {
+            Map<String, Object> list = Map.of("op", "list", "id", 5, "items", List.of());
+            Map<String, Object> html = Map.of("op", "html", "id", 5, "html", "x");
+            String listsOnly = BatchLog.merged(List.of(
+                    new BatchLog.Batch(1, List.of(list), "", false), new BatchLog.Batch(2, List.of(list), "", false)));
+            assertEquals(2, listsOnly.split("\"op\":\"list\"", -1).length - 1, "a later list refers to earlier items");
+            String replaced = BatchLog.merged(List.of(
+                    new BatchLog.Batch(1, List.of(list), "", false), new BatchLog.Batch(2, List.of(html), "", false)));
+            assertFalse(replaced.contains("\"list\""), replaced);
         }
 
         @Test
@@ -545,6 +558,45 @@ class WebTest {
             assertTrue(body.contains("\"html\":\"1\""), body);
             // The component didn't run again: the hole showing how often components ran has no patch.
             assertEquals(1, body.split("\"op\":\"html\"", -1).length - 1, body);
+        }
+
+        @Test
+        void aKeyedListKeepsUnchangedItemsWithTheirStateAndSendsOnlyNewOnes() {
+            String html = app.render(compile("""
+                    record Todo(int id, String title) {}
+                    static Element Item(Todo todo) {
+                      var open = state(false);
+                      return <li><button onclick={() -> open.set(!open.get())}>{todo.title()}</button>{open.get() ? "open" : "closed"}</li>;
+                    }
+                    static Element Page() {
+                      var todos = state(List.of(new Todo(1, "a"), new Todo(2, "b")));
+                      return (
+                        <div>
+                          <button onclick={() -> todos.update(l -> { var n = new ArrayList<>(l); n.add(new Todo(3, "c")); return n; })}>add</button>
+                          <button onclick={() -> todos.update(l -> List.of(new Todo(1, "A"), l.get(1), l.get(2)))}>rename</button>
+                          <ul>{for (Todo t : todos.get()) { <Item key={t.id()} todo={t} /> }}</ul>
+                        </div>
+                      );
+                    }
+                    """));
+            int add = handler(html, "click", 1);
+            int rename = handler(html, "click", 2);
+            int toggleFirst = handler(html, "click", 3);
+            String page = pageId(html);
+
+            assertTrue(click(html, toggleFirst).body().contains("\"html\":\"open\""));
+
+            // Adding a third to-do: the first two are kept (their ids only), the third is sent.
+            String added = app.event(page, "{\"handler\":" + add + ",\"type\":\"click\"}").body();
+            assertTrue(added.matches(".*\\{\"op\":\"list\",\"id\":\\d+,\"items\":\\[\\d+,\\d+,\\{\"id\":\\d+,\"html\":\"[^}]*c[^}]*\"\\}\\]\\}.*"), added);
+
+            // The first item was kept with its state and its handler: toggling it again closes it.
+            assertTrue(click(html, toggleFirst).body().contains("\"html\":\"closed\""));
+
+            // Renaming the first to-do changes its record: only that item is rendered afresh.
+            String renamed = app.event(page, "{\"handler\":" + rename + ",\"type\":\"click\"}").body();
+            assertTrue(renamed.matches(".*\"items\":\\[\\{\"id\":\\d+,\"html\":\"[^}]*A[^}]*\"\\},\\d+,\\d+\\].*"), renamed);
+            assertEquals(204, click(html, toggleFirst).status(), "the replaced item's handler is gone");
         }
 
         @Test

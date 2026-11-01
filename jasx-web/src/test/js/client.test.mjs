@@ -386,3 +386,58 @@ test("a hidden tab closes its stream, pings, and catches up when shown again", a
   assert.equal(streams.length, 2);
   assert.equal(streams[1].url, "/_jasx/stream?page=P1&since=1", "it asks for what was pushed while hidden");
 });
+
+// -------------------------------------------------------------------------------------------------
+// Keyed lists and morphing (targets/web.md §4.3, §8.4)
+// -------------------------------------------------------------------------------------------------
+
+const LIST = `<ul><!--jx:1-->`
+  + `<!--jx:2--><li>a</li><!--/jx:2-->`
+  + `<!--jx:3--><li><input></li><!--/jx:3-->`
+  + `<!--jx:4--><li>c</li><!--/jx:4-->`
+  + `<!--/jx:1--></ul>`;
+
+test("a list patch removes, inserts and keeps items, without moving the ones in place", async () => {
+  const { document, streams } = await page(LIST);
+  const input = document.querySelector("input");
+  input.focus();
+  input.value = "typing";
+  streams[0].push({ version: 1, patches: [{ op: "list", id: 1, items: [3, { id: 5, html: "<li>new</li>" }, 4] }] });
+  assert.deepEqual(Array.from(document.querySelectorAll("li"), (li) => li.textContent), ["", "new", "c"]);
+  assert.equal(document.activeElement, input, "the kept item wasn't touched: its field keeps the focus");
+  assert.equal(input.value, "typing");
+  // The new item is a hole of its own, which later patches can reach.
+  streams[0].push({ version: 2, patches: [{ op: "html", id: 5, html: "<li>newer</li>" }] });
+  assert.equal(document.querySelectorAll("li")[1].textContent, "newer");
+});
+
+test("a list patch moves items into their new order", async () => {
+  const { document, streams } = await page(LIST);
+  streams[0].push({ version: 1, patches: [{ op: "list", id: 1, items: [4, 2, 3] }] });
+  assert.deepEqual(Array.from(document.querySelectorAll("li"), (li) => li.textContent), ["c", "a", ""]);
+});
+
+test("an html patch merges into the page: a field keeps its element, focus and typed text", async () => {
+  const { window, document, streams } = await page(
+    `<div><!--jx:1--><p>count 1</p><input id="q" value=""><!--/jx:1--></div>`,
+  );
+  const input = document.querySelector("#q");
+  const paragraph = document.querySelector("p");
+  input.focus();
+  type(window, input, "hello");
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 1, html: `<p class="x">count 2</p><input id="q" value="">` }] });
+  assert.equal(document.querySelector("#q"), input, "the same element");
+  assert.equal(document.activeElement, input);
+  assert.equal(input.value, "hello");
+  assert.equal(document.querySelector("p"), paragraph);
+  assert.equal(paragraph.textContent, "count 2");
+  assert.equal(paragraph.className, "x");
+});
+
+test("morphing matches elements by id when others are inserted before them", async () => {
+  const { document, streams } = await page(`<div><!--jx:1--><input id="b"><!--/jx:1--></div>`);
+  const field = document.querySelector("#b");
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 1, html: `<input id="a"><input id="b">` }] });
+  assert.equal(document.querySelector("#b"), field, "the element with the id moved, not recreated");
+  assert.equal(document.querySelectorAll("input").length, 2);
+});

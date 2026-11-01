@@ -149,7 +149,7 @@ final class Renderer {
                     child(child);
                 }
             }
-            case WebElement.Keyed keyed -> child(keyed.element());
+            case WebElement.Keyed keyed -> child(keyed.element().get()); // alone, not in a list: just its element
             case WebElement.Text text -> text(text.value());
             case WebElement.Raw raw -> out.append(raw.html());
             case WebElement.Dynamic dynamic -> dynamic(dynamic);
@@ -261,7 +261,7 @@ final class Renderer {
             case WebElement.Tag tag -> tag.tag().equals("tr");
             case WebElement.Scoped scoped -> isRowOrHole(scoped.element());
             case WebElement.Unscoped unscoped -> isRowOrHole(unscoped.element());
-            case WebElement.Keyed keyed -> isRowOrHole(keyed.element());
+            case WebElement.Keyed keyed -> true; // keyed children of a table are rows; looking would run their code
             case null, default -> false;
         };
     }

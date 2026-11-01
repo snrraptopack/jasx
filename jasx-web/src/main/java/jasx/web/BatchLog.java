@@ -107,8 +107,9 @@ final class BatchLog {
     /**
      * Several batches as one, {@code {"from":A,"version":B,"patches":[...]}}, for a browser catching up.
      *
-     * <p>A patch is left out when a later one in the merge makes it pointless: an {@code html} patch of a hole
-     * replaced again later, or an {@code attr} patch of an attribute set again later. Applying the rest in order
+     * <p>A patch is left out when a later one in the merge makes it pointless: an {@code html} or {@code list}
+     * patch of a hole whose whole content an {@code html} patch replaces later, or an {@code attr} patch of an
+     * attribute set again later (see {@link #withoutSuperseded}). Applying the rest in order
      * gives the same page, because the later patch overwrites whatever the dropped one did, and patches aimed at
      * holes inside replaced content find nothing and are ignored by the client anyway (§8.4). So a browser that
      * slept through a minute of a clock receives one value, not sixty.
@@ -125,15 +126,29 @@ final class BatchLog {
         return Json.write(message);
     }
 
-    /** {@code patches} without those a later patch supersedes (see {@link #merged}). */
+    /**
+     * {@code patches} without those a later patch supersedes (see {@link #merged}). Walking backwards, a patch is
+     * dropped when what it would change is overwritten later:
+     *
+     * <ul>
+     *   <li>an {@code html} patch replaces the whole content of its hole, so it supersedes earlier {@code html}
+     *       and {@code list} patches of that hole;
+     *   <li>a {@code list} patch never supersedes anything: it refers to items that earlier {@code list} patches
+     *       created, so those must stay;
+     *   <li>an {@code attr} patch supersedes earlier ones setting the same attribute of the same element.
+     * </ul>
+     */
     private static List<Map<String, Object>> withoutSuperseded(List<Map<String, Object>> patches) {
-        Set<String> seenLater = new HashSet<>();
+        Set<String> overwrittenLater = new HashSet<>();
         List<Map<String, Object>> keptReversed = new ArrayList<>();
         for (int i = patches.size() - 1; i >= 0; i--) {
             Map<String, Object> patch = patches.get(i);
-            String target = supersedingKey(patch);
-            if (target != null && !seenLater.add(target)) {
+            String target = target(patch);
+            if (target != null && overwrittenLater.contains(target)) {
                 continue; // a later patch overwrites this one
+            }
+            if (overwritesWhole(patch)) {
+                overwrittenLater.add(target);
             }
             keptReversed.add(patch);
         }
@@ -144,12 +159,18 @@ final class BatchLog {
         return kept;
     }
 
-    /** What a patch overwrites entirely, or null if it must always be applied (css, navigate, reset). */
-    private static String supersedingKey(Map<String, Object> patch) {
+    /** What a patch changes: a hole's content or one attribute; null if it must always be applied (css, navigate, reset). */
+    private static String target(Map<String, Object> patch) {
         return switch (String.valueOf(patch.get("op"))) {
-            case "html" -> "html " + patch.get("id");
+            case "html", "list" -> "hole " + patch.get("id");
             case "attr" -> "attr " + patch.get("id") + " " + patch.get("name");
             default -> null;
         };
+    }
+
+    /** Whether a patch replaces all of its target, whatever earlier patches did to it. */
+    private static boolean overwritesWhole(Map<String, Object> patch) {
+        String op = String.valueOf(patch.get("op"));
+        return op.equals("html") || op.equals("attr");
     }
 }

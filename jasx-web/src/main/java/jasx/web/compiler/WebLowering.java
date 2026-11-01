@@ -13,6 +13,7 @@ import jasx.compiler.Target;
  *   {expression}            →  jasx.web.Web.dynamic(() -> (expression))
  *   {for (...) { ... }}     →  jasx.web.Web.dynamic(() -> switch (0) { ... })
  *   class={expression}      →  .className(() -> (expression))
+ *   &lt;li key={k}&gt;...&lt;/li&gt;       →  jasx.web.Web.keyed((k), () -> jasx.web.Web.h("li", ...))
  * </pre>
  *
  * <p>Handlers, props and keys are evaluated once, as in factory lowering. The class runs inside the compiler
@@ -37,6 +38,20 @@ public final class WebLowering extends FactoryLowering {
         out.write("jasx.web.Web.dynamic(() -> ", child.start());
         out.code(child.value());
         out.write(")", child.end() - 1);
+    }
+
+    /**
+     * {@code <li key={id}>...</li>}  →  {@code jasx.web.Web.keyed((id), () -> jasx.web.Web.h("li", ...))}: the
+     * element is a function, so that a list can keep an unchanged item without running its code again, which
+     * would create its components afresh (targets/web.md §3, §4.3).
+     */
+    @Override
+    public void keyed(MarkupTree.Keyed keyed, LoweringOutput out) {
+        out.write("jasx.web.Web.keyed(", keyed.start());
+        out.value(keyed.key());
+        out.write(", () -> ", keyed.start());
+        out.markup(keyed.element());
+        out.write(")", keyed.closeAnchor());
     }
 
     /** A dynamic attribute {@code a={expression}}  →  {@code .a(() -> (expression))}; others unchanged. */

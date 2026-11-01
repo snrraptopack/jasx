@@ -15,8 +15,11 @@ public sealed interface WebElement extends Element {
     /** A fragment: its children without a surrounding tag. */
     record Fragment(Object[] children) implements WebElement {}
 
-    /** An element with a key (semantics.md §6.4). Keys are not used yet (targets/web.md §10). */
-    record Keyed(Object key, Element element) implements WebElement {}
+    /**
+     * An element with a key (semantics.md §6.4). Its element is a function, so that a list can keep an item
+     * without running it again (targets/web.md §4.3).
+     */
+    record Keyed(Object key, Supplier<?> element) implements WebElement {}
 
     /** Text, escaped when rendered. */
     record Text(String value) implements WebElement {}

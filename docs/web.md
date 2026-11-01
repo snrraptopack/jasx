@@ -195,7 +195,21 @@ A statement child loops in markup:
 
 The loop reads `store.all()`, a state, so it runs again when the list changes. `{t.title()}` reads no state, so it costs nothing extra in the page.
 
-In this version, the whole list is sent again when it changes, and any component state inside it is lost. Keyed updates are planned.
+**Give list items a key.** Then a change re-renders only what changed:
+
+```java
+<ul>
+    {for (Todo t : store.all()) {
+        <TodoItem key={t.id()} todo={t} />
+    }}
+</ul>
+```
+
+When the list changes, an item whose key and values are unchanged is **kept**: its code doesn't run again, its components keep their state (an open menu stays open, an edit box keeps its text), and the browser doesn't touch it. Only new or changed items are sent, with the new order. Adding one to-do to a list of a thousand sends one `<li>`.
+
+An item counts as changed when the values it uses change: toggling a to-do replaces its record, so only that row is rendered again. That's why list items should be immutable values such as records. If you change an object in place, the item looks the same and isn't updated.
+
+Without keys, the list is rendered again as a whole, and the browser merges the new HTML into the page: unchanged elements stay, with their focus and typed text, but component state inside the list starts afresh.
 
 ## Pushing from the server
 
@@ -249,8 +263,8 @@ A page is kept for 2 minutes after its browser goes away (no stream and no event
 
   Use a `final` copy, a ternary, or a `state`.
 - **Reading state outside a hole doesn't follow it.** `var n = count.get();` in the component body is read once.
-- **A field inside a hole that re-runs loses its focus and unsent text**, because the hole's content is replaced. Keep fields outside the holes that change, as the to-do example does with its form.
-- **A component inside a hole that re-runs is created again**, with fresh state. Keep state that must survive higher up, or in a store.
+- **A component inside a hole that re-runs is created again**, with fresh state, unless it is a kept item of a keyed list. Give list items keys, and keep other state that must survive higher up, or in a store.
+- **Keys in a classic `for (int i ...)` loop** need a final copy of `i`: a keyed item is a function, so what it reads must be effectively final.
 - **A hole directly in a `<table>` holds rows.** It is placed in a `<tbody>`, as the browser would do. To fill a `<thead>` from a hole, put the hole inside the `<thead>`.
 - **If a hole throws while updating**, the error is logged and the hole keeps showing what it showed, with working buttons. It tries again on the next change.
 - **`Boolean` values render as text**, as on every JASX target: `{done}` shows `true`. Use `{done ? "✓" : ""}`.

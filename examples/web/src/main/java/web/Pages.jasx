@@ -75,7 +75,7 @@ public Element Todos(TodoStore store) {
             <ul>
                 {for (Todo t : store.all()) {
                     if (!shows(filter.get(), t)) continue;
-                    <li class={t.done() ? "done" : null}>
+                    <li key={t.id()} class={t.done() ? "done" : null}>
                         <input type="checkbox" checked={t.done()} onchange={() -> store.toggle(t.id())} />
                         <span>{t.title()}</span>
                         <button class="delete" onclick={() -> store.remove(t.id())} aria-label="Delete">✕</button>
@@ -133,7 +133,7 @@ public Element Search() {
             <p>{results.get().size()} of {COUNTRIES.size()} countries</p>
             <ul>
                 {for (String country : results.get()) {
-                    <li>{country}</li>
+                    <li key={country}>{country}</li>
                 }}
             </ul>
         </Page>

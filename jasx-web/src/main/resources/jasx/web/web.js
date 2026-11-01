@@ -80,6 +80,7 @@
   function apply(patch) {
     switch (patch.op) {
       case "html": replaceHole(patch.id, patch.html); break;
+      case "list": arrangeItems(patch.id, patch.items); break;
       case "attr": setAttribute(patch.id, patch.name, patch.value); break;
       case "css": addStyleSheet(patch.css); break;
       case "navigate": location.assign(patch.url); break;
@@ -134,26 +135,200 @@
     return start && start.isConnected ? start : null;
   }
 
-  function replaceHole(id, html) {
+  // The start and end markers of hole `id`; null if the hole isn't in the page (it was inside content
+  // replaced meanwhile). A start without an end means the page's markup no longer matches what the server
+  // rendered: then it reloads, rather than guess.
+  function holeRange(id) {
     const start = holeStart(id);
-    if (!start) return; // inside content that was replaced meanwhile: nothing to do
+    if (!start) return null;
     const end = holeEnd(start, id);
     if (!end) {
-      // The page's markup no longer matches what the server rendered: start afresh rather than guess.
       console.error("jasx: the end of hole " + id + " is missing");
       reload();
-      return;
+      return null;
     }
-    for (let node = start.nextSibling; node !== end; ) {
+    return { start, end };
+  }
+
+  // An html patch (§8.4): the hole's new content is merged into what the page has, so elements that stay
+  // keep their focus, their typed text and their scroll position.
+  function replaceHole(id, html) {
+    const range = holeRange(id);
+    if (!range) return;
+    const parent = range.start.parentNode;
+    forEachBetween(range.start, range.end, forgetHoles); // ids of holes inside change with each rendering
+    morphChildren(parent, range.start.nextSibling, range.end, parseIn(parent, html));
+    forEachBetween(range.start, range.end, indexHoles);
+    listenFor(parent);
+  }
+
+  function forEachBetween(start, end, visit) {
+    for (let node = start.nextSibling; node && node !== end; node = node.nextSibling) visit(node);
+  }
+
+  // A list patch (§8.4): `entries` are the items of keyed hole `id` in their new order. A number is an item
+  // the page has, which is moved only if it is out of place, so it keeps its DOM state; {id, html} is a new
+  // item. Items not listed are removed first, so that removing one doesn't move the others.
+  function arrangeItems(id, entries) {
+    const range = holeRange(id);
+    if (!range) return;
+    const parent = range.start.parentNode;
+    const kept = new Set(entries.filter((entry) => typeof entry === "number").map(String));
+    removeItemsExcept(range, kept);
+
+    let cursor = range.start.nextSibling; // where the next item belongs
+    for (const entry of entries) {
+      if (typeof entry === "number") {
+        const item = holeRange(entry);
+        if (!item || item.start.parentNode !== parent) {
+          reload(); // the page lost an item the server kept: start afresh
+          return;
+        }
+        if (item.start !== cursor) moveRange(item, cursor);
+        cursor = item.end.nextSibling;
+      } else {
+        const item = newItem(parent, entry);
+        parent.insertBefore(item, cursor);
+      }
+    }
+  }
+
+  // Removes the items of a keyed hole that aren't in `kept` (their ids as strings).
+  function removeItemsExcept(range, kept) {
+    for (let node = range.start.nextSibling; node && node !== range.end; ) {
+      const isItemStart = node.nodeType === Node.COMMENT_NODE && node.data.startsWith("jx:");
+      if (!isItemStart) {
+        node = node.nextSibling;
+        continue;
+      }
+      const itemId = node.data.substring(3);
+      const end = holeEnd(node, itemId);
+      const after = end ? end.nextSibling : null;
+      if (!kept.has(itemId)) {
+        for (let n = node; n && n !== after; ) {
+          const next = n.nextSibling;
+          forgetHoles(n);
+          n.remove();
+          n = next;
+        }
+      }
+      node = after;
+    }
+  }
+
+  function moveRange(item, before) {
+    const parent = item.start.parentNode;
+    const after = item.end.nextSibling;
+    for (let node = item.start; node !== after; ) {
       const next = node.nextSibling;
-      forgetHoles(node);
-      node.remove();
+      parent.insertBefore(node, before);
       node = next;
     }
-    const content = parseIn(start.parentNode, html);
-    indexHoles(content);
-    listenFor(content);
-    start.parentNode.insertBefore(content, end);
+  }
+
+  // A new item between its own markers, indexed and listened to.
+  function newItem(parent, entry) {
+    const item = document.createDocumentFragment();
+    item.appendChild(document.createComment("jx:" + entry.id));
+    item.appendChild(parseIn(parent, entry.html));
+    item.appendChild(document.createComment("/jx:" + entry.id));
+    indexHoles(item);
+    listenFor(item);
+    return item;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Morphing (§8.4): new content merged into existing nodes
+  // ---------------------------------------------------------------------------------------------
+
+  // Makes the children of `parent` from `first` up to `stop` (exclusive; null for the last child) like the
+  // children of `source`. Nodes are matched in order, by kind and tag; an element with an id is matched to
+  // the element with that id, wherever it is among the remaining nodes. A matched node is updated in place;
+  // an unmatched one is inserted, and old nodes left over are removed.
+  function morphChildren(parent, first, stop, source) {
+    let old = first;
+    let incoming = source.firstChild;
+    while (incoming) {
+      const nextIncoming = incoming.nextSibling;
+      const byId = incoming.nodeType === Node.ELEMENT_NODE && incoming.id ? findById(old, stop, incoming.id) : null;
+      if (byId && byId !== old) {
+        parent.insertBefore(byId, old);
+        old = byId;
+      }
+      if (old && old !== stop && sameKind(old, incoming)) {
+        morphNode(old, incoming);
+        old = old.nextSibling;
+      } else {
+        parent.insertBefore(incoming, old && old !== stop ? old : stop);
+      }
+      incoming = nextIncoming;
+    }
+    while (old && old !== stop) {
+      const next = old.nextSibling;
+      old.remove();
+      old = next;
+    }
+  }
+
+  function findById(from, stop, id) {
+    for (let node = from; node && node !== stop; node = node.nextSibling) {
+      if (node.nodeType === Node.ELEMENT_NODE && node.id === id) return node;
+    }
+    return null;
+  }
+
+  // Nodes match when they are of the same kind and tag. Elements with ids match only the same id, so that
+  // an element inserted before one with an id doesn't take its place (and its focus).
+  function sameKind(old, incoming) {
+    if (old.nodeType !== incoming.nodeType) return false;
+    if (old.nodeType !== Node.ELEMENT_NODE) return true;
+    return old.localName === incoming.localName && old.namespaceURI === incoming.namespaceURI
+      && old.id === incoming.id;
+  }
+
+  function morphNode(old, incoming) {
+    if (old.nodeType !== Node.ELEMENT_NODE) {
+      if (old.nodeValue !== incoming.nodeValue) old.nodeValue = incoming.nodeValue;
+      return;
+    }
+    morphAttributes(old, incoming);
+    if (old.localName === "textarea") {
+      const text = incoming.textContent;
+      if (old.defaultValue !== text) old.defaultValue = text;
+      if (!hasUnsentEdits(old)) old.value = text;
+      return;
+    }
+    morphChildren(old, old.firstChild, null, incoming);
+  }
+
+  // Attributes as the server rendered them, except what belongs to the browser: the value of a field with
+  // unsent edits (§7), and the busy marks of an element whose event is still running.
+  function morphAttributes(element, incoming) {
+    const keepValue = isField(element) && hasUnsentEdits(element);
+    for (const attribute of Array.from(incoming.attributes)) {
+      if (keepValue && attribute.name === "value") continue;
+      if (element.getAttribute(attribute.name) !== attribute.value) {
+        element.setAttribute(attribute.name, attribute.value);
+        syncProperty(element, attribute.name, attribute.value);
+      }
+    }
+    for (const attribute of Array.from(element.attributes)) {
+      if (keepValue && attribute.name === "value") continue;
+      if (!incoming.hasAttribute(attribute.name)) {
+        element.removeAttribute(attribute.name);
+        syncProperty(element, attribute.name, null);
+      }
+    }
+    if (element.jxBusy > 0) {
+      element.classList.add("jx-loading");
+      element.setAttribute("aria-busy", "true");
+    }
+  }
+
+  // value, checked and selected are what a field shows: the attribute alone doesn't change it.
+  function syncProperty(element, name, value) {
+    if (name === "value" && isField(element)) element.value = value === null ? "" : value;
+    else if (name === "checked" || name === "selected") element[name] = value !== null;
   }
 
   function holeEnd(start, id) {

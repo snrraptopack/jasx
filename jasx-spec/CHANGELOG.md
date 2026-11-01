@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0-draft, revision 17
+
+### Added
+
+- `targets/web.md` §4.3, **keyed lists**: a hole whose children all have keys keeps each item whose key and inputs (the element function's captured values, compared with `equals`) are unchanged, with its components' state, holes and handlers. Only new or changed items are rendered, and the browser gets a `list` patch (§8.4) with the new order and the new items' HTML.
+- `targets/web.md` §8.4, **merging**: the client merges an `html` patch into the page (matching nodes by kind and tag, and by `id`), so elements that stay keep their focus, typed text and scroll position. Before, a hole's content was replaced.
+- `ui.md` §2.5: `Computation.keep`, for keeping what a previous run created.
+
+### Changed
+
+- `targets/web.md` §3: a keyed element lowers to `jasx.web.Web.keyed((key), () -> element)`; the element is a function.
+- `targets/web.md` §6.1, §8.4: in a merged batch, `list` patches are kept unless a later `html` patch replaces the whole hole.
+- `targets/web.md` §10: keyed reconciliation is no longer listed as missing.
+
 ## 1.0-draft, revision 16
 
 ### Changed

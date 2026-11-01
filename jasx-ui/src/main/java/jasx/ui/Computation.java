@@ -177,23 +177,53 @@ public abstract class Computation {
         owned.clear();
         cleanups.clear();
         sources.clear();
+        previousRun = previousOwned;
+        keptFromPreviousRun = new ArrayList<>();
 
         T result;
         try {
             result = track(body);
         } catch (RuntimeException | Error failure) {
             undoRun(previousSources);
+            previousOwned.addAll(keptFromPreviousRun); // they belong to the previous run again
             restoreRun(previousOwned, previousCleanups, previousSources);
             throw failure;
+        } finally {
+            previousRun = null;
+            keptFromPreviousRun = null;
         }
         dropRun(previousOwned, previousCleanups, previousSources);
         return result;
     }
 
+    /** During {@link #retrack}: what the previous run created and the new run hasn't kept; otherwise null. */
+    private List<Computation> previousRun;
+    /** During {@link #retrack}: what the new run kept from the previous run. */
+    private List<Computation> keptFromPreviousRun;
+
+    /**
+     * Keeps {@code child}, which the previous run created, as part of the run going on (ui.md §2.5): it is not
+     * disposed when that run succeeds, and goes on updating by itself. A target uses it for keyed items, so
+     * that an item whose key and inputs didn't change keeps its state, its holes and its handlers.
+     *
+     * @throws IllegalStateException outside {@link #retrack}, or if the previous run didn't create
+     *                               {@code child} (or it was kept already)
+     */
+    protected final void keep(Computation child) {
+        boolean isFromPreviousRun = previousRun != null && previousRun.remove(child);
+        if (!isFromPreviousRun) {
+            throw new IllegalStateException("only a computation the previous run created can be kept, while re-running");
+        }
+        owned.add(child);
+        keptFromPreviousRun.add(child);
+    }
+
     /** Undoes a failed run: disposes what it created, and drops the subscriptions only it had. */
     private void undoRun(Set<Source> keep) {
         for (Computation child : owned) {
-            child.dispose();
+            if (!keptFromPreviousRun.contains(child)) {
+                child.dispose();
+            }
         }
         for (Runnable cleanup : cleanups) {
             cleanup.run();

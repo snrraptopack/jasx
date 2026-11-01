@@ -48,7 +48,8 @@ The lowering is factory lowering (`semantics.md` §6) with these changes:
 | statement child `{for ...}`, `{if ...}` | `jasx.web.Web.dynamic(() -> switch (0) { ... })` |
 | dynamic attribute `a={e}` | `.a(() -> (e))` |
 | handler `onclick={e}` | `.onclick((e))`, unchanged |
-| prop, key | unchanged: evaluated once |
+| keyed element `<li key={k}>...</li>` | `jasx.web.Web.keyed((k), () -> element)`: the key is evaluated once, the element is a function (§4.3) |
+| prop | unchanged: evaluated once |
 
 ### 3.1 Captured variables
 
@@ -94,7 +95,24 @@ return <main>{loggedIn.get() ? <Dashboard /> : <Login />}</main>;  // reactive
 
 ### 4.2 Lifetime
 
-When a hole re-runs, everything created while it last ran (its holes, components, `Derived` values, effects and handlers) is disposed and created again. A component inside a hole therefore loses its state when that hole re-runs. Keeping keyed instances across re-runs (reconciliation by `key`) is planned (§10).
+When a hole re-runs, everything created while it last ran (its holes, components, `Derived` values, effects and handlers) is disposed and created again, except the items of a keyed list that are kept (§4.3). A component inside a hole therefore loses its state when that hole re-runs, unless it is in a kept keyed item.
+
+### 4.3 Keyed lists
+
+A hole whose value's children (flattened as by the child value contract, `semantics.md` §3.4) **all** have a key is a **keyed list**. Each child is an **item**: a hole of its own, made from the keyed element's function.
+
+```java
+<ul>{for (Todo t : todos.get()) { <TodoItem key={t.id()} todo={t} /> }}</ul>
+```
+
+When the list re-runs, each new child is matched with a previous item that has an equal key (`Objects.equals`) and **equal inputs**: the same element function (the same place in the code), whose captured values are equal (`equals`; a `State` is equal only to itself). A matched item is **kept**: its code doesn't run again, and it keeps its components' state, its holes and its handlers (`ui.md` §2.5). Every other child becomes a new item and is rendered, and previous items that weren't matched are disposed. So toggling one to-do re-creates only that row, because its record changed, and the other rows keep everything.
+
+An item updates by itself when a value its own code read changes, like any hole. The browser receives a `list` patch (§8.4): the items in their new order, and the HTML of the new ones only.
+
+- Captured values are compared with `equals`, so items **SHOULD** use immutable values (records). If an item captured a list that is then changed in place, it compares equal and isn't rendered again.
+- If the runtime can't read an element function's captured values, the items are taken as different and rendered afresh, which is always correct.
+- A list that mixes keyed and unkeyed children is a plain hole. An empty list stays a keyed list if it was one.
+- Keyed elements are functions, so the locals they read must be effectively final (§3.1): a key in a classic `for (int i ...)` loop needs a final copy of `i`.
 
 ## 5. Update cycle
 
@@ -140,7 +158,7 @@ Handlers and events are `jasx.ui`'s (`ui.md` §4): a handler is an `Action` (`()
 - `oninput` is **debounced by default**: the event is sent 300 ms after the last keystroke. `Web.debounce(ms, handler)` sets another delay, on any event, and `Web.immediate(handler)` sends every event (both accept a `Handler` or an `Action`).
 - Before an event is sent, every pending debounced event is sent first, so a handler always sees the latest input (a submit right after typing carries the final text).
 - **Typing is never overwritten.** Each edit of a field gives it a new revision, and each event remembers the revisions of the fields it carries (the field with the handler, and a form's fields). A field has *unsent edits* while it has a revision no sent event carried. A patch doesn't change the `value` of a field with unsent edits if the server will receive them (the field has a handler, or its form has one) or the field is focused. So the answer to an older event never overwrites newer typing, even when that event waited in the queue. `checked`, `selected` and `value` are set as DOM properties.
-- **A hole that re-runs replaces its content**, so a field inside it loses its focus and any text not yet sent, and component state inside it is lost (§4.2). Put fields outside the holes that change, or keep their values in state. Merging new content into the page (DOM morphing) and keeping keyed items are planned (§10).
+- **A hole that re-runs is merged into the page** (§8.4): elements that stay keep their focus and typed text, and the kept items of a keyed list aren't touched (§4.3). Component state inside a plain hole is still created again (§4.2).
 - Events are sent one at a time, in order. While its event is queued or running, an element has the class `jx-loading` and `aria-busy="true"`. A form whose submit is in progress ignores further submits.
 
 In a handler, `e.resetForm()` clears the form the event came from (typed text belongs to the browser, so the server can't clear it by setting state): each field returns to its initial value, except a field edited after the event was sent, which keeps the new text. `Web.navigate(url)` makes the browser go to `url`.
@@ -177,6 +195,8 @@ The client parses a hole's new content as content of the hole's parent: inside `
 
 A hole that read no `State` or `Derived` when it first ran can never change, so it gets no markers (holes in its content still get theirs), and an element none of whose dynamic attributes read one gets no `data-jx-id`. So `{todo.title()}` costs nothing in the page.
 
+Each item of a keyed list (§4.3) has markers of its own, `<!--jx:I-->` … `<!--/jx:I-->`, when the list can change or the item can change by itself, so that `list` patches can move it and its own `html` patches can reach it.
+
 ### 8.3 Events
 
 ```json
@@ -211,7 +231,8 @@ A member that is not sent reads as empty (`""`, `false`, `0`, no fields). An eve
 
 | Patch | Effect |
 |---|---|
-| `html` | replaces the content of hole `id` |
+| `html` | the new content of hole `id`, which the client **merges** into the page (below) |
+| `list` | the items of keyed list `id` in their new order (§4.3): `items` holds the id of each kept item, or `{"id": N, "html": "..."}` for a new one |
 | `attr` | sets attribute `name` of element `id`: a string, `true` for a bare attribute, or `null` to remove it |
 | `css` | adds a style sheet the page didn't have yet |
 | `navigate` | goes to `url` |
@@ -221,6 +242,12 @@ Batch versions increase by one per batch of a page. The client applies batches i
 
 A **merged batch**, `{"from": A, "version": B, "patches": [...]}`, holds the patches of batches `A` to `B` in order (§6.1). An `html` patch is left out when a later patch of the merge replaces the same hole, and an `attr` patch when a later one sets the same attribute of the same element, so a browser that slept through a minute of a clock receives one value. Applying the rest gives the same page.
 
+**Merging.** The client makes the nodes of a hole like the new content. It matches nodes in order, by kind and tag, and elements with an `id` only by that id. A matched node is updated in place: its attributes are set and removed as rendered (except the `value` of a field with unsent edits, §7, and the busy marks of an element whose event is running), and its children are merged the same way. Unmatched new nodes are inserted and leftover old ones removed. So an element that stays keeps its DOM state: focus, typed text, scroll position, running transitions.
+
+**Lists.** For a `list` patch, the client first removes the items not listed, then walks the entries in order: a kept item is moved only if it isn't already in place, and a new item is inserted between its own markers. So removing or inserting an item moves no other item. If the page doesn't have a kept item, the client reloads.
+
+In a merged batch (§6.1), an `html` patch supersedes earlier `html` and `list` patches of the same hole. A `list` patch supersedes nothing, because it refers to items created by earlier `list` patches.
+
 Patches can be applied again harmlessly: `html` and `attr` set content and values, the client adds a style sheet only once, and a reset leaves alone the fields edited after its event. A patch whose hole or element isn't in the page (it was inside content replaced since) is ignored.
 
 ## 9. Styles
@@ -229,7 +256,6 @@ Style blocks work as on `html` (`targets/html.md` §3.5): `Web.styleSheet`, `Web
 
 ## 10. Not yet
 
-- **Keyed reconciliation:** keeping component instances with the same `key` when a hole re-runs, and sending list changes as moves.
 - **Client commands:** showing, hiding and toggling classes in the browser without a round trip.
 - **Static templates:** sending the static parts of a hole's markup once, and only the dynamic values afterwards.
 - **Warnings** JASX3001 (a state read outside a hole) and JASX3002 (a list without keys) stay reserved.
