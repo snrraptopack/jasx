@@ -38,7 +38,7 @@ class JasxPluginFunctionalTest {
         write("build.gradle.kts", """
                 plugins {
                     application
-                    id("dev.jasx")
+                    id("io.github.snrraptopack.jasx")
                 }
 
                 dependencies {
@@ -320,7 +320,7 @@ class JasxPluginFunctionalTest {
         write("lib/build.gradle.kts", """
                 plugins {
                     `java-library`
-                    id("dev.jasx")
+                    id("io.github.snrraptopack.jasx")
                 }
 
                 dependencies {
@@ -340,7 +340,7 @@ class JasxPluginFunctionalTest {
         write("app/build.gradle.kts", """
                 plugins {
                     application
-                    id("dev.jasx")
+                    id("io.github.snrraptopack.jasx")
                 }
 
                 dependencies {
@@ -435,7 +435,7 @@ class JasxPluginFunctionalTest {
         write("app/build.gradle.kts", """
                 plugins {
                     application
-                    id("dev.jasx")
+                    id("io.github.snrraptopack.jasx")
                 }
 
                 jasx {

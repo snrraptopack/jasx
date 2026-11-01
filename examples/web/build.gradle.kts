@@ -1,6 +1,6 @@
 plugins {
     application
-    id("dev.jasx")
+    id("io.github.snrraptopack.jasx")
 }
 
 jasx {
@@ -8,7 +8,7 @@ jasx {
 }
 
 dependencies {
-    implementation("dev.jasx:jasx-web:0.1.0-SNAPSHOT")
+    implementation("io.github.snrraptopack:jasx-web:0.1.0-SNAPSHOT")
 }
 
 java {

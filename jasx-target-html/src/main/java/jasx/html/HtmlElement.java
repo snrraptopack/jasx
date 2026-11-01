@@ -2,7 +2,7 @@ package jasx.html;
 
 import jasx.runtime.Element;
 
-/** The element values of the html target. {@link #toString()} renders them as HTML. */
+/** The element values of the html target. Their {@code toString()} renders them as HTML. */
 public sealed interface HtmlElement extends Element {
 
     record Tag(String tag, Attributes<?> attributes, Object[] children) implements HtmlElement {

@@ -4,7 +4,7 @@
   "description": "JASX (Java with JSX-style markup): syntax highlighting, and errors, completion, go-to-definition and hover from the JASX language server.",
   "version": "0.6.0",
   "publisher": "jasx",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/snrraptopack/jasx"

@@ -1,4 +1,4 @@
-// The JASX Maven plugin (dev.jasx:jasx-maven-plugin): compiles .jasx files to Java in Maven builds.
+// The JASX Maven plugin (io.github.snrraptopack:jasx-maven-plugin): compiles .jasx files to Java in Maven builds.
 //
 // Maven finds a plugin's goals in META-INF/maven/plugin.xml. Maven projects generate that file with the
 // maven-plugin-plugin; here it is written by hand (src/main/resources), and the version is filled in when

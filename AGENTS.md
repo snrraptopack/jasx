@@ -30,7 +30,7 @@ The user asked for items 1–4 to be done in this order, then the rest. Mark eac
 3. **(done, spec revision 21: templates by shape, found at run time)** **Static templates:** send a hole's static markup once, and only the changed values afterwards (`targets/web.md` §10).
 4. **Forms and navigation:** (a, done, spec revision 22) restore form input when a discarded page reloads; (b, done, spec revision 23) file uploads; (c, done, spec revision 24) navigation between pages without a full reload.
 5. **Benchmarks** of the `web` target (pages per server, update latency, payload sizes).
-6. **Publishing to Maven Central.** Waits on the user: a license (Apache-2.0 suggested), a group id (`dev.jasx` needs the domain `jasx.dev` verified; otherwise `io.github.snrraptopack`), a Sonatype Central account and a GPG key.
+6. **Publishing to Maven Central.** (setup done) Decided with the user: license Apache-2.0; group id `io.github.snrraptopack` (namespace verified on central.sonatype.com) and Gradle plugin id `io.github.snrraptopack.jasx`, **temporary** until the user buys `jasx.dev`, then everything moves to `dev.jasx` (Java packages stay `jasx.*`). The build signs, stages and uploads (`./gradlew publishToMavenCentral`, as a deployment the user publishes by hand in the portal); `docs/publishing.md` is the procedure. Still waiting on the user: a GPG key and a Central user token in `~/.gradle/gradle.properties`, then the first release (version without `-SNAPSHOT`).
 7. **Plain JavaScript in the browser:** parked in `docs/discussions/browser-javascript.md`; only when the user says so.
 
 ## Current state
@@ -44,7 +44,7 @@ The user asked for items 1–4 to be done in this order, then the rest. Mark eac
 
 - **The Gradle type check compiles twice.** `compileJasx` type-checks the generated Java with javac (`JavacRunner.typeCheck`: same classpath, annotation processors and release as `compileJava`, no class files) so that javac's errors in `.jasx` code are reported once, at `.jasx` locations, and `compileJava` doesn't run. On success, `compileJava` then compiles the source set again. `jasx { typeCheck.set(false) }` turns the check off; javac's errors then point at the generated files (same line numbers). Other `compileJava` options (`compilerArgs`) are not copied into the check.
 - **The language server needs a build for the full picture.** It analyses a Gradle-style source set (`src/<set>/java` and `src/<set>/jasx` together, as the build plugins compile them) as one group, and any other file alone, each under its own key. The Gradle plugin's `writeJasxEditorInfo` task writes `build/jasx/editor/<set>.json` (`EditorInfo`: target, classpaths, processor path, release) on every build, and the Maven plugin `target/jasx/editor/<set>.json`; with it, the server knows the components of the project's jars and runs javac (`JavacRunner.typeCheck`) on open and save, in the background, showing its errors in `.jasx` files only. Before the first build (or without the plugin, or with a custom build directory) it uses its bundled `html` target, knows no jar's components (JASX2001), and shows no javac errors. javac errors are hidden in a file as soon as it is edited, until the next save.
-- **Not published to a public repository.** `./gradlew publishToMavenLocal` installs everything in `~/.m2`; `examples/hello` uses a composite build instead, and `examples/hello-maven` needs `publishToMavenLocal` first.
+- **Not published to a public repository yet** (the build is ready: `docs/publishing.md`). `./gradlew publishToMavenLocal` installs everything in `~/.m2`; `examples/hello` uses a composite build instead, and `examples/hello-maven` needs `publishToMavenLocal` first.
 - **The `web` target is a first version** (`targets/web.md` §10). Keyed lists keep unchanged items (`targets/web.md` §4.3; inputs compared through the lambda's captured fields, `Captures`), and the client merges `html` patches into the DOM, but a plain hole still renders its whole content again (component state inside it starts afresh), and repeated shapes are sent as templates, found at run time (`targets/web.md` §8.4, `Markup`, `Page.content`). `WebServer` (the JDK's HTTP server) is HTTP/1.1 only; the tabs of a browser share one stream (`targets/web.md` §6.2, `SharedStream`, a leader tab chosen with Web Locks), except outside a secure context, where each tab has its own and many tabs can hit the browser's six-connections-per-server limit. The core is `WebApp`, which any server can call through `WebApp.Request`; `WebServer` is the JDK adapter, `jasx-web-servlet` the servlet one, and `jasx-web-spring-boot-starter` (built and tested with Spring Boot 3.4; Spring Boot 4 untested) the Spring one. `WebApp` binds pages to a `jasx_session` cookie and checks events (`targets/web.md` §6.3); there is no rate limiting. The browser client's tests (jsdom) run in `./gradlew build` (`:jasx-web:clientTests`) only when Node.js is installed; without it they are skipped with a warning.
 - **The Maven plugin's type check uses the classpath as the annotation processor path** (Maven's default). It doesn't read `annotationProcessorPaths` from the maven-compiler-plugin's configuration, nor other compiler options. Its plugin descriptor (`META-INF/maven/plugin.xml`) is written by hand; keep it in sync with the mojos' fields (the functional tests catch a mismatch).
 
@@ -69,7 +69,7 @@ jasx-compiler/             declaration scanner, file classes, component index, r
 jasx-target-html/          html reference target: descriptor, schemas/html.json, factory jasx.html.Html,
                            renderer; attribute builders jasx.html.attrs.* generated from the schema
 jasx-processor/            annotation processor: writes META-INF/jasx/components.json
-jasx-gradle-plugin/        Gradle plugin id "dev.jasx": compileJasx task per source set (compiles .jasx, type-checks with javac),
+jasx-gradle-plugin/        Gradle plugin id "io.github.snrraptopack.jasx": compileJasx task per source set (compiles .jasx, type-checks with javac),
                            writeJasxEditorInfo (classpaths for the language server)
 jasx-conformance/          JUnit runner for jasx-spec/tests (all levels)
 jasx-lsp/                  language server over stdio (no third-party deps): JASX and javac diagnostics, completion, definition, hover
@@ -87,6 +87,8 @@ jasx-web-spring-boot-starter/  web in Spring Boot: JasxWebAutoConfiguration (Web
 jasx-web-test/             page tests without a browser: TestPage (render, click, type, submit, await pushes) over
                            WebApp's public API, with its own small DOM (Dom, HtmlParser, Selector, Fields)
 docs/web.md                user guide to the web target
+docs/publishing.md         how to release to Maven Central (keys, token, steps, the later move to dev.jasx)
+LICENSE, NOTICE            Apache-2.0; both go into every published jar
 docs/discussions/          design proposals under discussion (not specified, not implemented)
 examples/hello/            standalone example build (composite build of this repository)
 examples/hello-maven/      the same idea with Maven (needs ./gradlew publishToMavenLocal)
@@ -109,9 +111,9 @@ These decisions are already made. Follow them unless the user changes them.
 | `jasx-target-html` | `html` reference target: descriptor, schema, factory, renderer, generated attribute builders | done |
 | `jasx-conformance` | runner for `jasx-spec/tests`: parse, errors, AST schema, render | done |
 | `jasx-processor` | annotation processor that writes `META-INF/jasx/components.json` (Gradle aggregating incremental processor) | done |
-| `jasx-gradle-plugin` | `dev.jasx` plugin: `compileJasx` per source set, output added to the Java sources, `.jasx` names in class files; TestKit functional tests (including the configuration cache and a multi-project build) | done |
+| `jasx-gradle-plugin` | `io.github.snrraptopack.jasx` plugin: `compileJasx` per source set, output added to the Java sources, `.jasx` names in class files; TestKit functional tests (including the configuration cache and a multi-project build) | done |
 | `jasx-lsp` | language server (LSP over stdio, no third-party deps): JASX diagnostics while typing, javac diagnostics on save (with the build's classpath), completion of tag names and attributes/props in markup and of Java members and names in Java code (`JavaCompletions`: the group lowered with a marker at the cursor, analysed with javac's tree API), go-to-definition and hover on components; `installServer` copies a self-contained jar into the VS Code extension | done (first version) |
-| `jasx-maven-plugin` | Maven plugin `dev.jasx:jasx-maven-plugin`: the same steps as the Gradle plugin, sharing `BuildSources`, `EditorInfo` and `JasxSourceNames` from the compiler | done; functional tests run real Maven builds of `examples/hello-maven` |
+| `jasx-maven-plugin` | Maven plugin `io.github.snrraptopack:jasx-maven-plugin`: the same steps as the Gradle plugin, sharing `BuildSources`, `EditorInfo` and `JasxSourceNames` from the compiler | done; functional tests run real Maven builds of `examples/hello-maven` |
 | `editors/vscode` | TextMate grammar injected into VS Code's Java grammar; language server client; tests with `vscode-textmate` | done |
 | `jasx-ui` | shared runtime of interactive targets (`ui.md`): reactive values and their engine (`Computation`, `Scheduler`), typed events and handlers, `FormEvent.as` record binding; no dependencies | first version |
 | `jasx-web` | the `web` target (`targets/web.md`): holes on `jasx-ui`, `WebLowering`, builders with typed event overloads, pages and protocol (`WebApp`), JDK server (`WebServer`), browser client; no third-party dependencies | first version |
@@ -154,7 +156,9 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew :jasx-compiler:test            # compiler unit tests only
 ./gradlew :jasx-gradle-plugin:test       # plugin functional tests (runs real Gradle builds; slow)
 (cd editors/vscode && npm install && npm test)   # grammar tests (Node)
-./gradlew publishToMavenLocal            # install all dev.jasx artifacts in ~/.m2
+./gradlew publishToMavenLocal            # install all io.github.snrraptopack artifacts in ~/.m2
+./gradlew centralBundle                  # stage, sign and zip the release for Maven Central (build/central/)
+./gradlew publishToMavenCentral          # upload it; publish by hand in the Central Portal (docs/publishing.md)
 ./gradlew :jasx-lsp:test                 # language server tests
 ./gradlew :jasx-lsp:installServer        # build the server jar into editors/vscode/server/
 (cd editors/vscode && npx @vscode/vsce@3 package --skip-license && code --install-extension jasx-0.6.0.vsix --force)

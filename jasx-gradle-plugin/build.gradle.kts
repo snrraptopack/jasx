@@ -1,4 +1,4 @@
-// The JASX Gradle plugin (id "dev.jasx"): compiles .jasx files to Java before compileJava.
+// The JASX Gradle plugin (id "io.github.snrraptopack.jasx"): compiles .jasx files to Java before compileJava.
 
 plugins {
     `java-gradle-plugin`
@@ -12,9 +12,13 @@ dependencies {
 }
 
 gradlePlugin {
+    website = "https://github.com/snrraptopack/jasx"
+    vcsUrl = "https://github.com/snrraptopack/jasx"
     plugins {
         create("jasx") {
-            id = "dev.jasx"
+            // Under the group id's namespace (see the root build.gradle.kts), so Maven Central accepts the
+            // plugin marker artifact io.github.snrraptopack.jasx:io.github.snrraptopack.jasx.gradle.plugin.
+            id = "io.github.snrraptopack.jasx"
             implementationClass = "jasx.gradle.JasxPlugin"
             displayName = "JASX"
             description = "Compiles .jasx files (Java with JSX-style markup) to Java."

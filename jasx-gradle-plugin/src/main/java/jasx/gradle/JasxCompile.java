@@ -114,7 +114,7 @@ public abstract class JasxCompile extends DefaultTask {
             result = sources.compile(paths(getClasspath()), getTarget().get());
         } catch (IllegalArgumentException e) {
             throw new GradleException(e.getMessage() + ". Add the target to your dependencies, for example"
-                    + " implementation(\"dev.jasx:jasx-target-" + getTarget().get() + ":VERSION\").", e);
+                    + " implementation(\"io.github.snrraptopack:jasx-target-" + getTarget().get() + ":VERSION\").", e);
         }
 
         int errors = 0;

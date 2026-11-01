@@ -79,7 +79,7 @@ public final class CompileMojo extends AbstractMojo {
             result = files.compile(paths(classpath), target);
         } catch (IllegalArgumentException e) {
             throw new MojoExecutionException(e.getMessage() + ". Add the target to your dependencies, for example"
-                    + " dev.jasx:jasx-target-" + target + ".", e);
+                    + " io.github.snrraptopack:jasx-target-" + target + ".", e);
         }
 
         int errors = 0;

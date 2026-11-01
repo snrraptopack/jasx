@@ -9,7 +9,7 @@
 <plugin>
   <name>JASX Maven Plugin</name>
   <description>Compiles .jasx files (Java with JSX-style markup) to Java.</description>
-  <groupId>dev.jasx</groupId>
+  <groupId>io.github.snrraptopack</groupId>
   <artifactId>jasx-maven-plugin</artifactId>
   <version>@version@</version>
   <goalPrefix>jasx</goalPrefix>

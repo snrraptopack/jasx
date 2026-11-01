@@ -22,7 +22,7 @@
   <dependencies>
     <!-- The html reference target (it brings jasx-runtime). -->
     <dependency>
-      <groupId>dev.jasx</groupId>
+      <groupId>io.github.snrraptopack</groupId>
       <artifactId>jasx-target-html</artifactId>
       <version>${jasx.version}</version>
     </dependency>
@@ -32,7 +32,7 @@
     <plugins>
       <!-- Compiles the .jasx files in src/main/java and src/main/jasx before the Java compiler runs. -->
       <plugin>
-        <groupId>dev.jasx</groupId>
+        <groupId>io.github.snrraptopack</groupId>
         <artifactId>jasx-maven-plugin</artifactId>
         <version>${jasx.version}</version>
         <executions>

@@ -51,12 +51,12 @@ With Gradle:
 ```kotlin
 plugins {
     java
-    id("dev.jasx")
+    id("io.github.snrraptopack.jasx")
 }
 
 jasx { target.set("web") }
 
-dependencies { implementation("dev.jasx:jasx-web:0.1.0-SNAPSHOT") }
+dependencies { implementation("io.github.snrraptopack:jasx-web:0.1.0-SNAPSHOT") }
 ```
 
 A small server, on the JDK's own HTTP server:
@@ -297,7 +297,7 @@ The runtime is independent of any HTTP server. An adapter describes each request
 
 The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server.
 
-**With Spring Boot** (3.x, with `spring-boot-starter-web`), add `dev.jasx:jasx-web-spring-boot-starter`. Pages are ordinary controller methods that return their markup:
+**With Spring Boot** (3.x, with `spring-boot-starter-web`), add `io.github.snrraptopack:jasx-web-spring-boot-starter`. Pages are ordinary controller methods that return their markup:
 
 ```java
 @Controller
@@ -337,7 +337,7 @@ jasx.web.max-upload-bytes=10485760
 
 With Spring Security, let the runtime's requests through Spring's CSRF check; the runtime protects them its own way (above): `http.csrf(csrf -> csrf.ignoringRequestMatchers("/_jasx/**"))`.
 
-**On a servlet container** (Tomcat 10.1+, Jetty 12, Undertow: Jakarta Servlet 6), add `dev.jasx:jasx-web-servlet` and register a `JasxServlet` with your pages:
+**On a servlet container** (Tomcat 10.1+, Jetty 12, Undertow: Jakarta Servlet 6), add `io.github.snrraptopack:jasx-web-servlet` and register a `JasxServlet` with your pages:
 
 ```java
 @WebListener
@@ -370,7 +370,7 @@ Pages need cookies to work. Rate limiting is up to your reverse proxy.
 
 ## Testing pages
 
-`dev.jasx:jasx-web-test` tests pages without a browser, in plain JUnit tests. `TestPage` renders a component, then clicks, types and submits as a user would, and reads the page as it is after each update:
+`io.github.snrraptopack:jasx-web-test` tests pages without a browser, in plain JUnit tests. `TestPage` renders a component, then clicks, types and submits as a user would, and reads the page as it is after each update:
 
 ```java
 class BoardTest {

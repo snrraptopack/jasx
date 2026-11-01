@@ -17,7 +17,7 @@ import org.gradle.api.tasks.compile.JavaCompile;
 import org.gradle.jvm.toolchain.JavaLanguageVersion;
 
 /**
- * The JASX Gradle plugin, {@code id("dev.jasx")}.
+ * The JASX Gradle plugin, {@code id("io.github.snrraptopack.jasx")}.
  *
  * <p>For each source set ({@code main}, {@code test}, ...) it adds a task {@code compileJasx} (for
  * {@code main}; {@code compileTestJasx} for {@code test}, ...). It compiles the {@code .jasx} files found in

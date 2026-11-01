@@ -1,6 +1,6 @@
 plugins {
     application
-    id("dev.jasx")
+    id("io.github.snrraptopack.jasx")
 }
 
 jasx {
@@ -14,7 +14,7 @@ repositories {
 dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:3.4.1"))
     implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("dev.jasx:jasx-web-spring-boot-starter:0.1.0-SNAPSHOT")
+    implementation("io.github.snrraptopack:jasx-web-spring-boot-starter:0.1.0-SNAPSHOT")
 }
 
 java {
@@ -36,7 +36,7 @@ application {
 
 // Page tests without a browser (jasx-web-test), on JUnit.
 dependencies {
-    testImplementation("dev.jasx:jasx-web-test:0.1.0-SNAPSHOT")
+    testImplementation("io.github.snrraptopack:jasx-web-test:0.1.0-SNAPSHOT")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

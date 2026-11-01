@@ -16,7 +16,7 @@ public abstract class JasxExtension {
 
     /**
      * The id of the target that gives markup its meaning. The target itself must be on the compile
-     * classpath, for example {@code implementation("dev.jasx:jasx-target-html:VERSION")}.
+     * classpath, for example {@code implementation("io.github.snrraptopack:jasx-target-html:VERSION")}.
      */
     public abstract Property<String> getTarget();
 
