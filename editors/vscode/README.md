@@ -42,7 +42,7 @@ From the root of the repository, build the language server into this folder, the
 cd editors/vscode
 npm install
 npx @vscode/vsce@3 package --skip-license
-code --install-extension jasx-0.4.0.vsix --force
+code --install-extension jasx-0.5.0.vsix --force
 ```
 
 Then reload VS Code (Command Palette: **Developer: Reload Window**) and open a `.jasx` file. Its language, shown at the right of the status bar, should be **JASX**. The server's messages are in the Output panel, under **JASX Language Server**. Repeat these steps after changing the grammar, the extension or the server.

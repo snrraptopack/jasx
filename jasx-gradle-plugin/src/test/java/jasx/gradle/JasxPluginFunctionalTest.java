@@ -377,6 +377,104 @@ class JasxPluginFunctionalTest {
     }
 
     @Test
+    void usesATargetWithItsOwnLoweringFromAnotherProject() throws IOException {
+        // A third-party target (semantics.md §7.4): the html factory and schema, with a lowering class that
+        // passes every dynamic child through shout.Shout.loud. The application selects it by its id.
+        write("settings.gradle.kts", "rootProject.name = \"custom\"\ninclude(\"shout\", \"app\")\n");
+        write("build.gradle.kts", "");
+        write("shout/build.gradle.kts", """
+                plugins {
+                    `java-library`
+                }
+
+                dependencies {
+                    api(files(%s))
+                    compileOnly(files(%s))
+                }
+                """.formatted(kotlinFiles("jasx.test.targetClasspath"), kotlinFiles("jasx.test.compilerClasspath")));
+        write("shout/src/main/resources/META-INF/jasx/target.json", """
+                {
+                  "id": "shout",
+                  "specVersion": "1.0",
+                  "factory": "jasx.html.Html",
+                  "attributes": "jasx.html.attrs",
+                  "schema": "schemas/html.json",
+                  "lowering": "shout.ShoutLowering"
+                }
+                """);
+        write("shout/src/main/java/shout/ShoutLowering.java", """
+                package shout;
+
+                import jasx.compiler.FactoryLowering;
+                import jasx.compiler.LoweringOutput;
+                import jasx.compiler.MarkupTree;
+                import jasx.compiler.Target;
+
+                public class ShoutLowering extends FactoryLowering {
+                    public ShoutLowering(Target target) {
+                        super(target);
+                    }
+
+                    @Override
+                    protected void dynamicChild(MarkupTree.Dynamic child, LoweringOutput out) {
+                        out.write("shout.Shout.loud(", child.start());
+                        out.code(child.expression());
+                        out.write(")", child.end() - 1);
+                    }
+                }
+                """);
+        write("shout/src/main/java/shout/Shout.java", """
+                package shout;
+
+                public final class Shout {
+                    public static Object loud(Object value) {
+                        return String.valueOf(value).toUpperCase();
+                    }
+                }
+                """);
+        write("app/build.gradle.kts", """
+                plugins {
+                    application
+                    id("dev.jasx")
+                }
+
+                jasx {
+                    target.set("shout")
+                }
+
+                dependencies {
+                    implementation(project(":shout"))
+                }
+
+                application {
+                    mainClass.set("app.Main")
+                }
+                """);
+        write("app/src/main/java/app/Pages.jasx", """
+                package app;
+
+                import jasx.runtime.Element;
+
+                public Element Home(String name) {
+                  return <p>hello {name}</p>;
+                }
+                """);
+        write("app/src/main/java/app/Main.java", """
+                package app;
+
+                public class Main {
+                    public static void main(String[] args) {
+                        System.out.println(jasx.html.Html.render(Pages.Home("world")));
+                    }
+                }
+                """);
+
+        BuildResult result = gradle(":app:run", "-q").build();
+
+        assertTrue(result.getOutput().contains("<p>hello WORLD</p>"), result.getOutput());
+    }
+
+    @Test
     void isUpToDateWhenNothingChanged() throws IOException {
         write("src/main/java/app/Pages.jasx", """
                 package app;

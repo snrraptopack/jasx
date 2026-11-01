@@ -424,6 +424,8 @@ A target **MAY** provide its own lowering instead of factory lowering, as Solid 
 
 The interface through which the compiler loads a custom lowering is defined by the reference implementation, not by this specification.
 
+> **Note (non-normative).** In the reference implementation, the descriptor's `lowering` names a class implementing `jasx.compiler.MarkupLowering`, shipped in the target's artifact. The compiler analyses each markup expression first (every JASX error is reported whatever the lowering does) and gives the lowering a tree of the markup: normalized children, attributes with their §8 classification, and resolved component calls. The lowering decides what intrinsic elements, fragments, keys and children become. The user's Java code reaches it only as opaque pieces that it places but can't change, and the compiler writes component calls and statement containers itself, so the requirements above hold for every lowering. The standard factory lowering is the default implementation, and a target can extend it to change only some positions, for example to pass dynamic children as functions.
+
 ### 7.5 Capability errors
 
 | Condition | Code |

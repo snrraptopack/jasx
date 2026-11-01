@@ -186,7 +186,10 @@ final class Workspace {
         if (known != null && !known.isStale()) {
             return known;
         }
-        buildInfos.remove(file);
+        if (known != null) {
+            buildInfos.remove(file);
+            known.close();
+        }
         if (!Files.isRegularFile(file)) {
             return null;
         }

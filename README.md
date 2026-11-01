@@ -77,6 +77,7 @@ Early development. The specification is a draft.
 - [`jasx-spec/`](jasx-spec/README.md): the language specification and its conformance tests.
 - Parser, compiler and `html` target: implemented, and passing the whole conformance suite.
 - Gradle plugin, Maven plugin, annotation processor, VS Code highlighting and a language server (errors while typing, completion, go-to-definition and hover): implemented.
+- Targets with their own lowering, so a third-party target decides what markup becomes (see [Writing a target](#writing-a-target)): implemented.
 - Not yet: artifacts in a public repository.
 
 ## Try the example
@@ -144,6 +145,35 @@ Add a target, and the plugin with its two goals:
 
 It works as the Gradle plugin does: `.jasx` files go in `src/main/java` or `src/main/jasx`, errors are reported at their `.jasx` locations, javac's errors in markup once, and the target is set with the property `jasx.target` (`jasx.typeCheck=false` turns the type check off). For `.jasx` files in tests, add the goals `test-compile` and `test-source-names`. [`examples/hello-maven`](examples/hello-maven) is a complete project; until the artifacts are in a public repository, run `./gradlew publishToMavenLocal` here first.
 
+## Writing a target
+
+A target is an ordinary library (`semantics.md` §7). It contains:
+
+- a descriptor, `META-INF/jasx/target.json`, which gives its `id` (what a build selects with `jasx { target.set("id") }` or `jasx.target`);
+- a schema of its elements and attributes;
+- a factory class and attribute builders.
+
+That is enough for factory lowering: markup becomes `F.h(...)` calls on your factory.
+
+For more control, a target can name its own lowering class in the descriptor (`"lowering": "com.acme.AcmeLowering"`, `semantics.md` §7.4). It runs inside the compiler, so the target compiles it against `jasx-compiler` as a `compileOnly` dependency. The compiler first analyses the markup and reports every error. It then hands the lowering a tree of each markup expression: normalized children, attributes classified as static, dynamic or handler, and component calls. The lowering decides what elements, fragments, keys and children become.
+
+The user's own Java code reaches the lowering only as pieces it places, exactly once, but can't change. So line numbers, error locations and stack traces keep working with every target. The easiest start is to extend `FactoryLowering` and override only what you need. For example, this passes every dynamic child to the runtime as a function:
+
+```java
+public class AcmeLowering extends FactoryLowering {
+    public AcmeLowering(Target target) { super(target); }
+
+    @Override
+    protected void dynamicChild(MarkupTree.Dynamic child, LoweringOutput out) {
+        out.write("com.acme.Acme.dynamic(() -> (", child.start());
+        out.code(child.expression());
+        out.write("))", child.end() - 1);
+    }
+}
+```
+
+Implement `MarkupLowering` directly to generate something else entirely. See the Javadoc of `MarkupLowering`, `MarkupTree` and `LoweringOutput`.
+
 ## Editor support
 
 [`editors/vscode`](editors/vscode/README.md) is a VS Code extension: it highlights `.jasx` files (CSS in style blocks too), and runs the JASX language server ([`jasx-lsp`](jasx-lsp)), which shows JASX errors while you type, completes tag names and props, and offers go-to-definition and hover on components. Once the project has been built with the Gradle or Maven plugin, it also knows the components of your dependencies and shows javac's errors in `.jasx` files when you save.
@@ -165,7 +195,7 @@ The second command prints the Java generated for a sample file.
 |---|---|
 | `jasx-spec/` | Specification (grammar, AST, semantics, diagnostics) and conformance tests |
 | `jasx-parser/` | Parser: finds and parses markup in Java source |
-| `jasx-compiler/` | Compiler: resolves components and lowers markup to Java |
+| `jasx-compiler/` | Compiler: resolves components and lowers markup to Java; the interface for a target's own lowering |
 | `jasx-runtime/` | `Element` and the component annotations |
 | `jasx-target-html/` | The `html` reference target |
 | `jasx-processor/` | Annotation processor that publishes a library's components |

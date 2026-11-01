@@ -3,18 +3,15 @@ package jasx.lsp;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import jasx.compiler.ComponentIndex;
 import jasx.compiler.EditorInfo;
 import jasx.compiler.JavacRunner;
 import jasx.compiler.Target;
+import jasx.compiler.TargetClassLoader;
 
 /**
  * What the build says about a source set, read from the file the Gradle or Maven plugin writes at
@@ -35,9 +32,23 @@ import jasx.compiler.Target;
  * @param classpath     the compile classpath, as one string for javac
  * @param processorPath the annotation processor path, as one string for javac
  * @param release       the Java release the build compiles for, or null
+ * @param loader        the open class loader of the target's own lowering, or null (see {@link #close})
  */
 record BuildInfo(Path file, long modified, Target target, ComponentIndex dependencies, String classpath,
-        String processorPath, Integer release) {
+        String processorPath, Integer release, TargetClassLoader loader) {
+
+    /** Releases the target's class loader, if it was kept open. Call it when this is no longer used. */
+    void close() {
+        if (loader == null) {
+            return;
+        }
+        try {
+            loader.close();
+        } catch (IOException e) {
+            // Nothing to do: the loader is no longer used either way.
+        }
+    }
+
 
     /**
      * The file for a Gradle- or Maven-style source directory: for {@code <project>/src/main/java}, Gradle
@@ -73,22 +84,28 @@ record BuildInfo(Path file, long modified, Target target, ComponentIndex depende
             long modified = Files.getLastModifiedTime(file).toMillis();
             EditorInfo info = EditorInfo.fromJson(Files.readString(file, StandardCharsets.UTF_8));
 
-            // Like the compiler in the build, read only resources from the classpath: no class is loaded.
-            List<URL> urls = new ArrayList<>();
-            for (String path : info.jasxClasspath()) {
-                urls.add(Path.of(path).toUri().toURL());
-            }
+            // Like the compiler in the build, read only resources from the classpath, and the target's own
+            // lowering class if it has one (semantics.md §7.4).
+            List<Path> classpath = info.jasxClasspath().stream().map(Path::of).toList();
+            TargetClassLoader loader = new TargetClassLoader(classpath);
             Target target;
             ComponentIndex dependencies;
-            try (URLClassLoader resources = new URLClassLoader(urls.toArray(URL[]::new), null)) {
-                target = Target.load(info.target(), resources);
-                dependencies = ComponentIndex.fromClasspath(resources);
+            try {
+                target = Target.load(info.target(), loader);
+                dependencies = ComponentIndex.fromClasspath(loader);
+            } catch (RuntimeException e) {
+                loader.close();
+                throw e;
             }
 
+            // A custom lowering loads its classes while it runs, so its loader stays open until this is
+            // replaced (close). Otherwise close it now: on Windows an open loader locks the project's jars.
+            boolean keepOpen = target.lowering() != null;
+            if (!keepOpen) {
+                loader.close();
+            }
             return new BuildInfo(file, modified, target, dependencies, String.join(File.pathSeparator, info.compileClasspath()),
-                    String.join(File.pathSeparator, info.processorPath()), info.release());
-        } catch (MalformedURLException e) {
-            throw new IllegalArgumentException("bad path in " + file, e);
+                    String.join(File.pathSeparator, info.processorPath()), info.release(), keepOpen ? loader : null);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

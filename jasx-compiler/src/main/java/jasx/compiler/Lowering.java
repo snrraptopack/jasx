@@ -1,10 +1,13 @@
 package jasx.compiler;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import jasx.compiler.ComponentIndex.Children;
 import jasx.compiler.ComponentIndex.Component;
 import jasx.compiler.ComponentIndex.Prop;
@@ -33,42 +36,40 @@ import jasx.parser.ast.Ast.Markup;
 import jasx.parser.ast.Ast.Segment;
 
 /**
- * Factory lowering of one {@code .jasx} file (semantics.md §6): Java code is copied byte for byte, and
- * every markup expression is replaced by plain Java calls.
+ * Lowering of one {@code .jasx} file (semantics.md §6, §7.4): Java code is copied byte for byte, and every
+ * markup expression is replaced by plain Java.
  *
- * <p>For example, with the html target ({@code F} = {@code jasx.html.Html}):
+ * <p>Each markup expression goes through two steps:
  *
- * <pre>
- *   &lt;ul class="list"&gt;{items}&lt;/ul&gt;      →  F.h("ul", jasx.html.attrs.Ul.create().className("list"), (java.lang.Object) (items))
- *   &lt;&gt;a&lt;/&gt;                          →  F.fragment("a")
- *   &lt;Card title="t" /&gt;                →  app.Page.Card("t")
- *   &lt;li key={id}&gt;x&lt;/li&gt;              →  F.keyed((id), F.h("li", null, "x"))
- * </pre>
+ * <ol>
+ *   <li><b>Analysis.</b> The AST is turned into a {@link MarkupTree}: children are normalized (§3),
+ *       components resolved and their props checked (§5), attributes checked against the target's schema and
+ *       classified (§8). Every JASX error of the markup is reported here, whatever the target's lowering does.
+ *   <li><b>Writing.</b> The tree is handed to the target's {@link MarkupLowering} ({@link FactoryLowering}
+ *       unless the target names its own), which writes Java through an {@link Output}. The parts that are the
+ *       same for every target are written here: the user's Java code, component calls (§5.6) and the
+ *       statement container frame (§6.8).
+ * </ol>
  *
  * <p>All output goes through an {@link Emitter}, which keeps the generated code on the same lines as the
- * markup it came from. Every {@code emit} call therefore names the source position the code belongs to.
- *
- * <p>Problems found here (unknown attributes, missing props, ...) are collected in {@link #diagnostics()}.
- * Lowering continues after an error, so that one run reports as many problems as possible.
+ * markup it came from (§6.5). Lowering continues after an error, so that one run reports as many problems as
+ * possible; the compiler then discards the generated file.
  */
 final class Lowering {
-    /** Cast for expression children, so that a lone null or array is one variadic argument (§6.7). */
+    private static final String ELEMENT = "jasx.runtime.Element";
     private static final String OBJECT_CAST = "(java.lang.Object) ";
 
-    private static final String ELEMENT = "jasx.runtime.Element";
-
     // ---------------------------------------------------------------------------------------------
-    // Normalized children (semantics.md §3)
+    // Normalized children (semantics.md §3), before they become tree nodes
     // ---------------------------------------------------------------------------------------------
 
     /**
      * A child after normalization: whitespace-only text is gone, text is trimmed, and empty expression
-     * containers ({@code {}} and comments) are removed.
+     * containers ({@code {}} and comments) are removed. It becomes a {@link MarkupTree.Child} once the
+     * element's own checks are done, so that errors are reported in source order.
      */
     private sealed interface ChildValue {
         int start();
-
-        int end();
     }
 
     /** Normalized text. {@code start} is the first non-whitespace character, used to keep lines aligned. */
@@ -80,15 +81,6 @@ final class Lowering {
         public int start() {
             return container.start();
         }
-
-        @Override
-        public int end() {
-            return container.end();
-        }
-
-        JavaExpression expression() {
-            return (JavaExpression) container.expression();
-        }
     }
 
     /** A {@code {for ...}}, {@code {if ...}}, ... child: a statement whose markup statements add children. */
@@ -96,11 +88,6 @@ final class Lowering {
         @Override
         public int start() {
             return container.start();
-        }
-
-        @Override
-        public int end() {
-            return container.end();
         }
     }
 
@@ -110,12 +97,38 @@ final class Lowering {
         public int start() {
             return markup.start();
         }
-
-        @Override
-        public int end() {
-            return markup.end();
-        }
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // What the compiler writes itself: pieces of code and component arguments
+    // ---------------------------------------------------------------------------------------------
+
+    /** One piece of a {@link MarkupTree.Code}: copied source, generated text, or nested markup. */
+    sealed interface Part {}
+
+    /** Source text copied byte for byte. */
+    record CopyPart(int start, int end) implements Part {}
+
+    /** Generated text for the source position {@code anchor}. */
+    record WritePart(String text, int anchor) implements Part {}
+
+    /** A markup expression inside the code, lowered by the target. */
+    record MarkupPart(MarkupTree.Markup markup) implements Part {}
+
+    /** One argument of a component call (semantics.md §5.6), in parameter order. */
+    sealed interface Argument {}
+
+    /** A given prop. */
+    record ValueArgument(MarkupTree.Value value) implements Argument {}
+
+    /** The literal of an absent default prop, or the value of an absent optional one. */
+    record TextArgument(String text, int anchor) implements Argument {}
+
+    /** The one child of a component that takes exactly one; null (written as null) if the count is wrong. */
+    record SingleChildArgument(MarkupTree.Child child, int anchor) implements Argument {}
+
+    /** The children of a component that takes a list: {@code java.util.List.<Element>of(...)}. */
+    record ChildListArgument(List<MarkupTree.Child> children, int start, int closeAnchor) implements Argument {}
 
     // ---------------------------------------------------------------------------------------------
     // State
@@ -125,26 +138,31 @@ final class Lowering {
     private final String src;
     private final Target target;
     private final Schema schema;
-    /** The fully qualified factory class, such as {@code jasx.html.Html}. */
-    private final String factory;
     private final Resolver resolver;
-    private final Emitter out;
+    private final Emitter emitter;
+    private final MarkupLowering lowering;
+    private final Output out = new Output();
     private final List<Diagnostic> diagnostics = new ArrayList<>();
     /** The file's style sheet, or null. If set, every intrinsic element is wrapped (semantics.md §10.5). */
     private StyleBlocks.Plan styles;
     /** The component tags resolved so far, for editor tooling (CompilationResult.uses). */
     private final List<CompilationResult.Use> uses = new ArrayList<>();
-    /** How many statement containers were lowered: each gets its own list variable (semantics.md §6.8). */
+    /** How many statement containers were analysed: each gets its own list variable (semantics.md §6.8). */
     private int statementContainers;
+    /**
+     * The codes and markup nodes of the markup expression being lowered, each of which the target must
+     * write exactly once (see {@link Output}).
+     */
+    private final List<Object> toWrite = new ArrayList<>();
 
     Lowering(SourceFile file, LineMap lines, Target target, Resolver resolver) {
         this.file = file;
         this.src = file.content();
         this.target = target;
         this.schema = target.schema();
-        this.factory = target.factory();
         this.resolver = resolver;
-        this.out = new Emitter(src, lines);
+        this.emitter = new Emitter(src, lines);
+        this.lowering = target.newLowering();
     }
 
     List<Diagnostic> diagnostics() {
@@ -191,12 +209,12 @@ final class Lowering {
             // "class T {" in "class T {<style>...") belong before it.
             boolean isJava = segment instanceof JavaCode;
             while (!isJava && next < pending.size() && pending.get(next).offset() <= segment.start()) {
-                out.emit(pending.get(next).text(), pending.get(next).offset());
+                emitter.emit(pending.get(next).text(), pending.get(next).offset());
                 next++;
             }
 
             if (segment instanceof Markup markup) {
-                markup(markup);
+                lowerMarkupExpression(markup);
                 continue;
             }
             if (segment instanceof JasxStyleBlock) {
@@ -211,54 +229,54 @@ final class Lowering {
                 if (insertion.offset() < copiedUpTo) {
                     continue; // inside markup that came before this segment: can't happen for valid input
                 }
-                out.copy(copiedUpTo, insertion.offset());
-                out.emit(insertion.text(), insertion.offset());
+                emitter.copy(copiedUpTo, insertion.offset());
+                emitter.emit(insertion.text(), insertion.offset());
                 copiedUpTo = insertion.offset();
             }
-            out.copy(copiedUpTo, segment.end());
+            emitter.copy(copiedUpTo, segment.end());
         }
 
         // Insertions at the very end of the file, such as the file class's closing brace.
         for (; next < pending.size(); next++) {
-            out.emit(pending.get(next).text(), pending.get(next).offset());
+            emitter.emit(pending.get(next).text(), pending.get(next).offset());
         }
 
-        return new GeneratedFile(file, file.javaPath(), out.text(), out.spans());
+        return new GeneratedFile(file, file.javaPath(), emitter.text(), emitter.spans());
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Elements and fragments
-    // ---------------------------------------------------------------------------------------------
+    /** Analyses one top-level markup expression, then has it written, and checks that nothing was left out. */
+    private void lowerMarkupExpression(Markup markup) {
+        toWrite.clear();
+        MarkupTree.Markup tree = analyse(markup);
+        out.markup(tree);
+        out.checkEverythingWritten();
+    }
 
-    /** Lowers an element or a fragment. */
-    private void markup(Markup markup) {
-        switch (markup) {
+    // =============================================================================================
+    // Analysis: from the AST to the MarkupTree
+    // =============================================================================================
+
+    /** An element or a fragment. */
+    private MarkupTree.Markup analyse(Markup markup) {
+        MarkupTree.Markup node = switch (markup) {
             case JasxFragment fragment -> fragment(fragment);
             case JasxElement element -> element(element);
-        }
+        };
+        toWrite.add(node);
+        return node;
     }
 
-    /** {@code <>a{b}</>}  →  {@code F.fragment("a", (java.lang.Object) (b))} */
-    private void fragment(JasxFragment fragment) {
-        out.emit(factory + ".fragment(", fragment.start());
-
-        List<ChildValue> children = normalize(fragment.children());
-        for (int i = 0; i < children.size(); i++) {
-            if (i > 0) {
-                out.emit(", ", children.get(i).start());
-            }
-            child(children.get(i));
-        }
-
-        int closeAt = fragment.closingFragment() != null ? fragment.closingFragment().start() : fragment.end();
-        out.emit(")", closeAt);
+    private MarkupTree.Fragment fragment(JasxFragment fragment) {
+        List<MarkupTree.Child> children = children(normalize(fragment.children()));
+        int closeAnchor = fragment.closingFragment() != null ? fragment.closingFragment().start() : fragment.end();
+        return new MarkupTree.Fragment(children, fragment.start(), fragment.end(), closeAnchor);
     }
 
     /**
-     * Lowers an element: intrinsic ({@code <div>}) or component ({@code <Card>}). A {@code key} attribute
-     * wraps the result in {@code F.keyed(key, ...)} and is not passed on (semantics.md §4.1, §6.4).
+     * An element: intrinsic ({@code <div>}) or component ({@code <Card>}). A {@code key} attribute makes it a
+     * {@link MarkupTree.Keyed} and is not passed on (semantics.md §4.1, §6.4).
      */
-    private void element(JasxElement element) {
+    private MarkupTree.Markup element(JasxElement element) {
         JasxAttribute key = null;
         List<JasxAttribute> attributes = new ArrayList<>();
         for (JasxAttribute attribute : element.openingElement().attributes()) {
@@ -269,21 +287,15 @@ final class Lowering {
             }
         }
 
-        if (key != null) {
-            out.emit(factory + ".keyed(", element.start());
-            keyValue(key);
-            out.emit(", ", element.start());
+        MarkupTree.Value keyValue = key != null ? keyValue(key) : null;
+        MarkupTree.Markup unkeyed = isIntrinsic(element.openingElement().name())
+                ? intrinsic(element, attributes)
+                : component(element, attributes);
+        if (keyValue == null) {
+            return unkeyed;
         }
-
-        if (isIntrinsic(element.openingElement().name())) {
-            intrinsic(element, attributes);
-        } else {
-            component(element, attributes);
-        }
-
-        if (key != null) {
-            out.emit(")", closingAnchor(element));
-        }
+        toWrite.add(unkeyed); // written by the target's keyed(...), like any nested markup
+        return new MarkupTree.Keyed(keyValue, unkeyed, element.start(), element.end(), closingAnchor(element));
     }
 
     private static boolean isKey(JasxAttribute attribute) {
@@ -301,30 +313,24 @@ final class Lowering {
     }
 
     /** The value of a key: a string literal or an expression (JASX2009 otherwise). */
-    private void keyValue(JasxAttribute key) {
+    private MarkupTree.Value keyValue(JasxAttribute key) {
         if (key.value() instanceof JasxStringLiteral string) {
-            out.emit(javaString(string.value()), string.start());
-            return;
+            return new MarkupTree.Literal(javaString(string.value()), string.value(), string.start());
         }
         if (key.value() instanceof JasxExpressionContainer container
                 && container.expression() instanceof JavaExpression expression) {
-            parenthesized(container, expression);
-            return;
+            return new MarkupTree.Expression(code(expression), container.start(), container.end());
         }
         error("JASX2009", "a key must be a string literal or an expression", key.start(), key.end());
-        out.emit("null", key.start());
+        return new MarkupTree.Literal("null", null, key.start());
     }
 
     // ---------------------------------------------------------------------------------------------
     // Intrinsic elements (semantics.md §6.3)
     // ---------------------------------------------------------------------------------------------
 
-    /**
-     * {@code <a href="/x">go</a>}  →  {@code F.h("a", jasx.html.attrs.A.create().href("/x"), "go")}
-     *
-     * <p>The tag and every attribute are checked against the target's schema.
-     */
-    private void intrinsic(JasxElement element, List<JasxAttribute> attributes) {
+    /** An intrinsic element. The tag and every attribute are checked against the target's schema. */
+    private MarkupTree.Intrinsic intrinsic(JasxElement element, List<JasxAttribute> attributes) {
         JasxIdentifier name = (JasxIdentifier) element.openingElement().name();
         String tag = name.name();
         Schema.ElementSpec spec = schema.element(tag);
@@ -340,25 +346,25 @@ final class Lowering {
         List<ChildValue> children = normalize(element.children());
         if (spec != null && spec.isVoid() && !children.isEmpty()) {
             ChildValue first = children.get(0);
-            error("JASX2102", "<" + tag + "> is a void element and cannot have children", first.start(), first.end());
+            error("JASX2102", "<" + tag + "> is a void element and cannot have children", first.start(),
+                    childEnd(first));
         }
 
-        // In a file with a style sheet, the element is wrapped (§10.5): F.scoped(C.jasx$styles, F.h(...)) if
-        // a scoped compound may match it, so that it gets the scope class, otherwise F.unscoped(...).
-        boolean wrapped = styles != null;
-        if (wrapped) {
-            String function = mayBeStyled(tag, attributes) ? ".scoped(" : ".unscoped(";
-            out.emit(factory + function + styles.fieldReference() + ", ", element.start());
+        // Unknown and custom elements use the generic builder, which only has .attr(name, value).
+        boolean unknownElement = spec == null;
+        String builderClass = target.attributesPackage() + "." + (unknownElement ? "Custom" : Schema.pascalCase(tag));
+        List<MarkupTree.Attribute> attributeNodes = new ArrayList<>();
+        for (JasxAttribute attribute : attributes) {
+            attributeNodes.add(attribute(tag, unknownElement, attribute));
         }
 
-        // F.h("tag", attributes, children...)
-        out.emit(factory + ".h(" + javaString(tag) + ", ", element.start());
-        attributeBuilder(tag, spec, attributes, element.start());
-        for (ChildValue child : children) {
-            out.emit(", ", child.start());
-            child(child);
-        }
-        out.emit(wrapped ? "))" : ")", closingAnchor(element));
+        // In a file with a style sheet, the element uses it (§10.5), with the scope class if one of the
+        // file's scoped compounds may match it.
+        String styleSheet = styles != null ? styles.fieldReference() : null;
+        boolean scoped = styles != null && mayBeStyled(tag, attributes);
+
+        return new MarkupTree.Intrinsic(tag, builderClass, attributeNodes, children(children), styleSheet, scoped,
+                element.start(), element.end(), closingAnchor(element));
     }
 
     /** Whether one of the file's scoped compounds may match this element (semantics.md §10.5). */
@@ -379,53 +385,37 @@ final class Lowering {
     }
 
     /**
-     * The attributes argument of {@code F.h}: {@code null} without attributes, otherwise a builder chain
-     * such as {@code jasx.html.attrs.Button.create().className("x").disabled(true)}.
+     * One attribute: its builder method ({@code className}), or {@code attr} for names the schema accepts by
+     * pattern (data-*, aria-*, ...), namespaced names, and custom elements; and its kind (semantics.md §8).
      */
-    private void attributeBuilder(String tag, Schema.ElementSpec spec, List<JasxAttribute> attributes, int anchor) {
-        if (attributes.isEmpty()) {
-            out.emit("null", anchor);
-            return;
-        }
-
-        // Unknown and custom elements use the generic builder, which only has .attr(name, value).
-        boolean unknownElement = spec == null;
-        String builderClass = unknownElement ? "Custom" : Schema.pascalCase(tag);
-        out.emit(target.attributesPackage() + "." + builderClass + ".create()", anchor);
-
-        for (JasxAttribute attribute : attributes) {
-            attributeCall(tag, unknownElement, attribute);
-        }
-    }
-
-    /**
-     * One builder call for one attribute: {@code .className("x")}, or {@code .attr("data-id", 7)} for names
-     * the schema accepts by pattern (data-*, aria-*, ...), namespaced names, and custom elements.
-     */
-    private void attributeCall(String tag, boolean unknownElement, JasxAttribute attribute) {
+    private MarkupTree.Attribute attribute(String tag, boolean unknownElement, JasxAttribute attribute) {
         String name = JasxParser.attributeNameText(attribute.name());
 
-        boolean passByName = unknownElement
+        boolean byName = unknownElement
                 || attribute.name() instanceof JasxNamespacedName
                 || schema.matchesPattern(name);
         String method = "attr";
+        boolean isEvent = false;
 
-        if (!passByName) {
+        if (!byName) {
             Schema.AttributeSpec spec = schema.attribute(tag, name);
             if (spec == null) {
                 error("JASX2101", "<" + tag + "> has no attribute '" + name + "' on target '" + target.id() + "'",
                         attribute.start(), attribute.end());
-                passByName = true; // keep going, so that later errors are found too
+                byName = true; // keep going, so that later errors are found too
             } else {
                 method = spec.method();
+                isEvent = spec.event();
                 checkEventHandler(name, spec, attribute);
             }
         }
 
-        String nameArgument = passByName ? javaString(name) + ", " : "";
-        out.emit("." + method + "(" + nameArgument, attribute.start());
-        attributeValue(attribute);
-        out.emit(")", attribute.end());
+        boolean isExpression = attribute.value() instanceof JasxExpressionContainer;
+        MarkupTree.AttributeKind kind = !isExpression ? MarkupTree.AttributeKind.STATIC
+                : isEvent ? MarkupTree.AttributeKind.HANDLER
+                : MarkupTree.AttributeKind.DYNAMIC;
+        return new MarkupTree.Attribute(name, method, byName, kind, value(attribute), attribute.start(),
+                attribute.end());
     }
 
     /** On a target without Java event handlers, an event attribute only takes a string (JASX2103). */
@@ -439,22 +429,22 @@ final class Lowering {
     }
 
     /**
-     * The Java value of an attribute (semantics.md §4): {@code true} for a shorthand attribute, a string
-     * literal, a parenthesized expression, or lowered markup.
+     * The value of an attribute or prop (semantics.md §4): {@code true} for a shorthand attribute, a string
+     * literal, an expression, or markup.
      */
-    private void attributeValue(JasxAttribute attribute) {
-        switch (attribute.value()) {
-            case null -> out.emit("true", attribute.start());
-            case JasxStringLiteral string -> out.emit(javaString(string.value()), string.start());
+    private MarkupTree.Value value(JasxAttribute attribute) {
+        return switch (attribute.value()) {
+            case null -> new MarkupTree.Literal("true", null, attribute.start());
+            case JasxStringLiteral string -> new MarkupTree.Literal(javaString(string.value()), string.value(),
+                    string.start());
             case JasxExpressionContainer container -> {
                 if (container.expression() instanceof JavaExpression expression) {
-                    parenthesized(container, expression);
-                } else {
-                    out.emit("null", container.start()); // {} is already a syntax error (JASX1008)
+                    yield new MarkupTree.Expression(code(expression), container.start(), container.end());
                 }
+                yield new MarkupTree.Literal("null", null, container.start()); // {} is a syntax error (JASX1008)
             }
-            case Markup markup -> markup(markup);
-        }
+            case Markup markup -> new MarkupTree.MarkupValue(analyse(markup));
+        };
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -462,18 +452,18 @@ final class Lowering {
     // ---------------------------------------------------------------------------------------------
 
     /**
-     * {@code <Card subtitle="s" title="t" />}  →  {@code app.Page.Card("t", "s")}
+     * {@code <Card subtitle="s" title="t" />}  →  a call {@code app.Page.Card("t", "s")}.
      *
-     * <p>A direct static call. Arguments are in <em>parameter</em> order, whatever the attribute order;
-     * absent optional props get {@code null} (or a primitive's default), absent default props get their
-     * literal, and the {@code children} parameter gets the child content.
+     * <p>Arguments are in <em>parameter</em> order, whatever the attribute order; absent optional props get
+     * {@code null} (or a primitive's default), absent default props get their literal, and the
+     * {@code children} parameter gets the child content.
      */
-    private void component(JasxElement element, List<JasxAttribute> attributes) {
+    private MarkupTree.ComponentCall component(JasxElement element, List<JasxAttribute> attributes) {
+        int closeAnchor = closingAnchor(element);
         Resolver.Resolution resolution = resolver.resolve(element.openingElement().name(), element.start());
         if (resolution.error() != null) {
             diagnostics.add(resolution.error());
-            out.emit("null", element.start());
-            return;
+            return unresolved(element, closeAnchor);
         }
         Component component = resolution.component();
         recordUse(component, element);
@@ -484,16 +474,17 @@ final class Lowering {
         checkChildren(tag, component, children, element);
         checkRequiredProps(tag, component, givenProps, element);
 
-        // Component.Method(arg1, arg2, ...)
-        out.emit(component.className() + "." + component.method() + "(", element.start());
-        List<Prop> params = component.params();
-        for (int i = 0; i < params.size(); i++) {
-            if (i > 0) {
-                out.emit(", ", element.start());
-            }
-            argument(params.get(i), givenProps, component.children(), children, element);
+        List<Argument> arguments = new ArrayList<>();
+        for (Prop param : component.params()) {
+            arguments.add(argument(param, givenProps, component.children(), children, element));
         }
-        out.emit(")", closingAnchor(element));
+        return new MarkupTree.ComponentCall(component.className(), component.method(), arguments, element.start(),
+                element.end(), closeAnchor);
+    }
+
+    /** A component that couldn't be resolved: written as {@code null}; the file has an error anyway. */
+    private static MarkupTree.ComponentCall unresolved(JasxElement element, int closeAnchor) {
+        return new MarkupTree.ComponentCall(null, null, List.of(), element.start(), element.end(), closeAnchor);
     }
 
     /** Records the names of the opening and closing tags of {@code element} as uses of {@code component}. */
@@ -529,7 +520,7 @@ final class Lowering {
     private void checkChildren(String tag, Component component, List<ChildValue> children, JasxElement element) {
         if (component.children() == Children.NONE && !children.isEmpty()) {
             ChildValue first = children.get(0);
-            error("JASX2003", tag + " takes no children", first.start(), first.end());
+            error("JASX2003", tag + " takes no children", first.start(), childEnd(first));
         } else if (component.children() == Children.SINGLE && children.size() != 1) {
             error("JASX2004", tag + " takes exactly one child, but has " + children.size(),
                     element.start(), element.end());
@@ -546,66 +537,24 @@ final class Lowering {
     }
 
     /** The argument for one parameter of a component call. */
-    private void argument(Prop prop, Map<String, JasxAttribute> givenProps, Children childrenKind,
+    private Argument argument(Prop prop, Map<String, JasxAttribute> givenProps, Children childrenKind,
             List<ChildValue> children, JasxElement element) {
         if (prop.kind() == PropKind.CHILDREN) {
-            componentChildren(childrenKind, children, element);
-            return;
+            if (childrenKind == Children.SINGLE) {
+                // A wrong count was already reported (JASX2004); the argument is then null.
+                MarkupTree.Child only = children.size() == 1 ? children(children).get(0) : null;
+                return new SingleChildArgument(only, element.start());
+            }
+            return new ChildListArgument(children(children), element.start(), closingAnchor(element));
         }
         JasxAttribute given = givenProps.get(prop.name());
         if (given != null) {
-            attributeValue(given);
-        } else if (prop.kind() == PropKind.DEFAULT) {
-            out.emit(prop.defaultValue(), element.start());
-        } else {
-            out.emit(absentValue(prop.type()), element.start());
+            return new ValueArgument(value(given));
         }
-    }
-
-    /**
-     * The {@code children} argument: the single child as an Element, or
-     * {@code java.util.List.<jasx.runtime.Element>of(child1, child2, ...)}.
-     */
-    private void componentChildren(Children kind, List<ChildValue> children, JasxElement element) {
-        if (kind == Children.SINGLE) {
-            if (children.size() == 1) {
-                asElement(children.get(0));
-            } else {
-                out.emit("null", element.start()); // wrong count, already reported (JASX2004)
-            }
-            return;
+        if (prop.kind() == PropKind.DEFAULT) {
+            return new TextArgument(prop.defaultValue(), element.start());
         }
-
-        out.emit("java.util.List.<" + ELEMENT + ">of(", element.start());
-        for (int i = 0; i < children.size(); i++) {
-            if (i > 0) {
-                out.emit(", ", children.get(i).start());
-            }
-            asElement(children.get(i));
-        }
-        out.emit(")", closingAnchor(element));
-    }
-
-    /**
-     * A child converted to an {@code Element} for a component parameter (semantics.md §5.5): markup as it
-     * is, text through {@code F.text}, and an expression through {@code F.fragment}, so that null, lists and
-     * Optionals keep their meaning.
-     */
-    private void asElement(ChildValue child) {
-        switch (child) {
-            case MarkupValue m -> markup(m.markup());
-            case TextValue t -> out.emit(factory + ".text(" + javaString(t.text()) + ")", t.start());
-            case ExpressionValue v -> {
-                out.emit(factory + ".fragment(" + OBJECT_CAST + "(", v.start());
-                expression(v.expression());
-                out.emit("))", v.end() - 1);
-            }
-            case StatementValue s -> {
-                out.emit(factory + ".fragment(", s.start());
-                statementContainer(s.container());
-                out.emit(")", s.end() - 1);
-            }
-        }
+        return new TextArgument(absentValue(prop.type()), element.start());
     }
 
     /**
@@ -627,24 +576,36 @@ final class Lowering {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Children and expressions
+    // Children and code
     // ---------------------------------------------------------------------------------------------
 
-    /**
-     * A child of an intrinsic element or fragment, as one variadic argument of {@code F.h} or
-     * {@code F.fragment}: text as a string literal, an expression cast to Object, or markup.
-     */
-    private void child(ChildValue child) {
-        switch (child) {
-            case MarkupValue m -> markup(m.markup());
-            case TextValue t -> out.emit(javaString(t.text()), t.start());
-            case ExpressionValue v -> {
-                out.emit(OBJECT_CAST + "(", v.start());
-                expression(v.expression());
-                out.emit(")", v.end() - 1);
-            }
-            case StatementValue s -> statementContainer(s.container());
+    /** Turns normalized children into tree nodes, analysing the markup and code inside them. */
+    private List<MarkupTree.Child> children(List<ChildValue> values) {
+        List<MarkupTree.Child> children = new ArrayList<>();
+        for (ChildValue value : values) {
+            children.add(switch (value) {
+                case TextValue t -> new MarkupTree.Text(t.text(), t.start(), t.end());
+                case ExpressionValue v -> new MarkupTree.Dynamic(
+                        code((JavaExpression) v.container().expression()), v.container().start(), v.container().end());
+                case StatementValue s -> new MarkupTree.Statement(
+                        statementContainer(s.container()), s.container().start(), s.container().end());
+                case MarkupValue m -> analyse(m.markup());
+            });
         }
+        return children;
+    }
+
+    /** A Java expression: its source, with any markup nested inside it lowered by the target. */
+    private MarkupTree.Code code(JavaExpression expression) {
+        List<Part> parts = new ArrayList<>();
+        for (Segment segment : expression.segments()) {
+            if (segment instanceof Markup markup) {
+                parts.add(new MarkupPart(analyse(markup)));
+            } else {
+                parts.add(new CopyPart(segment.start(), segment.end()));
+            }
+        }
+        return newCode(parts, expression.start(), expression.end());
     }
 
     /**
@@ -653,49 +614,40 @@ final class Lowering {
      *
      * <pre>
      *   {for (T t : ts) { &lt;li&gt;{t}&lt;/li&gt; }}
-     *   →  (java.lang.Object) switch (0) { default -&gt; { java.util.ArrayList&lt;java.lang.Object&gt; jasx$children0 =
+     *   →  switch (0) { default -&gt; { java.util.ArrayList&lt;java.lang.Object&gt; jasx$children0 =
      *          new java.util.ArrayList&lt;&gt;(); for (T t : ts) { jasx$children0.add((java.lang.Object) (F.h("li", ...))); }
      *          yield jasx$children0; } }
      * </pre>
      *
      * <p>A switch expression rather than a lambda, so that the statement can assign local variables of the
      * enclosing method. Each container of the file gets its own list name, so that nested ones don't clash.
+     * The {@code (java.lang.Object)} cast of a child (§6.7) is the target's to write.
      */
-    private void statementContainer(JasxStatementContainer container) {
+    private MarkupTree.Code statementContainer(JasxStatementContainer container) {
         String list = "jasx$children" + statementContainers++;
-        out.emit(OBJECT_CAST + "switch (0) { default -> { java.util.ArrayList<java.lang.Object> " + list
-                + " = new java.util.ArrayList<>(); ", container.start());
+        List<Part> parts = new ArrayList<>();
+        parts.add(new WritePart("switch (0) { default -> { java.util.ArrayList<java.lang.Object> " + list
+                + " = new java.util.ArrayList<>(); ", container.start()));
         for (Segment segment : container.statement().segments()) {
             switch (segment) {
                 case JasxMarkupStatement statement -> {
-                    out.emit(list + ".add(" + OBJECT_CAST + "(", statement.start());
-                    markup(statement.markup());
-                    out.emit("));", statement.end() - 1);
+                    parts.add(new WritePart(list + ".add(" + OBJECT_CAST + "(", statement.start()));
+                    parts.add(new MarkupPart(analyse(statement.markup())));
+                    parts.add(new WritePart("));", statement.end() - 1));
                 }
-                case Markup markup -> markup(markup); // a markup expression, as anywhere in Java code
+                case Markup markup -> parts.add(new MarkupPart(analyse(markup))); // as anywhere in Java code
                 case JasxStyleBlock block -> {} // removed; its CSS is in the style sheet (§10.5)
-                default -> out.copy(segment.start(), segment.end());
+                default -> parts.add(new CopyPart(segment.start(), segment.end()));
             }
         }
-        out.emit(" yield " + list + "; } }", container.end() - 1);
+        parts.add(new WritePart(" yield " + list + "; } }", container.end() - 1));
+        return newCode(parts, container.start(), container.end());
     }
 
-    /** {@code {expr}} as an attribute or prop value: {@code (expr)}. */
-    private void parenthesized(JasxExpressionContainer container, JavaExpression expression) {
-        out.emit("(", container.start());
-        expression(expression);
-        out.emit(")", container.end() - 1);
-    }
-
-    /** Copies a Java expression, lowering any markup nested inside it. */
-    private void expression(JavaExpression expression) {
-        for (Segment segment : expression.segments()) {
-            if (segment instanceof Markup markup) {
-                markup(markup);
-            } else {
-                out.copy(segment.start(), segment.end());
-            }
-        }
+    private MarkupTree.Code newCode(List<Part> parts, int start, int end) {
+        MarkupTree.Code code = new MarkupTree.Code(List.copyOf(parts), start, end);
+        toWrite.add(code);
+        return code;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -726,6 +678,16 @@ final class Lowering {
             }
         }
         return values;
+    }
+
+    /** Where a normalized child ends in the source, for error ranges. */
+    private static int childEnd(ChildValue child) {
+        return switch (child) {
+            case TextValue t -> t.end();
+            case ExpressionValue v -> v.container().end();
+            case StatementValue s -> s.container().end();
+            case MarkupValue m -> m.markup().end();
+        };
     }
 
     /**
@@ -780,6 +742,141 @@ final class Lowering {
             }
         }
         return start;
+    }
+
+    // =============================================================================================
+    // Writing: the output the target's lowering writes to
+    // =============================================================================================
+
+    /**
+     * The {@link LoweringOutput} of this file. It writes through the {@link Emitter}, calls the target's
+     * lowering for nested markup, writes component calls itself, and checks that the lowering writes every
+     * piece of the tree exactly once: a piece left out would silently drop the user's code, and one written
+     * twice would run it twice.
+     */
+    private final class Output implements LoweringOutput {
+        private final Set<Object> written = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        @Override
+        public void write(String java, int anchor) {
+            if (java.indexOf('\n') >= 0 || java.indexOf('\r') >= 0) {
+                throw new IllegalArgumentException(problem("wrote a line break, which would shift the lines of the "
+                        + "generated file (semantics.md §6.5): " + java.strip()));
+            }
+            emitter.emit(java, anchor);
+        }
+
+        @Override
+        public void code(MarkupTree.Code code) {
+            markWritten(code, code.start());
+            for (Part part : code.parts) {
+                switch (part) {
+                    case CopyPart copy -> emitter.copy(copy.start(), copy.end());
+                    case WritePart text -> emitter.emit(text.text(), text.anchor());
+                    case MarkupPart nested -> markup(nested.markup());
+                }
+            }
+        }
+
+        @Override
+        public void markup(MarkupTree.Markup markup) {
+            markWritten(markup, markup.start());
+            switch (markup) {
+                case MarkupTree.Intrinsic element -> lowering.intrinsic(element, this);
+                case MarkupTree.Fragment fragment -> lowering.fragment(fragment, this);
+                case MarkupTree.Keyed keyed -> lowering.keyed(keyed, this);
+                case MarkupTree.ComponentCall call -> componentCall(call);
+            }
+        }
+
+        @Override
+        public void value(MarkupTree.Value value) {
+            switch (value) {
+                case MarkupTree.Literal literal -> write(literal.java(), literal.anchor());
+                case MarkupTree.Expression expression -> {
+                    write("(", expression.start());
+                    code(expression.expression());
+                    write(")", expression.end() - 1);
+                }
+                case MarkupTree.MarkupValue markup -> markup(markup.markup());
+            }
+        }
+
+        /** {@code app.Page.Card("t", F.text("child"))}: a direct call, arguments in parameter order (§5.6). */
+        private void componentCall(MarkupTree.ComponentCall call) {
+            if (call.className() == null) {
+                write("null", call.start()); // unresolved, already reported
+                return;
+            }
+            write(call.className() + "." + call.method() + "(", call.start());
+            for (int i = 0; i < call.arguments.size(); i++) {
+                if (i > 0) {
+                    write(", ", call.start());
+                }
+                argument(call.arguments.get(i));
+            }
+            write(")", call.closeAnchor);
+        }
+
+        private void argument(Argument argument) {
+            switch (argument) {
+                case ValueArgument given -> value(given.value());
+                case TextArgument text -> write(text.text(), text.anchor());
+                case SingleChildArgument single -> {
+                    if (single.child() == null) {
+                        write("null", single.anchor());
+                    } else {
+                        lowering.componentChild(single.child(), this);
+                    }
+                }
+                case ChildListArgument list -> {
+                    write("java.util.List.<" + ELEMENT + ">of(", list.start());
+                    for (int i = 0; i < list.children().size(); i++) {
+                        MarkupTree.Child child = list.children().get(i);
+                        if (i > 0) {
+                            write(", ", child.start());
+                        }
+                        lowering.componentChild(child, this);
+                    }
+                    write(")", list.closeAnchor());
+                }
+            }
+        }
+
+        private void markWritten(Object piece, int position) {
+            if (!written.add(piece)) {
+                throw new IllegalStateException(problem("wrote the code at " + where(position) + " twice"));
+            }
+        }
+
+        /** After a markup expression: every piece of its tree must have been written. */
+        void checkEverythingWritten() {
+            for (Object piece : toWrite) {
+                if (!written.contains(piece)) {
+                    int position = piece instanceof MarkupTree.Code code ? code.start() : ((MarkupTree.Markup) piece).start();
+                    throw new IllegalStateException(problem("did not write the code at " + where(position)));
+                }
+            }
+            written.clear();
+        }
+
+        private String problem(String what) {
+            return "the lowering of target '" + target.id() + "' (" + lowering.getClass().getName() + ") " + what;
+        }
+
+        private String where(int position) {
+            return file.path() + ":" + (lineOf(position));
+        }
+
+        private int lineOf(int position) {
+            int line = 1;
+            for (int i = 0; i < position && i < src.length(); i++) {
+                if (src.charAt(i) == '\n') {
+                    line++;
+                }
+            }
+            return line;
+        }
     }
 
     // ---------------------------------------------------------------------------------------------

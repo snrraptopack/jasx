@@ -11,19 +11,20 @@ JASX is a **language, not a framework**, exactly as JSX is to React:
 - The **core language** defines the syntax, the AST, children normalization, component resolution, the static/dynamic classification of positions and a standard **factory lowering**: markup becomes calls such as `F.h("div", attrs, children...)` on a factory class `F`.
 - A **target** is a library that supplies the factory, typed attribute builders, an element/attribute schema and, optionally, its own lowering. This works like React, Preact or Solid supplying the runtime for JSX.
 
-## Current focus: the core language only
+## Current focus: from the core language to targets
 
-**The goal right now is JASX as JSX is without React.** Targets come later.
+**The core language is JASX as JSX is without React, and it is complete.** Work has moved to targets (Milestone 4), before publishing: the extension point for targets (custom lowering) is done, and JASX's own runtime target comes next.
 
 - `html` exists only as a small **reference target**, so that core semantics can be tested (`jasx-spec/tests/render`).
-- **`live` (a reactive, server-driven target) is deferred and NOT decided.** `jasx-spec/targets/live.md` only records ideas and is not normative. Don't implement it, don't design core features around it, and don't describe it as a goal.
+- **What kind of runtime target JASX will have is NOT decided yet** (for example server-driven, as `live` sketches, or running in the browser). `jasx-spec/targets/live.md` only records ideas and is not normative. Don't implement a runtime target until the user has chosen, and don't design core features around one.
 - Reactivity is not part of the core. The core only says which positions are **static** or **dynamic** (`semantics.md` §8), not when they are re-evaluated.
 
 ## Current state
 
 - `jasx-spec/` is the **normative source of truth**. `JASX-update1.md` is the **historical** design proposal: don't implement from it.
 - **Milestones 1 and 2 are done.** The parser passes the parse and error conformance tests, and the compiler with the `html` reference target passes the render tests: `.jasx` compiles to Java, javac compiles it, and it renders the expected HTML.
-- **Milestone 3 is mostly done:** the annotation processor, the Gradle and Maven plugins (with javac errors reported at `.jasx` locations, and `.jasx` names in stack traces), VS Code syntax highlighting, a language server (`jasx-lsp`: JASX errors while typing, javac errors on save once the project is built, completion of tags and props, go-to-definition and hover on components) with its VS Code client, publishing to Maven Local, and a runnable example (`examples/hello`). Still missing: publishing to a public repository.
+- **Milestone 3 is mostly done:** the annotation processor, the Gradle and Maven plugins (with javac errors reported at `.jasx` locations, and `.jasx` names in stack traces), VS Code syntax highlighting, a language server (`jasx-lsp`: JASX errors while typing, javac errors on save once the project is built, completion of tags and props, go-to-definition and hover on components) with its VS Code client, publishing to Maven Local, and a runnable example (`examples/hello`). Still missing: publishing to a public repository, which waits until Milestone 4 has JASX's own runtime target and more examples.
+- **Milestone 4 has started:** targets can have their own lowering (`semantics.md` §7.4, `MarkupLowering`).
 
 ## Known gaps
 
@@ -72,7 +73,7 @@ These decisions are already made. Follow them unless the user changes them.
 |---|---|---|
 | `jasx-parser` | `JavaLexer`, markup parser with error recovery, AST, JSON serializer, `--dump-ast` CLI | done |
 | `jasx-runtime` | `jasx.runtime.Element`, `@jasx.Component`, `@jasx.Optional`, `@jasx.Default` | done |
-| `jasx-compiler` | declaration scanner, component index, name resolution, normalization, factory lowering, line preservation, span maps, javac diagnostic remapping, target loading, CLI | done |
+| `jasx-compiler` | declaration scanner, component index, name resolution, normalization, factory lowering, line preservation, span maps, javac diagnostic remapping, target loading, CLI; the public interface for a target's own lowering (`MarkupLowering`, `MarkupTree`, `LoweringOutput`, `FactoryLowering`, `TargetClassLoader`) | done |
 | `jasx-target-html` | `html` reference target: descriptor, schema, factory, renderer, generated attribute builders | done |
 | `jasx-conformance` | runner for `jasx-spec/tests`: parse, errors, AST schema, render | done |
 | `jasx-processor` | annotation processor that writes `META-INF/jasx/components.json` (Gradle aggregating incremental processor) | done |
@@ -84,20 +85,21 @@ These decisions are already made. Follow them unless the user changes them.
   Later: publishing, an IntelliJ client for the language server (and later a deeper IntelliJ plugin), more language server features (rename, find references). Other targets are undecided.
 - The Java package root is `jasx` (`jasx.parser`, `jasx.runtime`, `jasx.html`, …), matching the names the spec uses.
 - `jasx-parser`, `jasx-runtime`, `jasx-compiler` and `jasx-lsp` must stay free of third-party runtime dependencies (the compiler has its own small JSON reader). Test-only dependencies (JUnit, Jackson, json-schema-validator) are fine.
-- The compiler never references a target at compile time. It loads the target's descriptor and schema from the classpath (`Target.load`).
+- The compiler never references a target at compile time. It loads the target's descriptor and schema from the classpath (`Target.load`), and the target's lowering class if the descriptor names one.
+- The lowering interface (`MarkupLowering`, `MarkupTree`, `LoweringOutput`, `FactoryLowering`) is public API for third-party targets: keep it small, and change it only on purpose. Anything every target must get right (JASX errors, Java code byte for byte, component calls, line preservation) stays in the compiler, not in a lowering.
 
 ### Milestones
 
 1. **Parser** (done): `tests/parse` and `tests/errors` pass, and every AST validates against `ast.schema.json`.
 2. **Compiler and `html` reference target** (done): factory lowering, component index, line preservation, diagnostic remapping. `tests/render` passes.
 3. **Tooling** (mostly done): annotation processor, Gradle and Maven plugins, javac errors at `.jasx` locations, `.jasx` names in stack traces, TextMate grammar and a language server are done; publishing to a public repository remains.
-4. **Targets:** to be decided after the core is complete.
+4. **Targets** (started, before publishing): custom lowering is done (`MarkupLowering`, tested with a lowering loaded through `TargetClassLoader` and a Gradle build using a target from another project). Next: JASX's own runtime target (what kind is not decided yet: the user chooses where its state lives) and more examples.
 
 ### How the compiler works
 
 1. Parse each `.jasx` file (`JasxParser`).
 2. Scan each source with `JavaStructure` (tokens only, markup skipped) for the package, imports, named types, method headers and top-level declarations, and build the component index. If a `.jasx` file has top-level fields or methods, `JavaStructure` creates its **file class** (`semantics.md` §9) and `FileClass` computes the text that wraps the file in it. Problems here are JASX2006, JASX2010–JASX2013. `StyleBlocks` then checks the file's style block (`semantics.md` §10) and scopes its CSS with `ScopedCss` (JASX2014–JASX2016, JASX2106).
-3. Lower each `.jasx` file without syntax errors (`Lowering`, writing through `Emitter`). Java code is copied verbatim, except for **insertions** (`Lowering.Insertion`) on the same line: `@jasx.Component` before components, and for a file class its header after the imports, `static` in each top-level declaration, and `}` after the end of the file. Markup becomes `F.h(...)`, `F.fragment(...)`, `F.keyed(...)` and direct component calls. Style blocks are removed (their lines stay, empty); the file's one style sheet becomes a `jasx$styles` field inserted at the start of the style class (the file class, or the top-level class of the first block), and every intrinsic element of the file is wrapped in `F.scoped(C.jasx$styles, ...)` if one of the file's scoped compounds may match it (`ScopeMatch`: tag name and literal `class`/`id`, `semantics.md` §10.5), otherwise in `F.unscoped(...)`, which uses the sheet but adds no class. `Emitter` only adds line breaks to catch up with the source line, and records a `SpanMap`.
+3. Lower each `.jasx` file without syntax errors (`Lowering`, writing through `Emitter`). Each markup expression is first **analysed** into a `MarkupTree` (normalized children, resolved and checked components, attributes checked and classified per `semantics.md` §8; every JASX error is reported here), then **written** by the target's `MarkupLowering`: `FactoryLowering` by default, or the class the descriptor names (`"lowering"`, §7.4), loaded through `TargetClassLoader`. The lowering decides what intrinsic elements, fragments, keys and children become; the user's Java code reaches it only as `MarkupTree.Code`, which it must place exactly once (`Lowering.Output` checks), and the compiler writes component calls and the statement container frame itself. Java code is copied verbatim, except for **insertions** (`Lowering.Insertion`) on the same line: `@jasx.Component` before components, and for a file class its header after the imports, `static` in each top-level declaration, and `}` after the end of the file. Markup becomes `F.h(...)`, `F.fragment(...)`, `F.keyed(...)` and direct component calls. Style blocks are removed (their lines stay, empty); the file's one style sheet becomes a `jasx$styles` field inserted at the start of the style class (the file class, or the top-level class of the first block), and every intrinsic element of the file is wrapped in `F.scoped(C.jasx$styles, ...)` if one of the file's scoped compounds may match it (`ScopeMatch`: tag name and literal `class`/`id`, `semantics.md` §10.5), otherwise in `F.unscoped(...)`, which uses the sheet but adds no class. `Emitter` only adds line breaks to catch up with the source line, and records a `SpanMap`.
 4. `JavacRunner` compiles the generated Java and remaps javac's diagnostics through the span maps (code `javac`): `compile` in memory for the tests and the conformance suite, `typeCheck` as a build would (classpath, annotation processors, release) for the Gradle plugin.
 5. After the build's own compilation, `JasxSourceNames` replaces the `SourceFile` attribute of classes compiled from generated files (`Pages.java` becomes `Pages.jasx`), so stack traces and debuggers name the `.jasx` file. Line numbers already match, because lines are preserved. The Gradle plugin does this at the end of `compileJava`, the Maven plugin in its `source-names` goal.
 
@@ -118,7 +120,7 @@ export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.13.9-hotspot"
 ./gradlew publishToMavenLocal            # install all dev.jasx artifacts in ~/.m2
 ./gradlew :jasx-lsp:test                 # language server tests
 ./gradlew :jasx-lsp:installServer        # build the server jar into editors/vscode/server/
-(cd editors/vscode && npx @vscode/vsce@3 package --skip-license && code --install-extension jasx-0.4.0.vsix --force)
+(cd editors/vscode && npx @vscode/vsce@3 package --skip-license && code --install-extension jasx-0.5.0.vsix --force)
                                          # package and install the VS Code extension
 ./gradlew -p examples/hello run --args=--print   # build and run the example (prints the page)
 ./gradlew -p examples/hello run          # serve the example at http://localhost:8080
@@ -179,6 +181,7 @@ When running Java directly on Windows, separate classpath entries with `;`, not 
 - `ScopedCss` is not a CSS parser: it only finds selectors. Keep it that way; the spec (`semantics.md` §10.4) defines exactly what it reads. The same goes for `ScopeMatch` (§10.5), which only reads type, class and ID selectors at the top level of a compound and must err towards "may match".
 - A cast directly on markup (`(Element) <div/>`) is not supported, by design.
 - A child `{...}` starting with `{`, `if`, `for`, `while` or `do` is a **statement container** (`grammar.md` §6.7). Inside it, `<` at the start of a statement (after `;` outside parentheses, `}`, a block `{`, or a previous markup statement) is a markup statement; everywhere else §4 applies as usual. Bodies with markup statements must be blocks (`if (c) { <p/> }`). It lowers to `switch (0) { default -> { ArrayList jasx$childrenN ...; yield ...; } }` (`semantics.md` §6.8), which is why `return` is rejected inside.
+- A target's lowering class runs inside the compiler, loaded by `TargetClassLoader`: it sees the project's classpath and the JDK, but `jasx.compiler.*` and `jasx.parser.*` always come from the running compiler (so a target never brings its own copy of the interface). The build tools and the language server must load targets through it and keep it open while compiling; the language server keeps it open only for targets with their own lowering, because an open loader locks jars on Windows.
 - Character references are decoded in text only. Attribute strings use Java escapes, so `title="a&amp;b"` keeps `&amp;` literally.
 
 ## Environment

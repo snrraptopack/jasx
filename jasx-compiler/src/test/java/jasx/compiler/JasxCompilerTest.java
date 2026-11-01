@@ -40,9 +40,14 @@ class JasxCompilerTest {
 
     /** Compiles everything, runs {@code className.Test()}, and renders the result with the html target. */
     private static String render(String className, List<SourceFile> jasx, List<SourceFile> java) {
+        return render(HTML, className, jasx, java);
+    }
+
+    /** Like {@link #render(String, List, List)}, for any target whose factory renders like the html target's. */
+    private static String render(Target target, String className, List<SourceFile> jasx, List<SourceFile> java) {
         List<SourceFile> all = new ArrayList<>(jasx);
         all.addAll(java);
-        CompilationResult result = new JasxCompiler(HTML).compile(all);
+        CompilationResult result = new JasxCompiler(target).compile(all);
         assertFalse(result.hasErrors(), () -> format(result.diagnostics()));
         JavacRunner.Result compiled = JavacRunner.compile(result.files(), java, CLASSPATH);
         assertTrue(compiled.success(), () -> format(compiled.diagnostics()) + "\n"
@@ -1096,6 +1101,111 @@ class JasxCompilerTest {
             CompilerDiagnostic d = compiled.diagnostics().get(0);
             assertEquals("T.jasx", d.path());
             assertEquals(f.content().indexOf("return null"), d.diagnostic().start());
+        }
+    }
+
+    /** A target's own lowering (semantics.md §7.4), with the test lowering testtarget.FunctionLowering. */
+    @Nested
+    class CustomLowering {
+        /** The html target, with dynamic children and attributes passed as functions. */
+        private static Target withLowering(Class<? extends MarkupLowering> lowering) {
+            return new Target("functions", HTML.factory(), HTML.attributesPackage(), HTML.schema(),
+                    HTML.javaEventHandlers(), HTML.styles(), lowering);
+        }
+
+        private static final Target FUNCTIONS = withLowering(testtarget.FunctionLowering.class);
+
+        private static String renderWithFunctions(String members) {
+            return render(FUNCTIONS, "T", List.of(file(members)), List.of());
+        }
+
+        @Test
+        void dynamicChildrenAndAttributesGoThroughTheTargetsLowering() {
+            assertEquals("<p title=\"[t2]\" class=\"c\">a[2]<b>[3]</b></p>", renderWithFunctions("""
+                    static Element Test() {
+                      int n = 2;
+                      return <p title={"t" + n} class="c">a{n}<b>{n + 1}</b></p>;
+                    }
+                    """));
+        }
+
+        @Test
+        void componentsStatementsAndFragmentsStillWork() {
+            assertEquals("<ul><li>[a]</li><li>[b]</li></ul><i>[x]</i>", renderWithFunctions("""
+                    static Element Item(String text) { return <li>{text}</li>; }
+                    static Element Box(Element children) { return children; }
+                    static Element Test() {
+                      return <>
+                        <ul>{for (String s : List.of("a", "b")) { <Item text={s} /> }}</ul>
+                        <Box><i>{"x"}</i></Box>
+                      </>;
+                    }
+                    """));
+        }
+
+        @Test
+        void javacErrorsInsideTheTargetsCodeAreReportedAtTheirJasxPosition() {
+            SourceFile f = file("static Element Test() {\n  return <p>{\n    undefinedName}</p>;\n}");
+            CompilationResult r = new JasxCompiler(FUNCTIONS).compile(List.of(f));
+            assertFalse(r.hasErrors(), () -> format(r.diagnostics()));
+            JavacRunner.Result compiled = JavacRunner.compile(r.files(), List.of(), CLASSPATH);
+            assertFalse(compiled.success());
+            CompilerDiagnostic d = compiled.diagnostics().get(0);
+            assertEquals("T.jasx", d.path());
+            assertEquals(f.content().indexOf("undefinedName"), d.diagnostic().start());
+        }
+
+        @Test
+        void theDescriptorNamesTheLoweringClass(@TempDir Path dir) throws Exception {
+            // A target directory with only a descriptor and a schema, and the lowering class in another
+            // classpath entry, as a build sees a third-party target.
+            Path descriptor = dir.resolve(Target.DESCRIPTOR);
+            java.nio.file.Files.createDirectories(descriptor.getParent());
+            java.nio.file.Files.writeString(descriptor, """
+                    {"id": "functions", "specVersion": "1.0", "factory": "jasx.html.Html",
+                     "attributes": "jasx.html.attrs", "schema": "functions-schema.json",
+                     "lowering": "testtarget.FunctionLowering"}
+                    """);
+            String schema = Resources.read(JasxCompilerTest.class.getClassLoader().getResource("schemas/html.json"));
+            java.nio.file.Files.writeString(dir.resolve("functions-schema.json"), schema);
+            Path testClasses = Path.of(testtarget.FunctionLowering.class.getProtectionDomain().getCodeSource()
+                    .getLocation().toURI());
+
+            try (TargetClassLoader loader = new TargetClassLoader(List.of(dir, testClasses))) {
+                Target target = Target.load("functions", loader);
+                // Loaded from the classpath by the target's loader, but implementing this compiler's interface.
+                assertEquals("testtarget.FunctionLowering", target.lowering().getName());
+                assertEquals(loader, target.lowering().getClassLoader());
+                assertTrue(target.newLowering() instanceof FactoryLowering);
+
+                CompilationResult r = new JasxCompiler(target).compile(List.of(file("static Element A(int n) { return <p>{n}</p>; }")));
+                assertTrue(r.files().get(0).content().contains("testtarget.Functions.dynamic(() -> (n))"),
+                        r.files().get(0).content());
+            }
+        }
+
+        @Test
+        void aLoweringMustWriteEveryPieceOfCode() {
+            Target dropping = withLowering(testtarget.BrokenLowerings.Dropping.class);
+            IllegalStateException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> new JasxCompiler(dropping).compile(List.of(file("static Element A(int n) { return <p>{n}</p>; }"))));
+            assertTrue(e.getMessage().contains("did not write the code at T.jasx:5"), e.getMessage());
+        }
+
+        @Test
+        void aLoweringMustNotWriteAPieceOfCodeTwice() {
+            Target duplicating = withLowering(testtarget.BrokenLowerings.Duplicating.class);
+            IllegalStateException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> new JasxCompiler(duplicating).compile(List.of(file("static Element A(int n) { return <p>{n}</p>; }"))));
+            assertTrue(e.getMessage().contains("twice"), e.getMessage());
+        }
+
+        @Test
+        void aLoweringMustNotWriteLineBreaks() {
+            Target breaking = withLowering(testtarget.BrokenLowerings.LineBreaking.class);
+            IllegalArgumentException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> new JasxCompiler(breaking).compile(List.of(file("static Element A() { return <>x</>; }"))));
+            assertTrue(e.getMessage().contains("line break"), e.getMessage());
         }
     }
 }

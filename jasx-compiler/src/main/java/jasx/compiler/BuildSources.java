@@ -2,10 +2,6 @@ package jasx.compiler;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -73,16 +69,17 @@ public final class BuildSources {
     /**
      * Compiles the {@code .jasx} files with the target {@code targetId} found on {@code classpath}, and the
      * components of the dependencies found there ({@code META-INF/jasx/components.json}). Only resources are
-     * read from the classpath; no class of the project or its dependencies is loaded.
+     * read from the classpath, and the target's own lowering class if it has one (semantics.md §7.4); no other
+     * class of the project or its dependencies is loaded.
      *
-     * @throws IllegalArgumentException if the target isn't on the classpath
+     * @throws IllegalArgumentException if the target isn't on the classpath, or its lowering can't be loaded
      */
     public CompilationResult compile(Iterable<Path> classpath, String targetId) throws IOException {
         List<SourceFile> all = new ArrayList<>(jasxFiles);
         all.addAll(javaFiles);
-        try (URLClassLoader resources = resourcesOnly(classpath)) {
-            Target target = Target.load(targetId, resources);
-            ComponentIndex dependencies = ComponentIndex.fromClasspath(resources);
+        try (TargetClassLoader loader = new TargetClassLoader(classpath)) {
+            Target target = Target.load(targetId, loader);
+            ComponentIndex dependencies = ComponentIndex.fromClasspath(loader);
             return new JasxCompiler(target, dependencies).compile(all);
         }
     }
@@ -119,22 +116,6 @@ public final class BuildSources {
         Path file = absolutePaths.get(d.path());
         String path = file != null ? file.toString() : d.path();
         return new CompilerDiagnostic(path, d.diagnostic(), d.lines()).format();
-    }
-
-    /**
-     * A class loader over the classpath with no parent. It is only used to find resources: the target's
-     * descriptor and schema, and the component indexes of dependencies.
-     */
-    private static URLClassLoader resourcesOnly(Iterable<Path> classpath) {
-        List<URL> urls = new ArrayList<>();
-        for (Path entry : classpath) {
-            try {
-                urls.add(entry.toUri().toURL());
-            } catch (MalformedURLException e) {
-                throw new UncheckedIOException(e);
-            }
-        }
-        return new URLClassLoader(urls.toArray(URL[]::new), null);
     }
 
     /** Deletes everything inside {@code directory} (creating it if needed), so no stale file is left behind. */

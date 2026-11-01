@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0-draft, revision 12
+
+### Clarified
+
+- `semantics.md` §7.4: a non-normative note on how the reference implementation loads and runs a custom lowering (`jasx.compiler.MarkupLowering`). No rule changed.
+
 ## 1.0-draft, revision 11
 
 ### Added
