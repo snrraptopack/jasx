@@ -15,6 +15,7 @@ val publishedModules = setOf(
     "jasx-ui",
     "jasx-web",
     "jasx-web-servlet",
+    "jasx-web-spring-boot-starter",
 )
 
 subprojects {

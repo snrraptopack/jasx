@@ -99,7 +99,7 @@ public Element Counter() {
   - `oninput` is sent 300 ms after the user stops typing (`debounce(ms, ...)` and `immediate(...)` change that).
   - A field being typed in is never overwritten by the server.
 - **State set from anywhere is pushed.** A scheduled job, a message listener, or another user's action updates every open page that shows it, over server-sent events.
-- **Plain HTTP.** Events are POST requests and updates come back as server-sent events. There's no WebSocket library, so it runs on the JDK's own HTTP server (`WebServer`), on any servlet container (`jasx-web-servlet`), or on any server through `WebApp`. The tabs of a browser share one stream.
+- **Plain HTTP.** Events are POST requests and updates come back as server-sent events. There's no WebSocket library, so it runs on the JDK's own HTTP server (`WebServer`), on any servlet container (`jasx-web-servlet`), in Spring Boot (`jasx-web-spring-boot-starter`), or on any server through `WebApp`. The tabs of a browser share one stream.
 - **Safe by default.** Each page answers only the browser that rendered it, events from other sites are refused, and requests have size limits, whatever server you use.
 
 ```kotlin
@@ -109,7 +109,7 @@ dependencies { implementation("dev.jasx:jasx-web:0.1.0-SNAPSHOT") }
 
 **[The guide to the `web` target](docs/web.md)** explains state, events, forms, lists and server push with examples.
 
-State and events come from `jasx-ui` ([`ui.md`](jasx-spec/ui.md)), a small library shared by interactive targets, so a future desktop target can offer the same API. The target is a draft: [`targets/web.md`](jasx-spec/targets/web.md) specifies it, including what's not there yet (static templates, uploads, and a Spring Boot starter).
+State and events come from `jasx-ui` ([`ui.md`](jasx-spec/ui.md)), a small library shared by interactive targets, so a future desktop target can offer the same API. The target is a draft: [`targets/web.md`](jasx-spec/targets/web.md) specifies it, including what's not there yet (static templates and uploads).
 
 ## Status
 
@@ -120,7 +120,8 @@ Early development. The specification is a draft.
 - Gradle plugin, Maven plugin, annotation processor, VS Code highlighting and a language server (errors while typing, completion, go-to-definition and hover): implemented.
 - Targets with their own lowering, so a third-party target decides what markup becomes (see [Writing a target](#writing-a-target)): implemented.
 - The `web` target: a first version, with a server on the JDK's HTTP server and an adapter for servlet containers.
-- Not yet: a Spring Boot starter for `web`, and artifacts in a public repository.
+- A Spring Boot starter for `web`: pages are controller methods (`jasx-web-spring-boot-starter`).
+- Not yet: artifacts in a public repository.
 
 ## Try the examples
 
@@ -252,6 +253,7 @@ The second command prints the Java generated for a sample file.
 | `jasx-ui/` | Shared runtime of interactive targets: reactive state and typed events |
 | `jasx-web/` | The `web` target: runtime, lowering, browser client, JDK server |
 | `jasx-web-servlet/` | The `web` target on servlet containers (Tomcat, Jetty, Undertow) |
+| `jasx-web-spring-boot-starter/` | The `web` target in Spring Boot: pages as controller methods |
 | `docs/` | Guides: [the `web` target](docs/web.md) |
 | `jasx-processor/` | Annotation processor that publishes a library's components |
 | `jasx-gradle-plugin/` | Gradle plugin `dev.jasx` |

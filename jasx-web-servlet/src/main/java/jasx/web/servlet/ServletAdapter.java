@@ -137,9 +137,18 @@ public final class ServletAdapter {
             } catch (IOException e) {
                 // The browser went away; it reconnects if it is still there.
             } finally {
-                async.complete();
+                complete(async);
             }
         });
+    }
+
+    /** Ends the async request, unless the container already ended it (it is shutting down, say). */
+    private static void complete(AsyncContext async) {
+        try {
+            async.complete();
+        } catch (IllegalStateException alreadyCompleted) {
+            // nothing left to end
+        }
     }
 
     private static void serveStream(WebApp app, WebApp.Request request, HttpServletResponse response) throws IOException {

@@ -133,9 +133,13 @@ class JasxServletTest {
 
         BlockingQueue<String> lines = new LinkedBlockingQueue<>();
         Thread reader = Thread.ofVirtual().start(() -> {
-            Iterator<String> it = stream.body().iterator();
-            while (it.hasNext()) {
-                lines.add(it.next());
+            try {
+                Iterator<String> it = stream.body().iterator();
+                while (it.hasNext()) {
+                    lines.add(it.next());
+                }
+            } catch (java.io.UncheckedIOException closedByTheTest) {
+                // the test is over
             }
         });
         try {

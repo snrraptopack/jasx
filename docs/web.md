@@ -246,7 +246,42 @@ The runtime is independent of any HTTP server. An adapter describes each request
 | `GET /_jasx/stream?pages=ID:N,...` | `stream(request, eventStream)` writes server-sent events until the browser leaves |
 | `POST /_jasx/ping?page=ID` | `ping(request)` |
 
-The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server. A Spring Boot starter is planned.
+The client script is `WebApp.clientScript()`, served at `/_jasx/web.js`. `WebServer` is the adapter for the JDK's HTTP server.
+
+**With Spring Boot** (3.x, with `spring-boot-starter-web`), add `dev.jasx:jasx-web-spring-boot-starter`. Pages are ordinary controller methods that return a `WebPage`:
+
+```java
+@Controller
+class Pages {
+    private final TodoStore store;
+
+    Pages(TodoStore store) {
+        this.store = store;
+    }
+
+    @GetMapping("/")
+    WebPage home() {
+        return () -> <Home />;
+    }
+
+    @GetMapping("/todos/{id}")
+    WebPage todo(@PathVariable long id) {
+        return () -> <TodoDetail todo={store.get(id)} />;
+    }
+}
+```
+
+The `() ->` is there because the page's components must run inside the page, so the state they create belongs to it. Routing, path variables, request parameters, dependency injection and Spring Security work as usual. The starter serves the runtime's requests under `/_jasx` (on async requests, so open streams hold no threads), takes `server.servlet.context-path` into account, and closes pages when the application stops. Settings:
+
+```properties
+jasx.web.base-path=/_jasx
+jasx.web.page-timeout=2m
+jasx.web.first-connect-timeout=30s
+jasx.web.max-event-bytes=1048576
+jasx.web.max-pages-per-session=50
+```
+
+With Spring Security, let the runtime's requests through Spring's CSRF check; the runtime protects them its own way (above): `http.csrf(csrf -> csrf.ignoringRequestMatchers("/_jasx/**"))`.
 
 **On a servlet container** (Tomcat 10.1+, Jetty 12, Undertow: Jakarta Servlet 6), add `dev.jasx:jasx-web-servlet` and register a `JasxServlet` with your pages:
 
