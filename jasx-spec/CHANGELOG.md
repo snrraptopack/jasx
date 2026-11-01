@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0-draft, revision 20
+
+### Changed
+
+- `targets/web.md` §8.4, **attributes are merged three ways**: when a hole is merged or an `attr` patch arrives, the client changes an attribute only if the server's new value differs from its previous one, and merges `class` by class name. Before, every attribute was reset to what the server rendered, so a `<details>` the user opened closed again whenever its hole re-rendered, and classes added in the browser were removed.
+
 ## 1.0-draft, revision 19
 
 ### Added

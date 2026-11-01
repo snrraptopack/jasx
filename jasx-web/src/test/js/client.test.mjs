@@ -569,3 +569,59 @@ test("morphing matches elements by id when others are inserted before them", asy
   assert.equal(document.querySelector("#b"), field, "the element with the id moved, not recreated");
   assert.equal(document.querySelectorAll("input").length, 2);
 });
+
+// -------------------------------------------------------------------------------------------------
+// Server updates keep browser changes (targets/web.md §8.4, merging)
+// -------------------------------------------------------------------------------------------------
+
+test("a merge leaves alone what the server didn't change: an opened <details> stays open", async () => {
+  const { document, streams } = await page(
+    `<div><!--jx:1--><details><summary>More</summary><p>text</p></details><p class="n">1</p><!--/jx:1--></div>`,
+  );
+  const details = document.querySelector("details");
+  details.open = true; // the user opened it
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 1,
+    html: `<details><summary>More</summary><p>text</p></details><p class="n">2</p>` }] });
+  assert.equal(document.querySelector("details"), details);
+  assert.ok(details.open, "still open");
+  assert.equal(document.querySelector("p.n").textContent, "2");
+});
+
+test("an attribute the server changes is applied, even after the browser changed it", async () => {
+  const { document, streams } = await page(`<div><!--jx:1--><nav hidden>menu</nav><!--/jx:1--></div>`);
+  const nav = document.querySelector("nav");
+  nav.hidden = false; // a script showed it
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 1, html: `<nav hidden>menu</nav>` }] });
+  assert.ok(!nav.hidden, "the server rendered the same: the browser's change stays");
+  streams[0].push({ version: 2, patches: [{ op: "html", id: 1, html: `<nav>menu</nav>` }] });
+  streams[0].push({ version: 3, patches: [{ op: "html", id: 1, html: `<nav hidden>menu</nav>` }] });
+  assert.ok(nav.hidden, "the server hid it again: a real change, applied");
+});
+
+test("classes are merged by name: the server's changes apply and the browser's own classes stay", async () => {
+  const { document, streams } = await page(`<div><!--jx:1--><li class="todo">a</li><!--/jx:1--></div>`);
+  const item = document.querySelector("li");
+  item.classList.add("open"); // added by a script
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 1, html: `<li class="todo done">a</li>` }] });
+  assert.deepEqual([...item.classList].sort(), ["done", "open", "todo"]);
+  streams[0].push({ version: 2, patches: [{ op: "html", id: 1, html: `<li>a</li>` }] });
+  assert.deepEqual([...item.classList], ["open"]);
+});
+
+test("an attr patch merges classes by name too", async () => {
+  const { document, streams } = await page(`<button data-jx-id="3" class="a">x</button>`);
+  const button = document.querySelector("button");
+  button.classList.add("mine");
+  streams[0].push({ version: 1, patches: [{ op: "attr", id: 3, name: "class", value: "b" }] });
+  assert.deepEqual([...button.classList].sort(), ["b", "mine"]);
+});
+
+test("a checkbox the user ticked stays ticked when the server re-renders it unchanged", async () => {
+  const { document, streams } = await page(`<div><!--jx:1--><input type="checkbox"><span>1</span><!--/jx:1--></div>`);
+  const box = document.querySelector("input");
+  box.checked = true;
+  streams[0].push({ version: 1, patches: [{ op: "html", id: 1, html: `<input type="checkbox"><span>2</span>` }] });
+  assert.ok(box.checked);
+  streams[0].push({ version: 2, patches: [{ op: "html", id: 1, html: `<input type="checkbox" checked><span>3</span>` }] });
+  assert.ok(box.checked, "the server checked it: applied");
+});

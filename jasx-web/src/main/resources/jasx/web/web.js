@@ -158,7 +158,9 @@
     if (!range) return;
     const parent = range.start.parentNode;
     forEachBetween(range.start, range.end, forgetHoles); // ids of holes inside change with each rendering
-    morphChildren(parent, range.start.nextSibling, range.end, parseIn(parent, html));
+    const content = parseIn(parent, html);
+    rememberRendered(content);
+    morphChildren(parent, range.start.nextSibling, range.end, content);
     forEachBetween(range.start, range.end, indexHoles);
     listenFor(parent);
   }
@@ -233,6 +235,7 @@
     item.appendChild(document.createComment("jx:" + entry.id));
     item.appendChild(parseIn(parent, entry.html));
     item.appendChild(document.createComment("/jx:" + entry.id));
+    rememberRendered(item);
     indexHoles(item);
     listenFor(item);
     return item;
@@ -302,28 +305,64 @@
     morphChildren(old, old.firstChild, null, incoming);
   }
 
-  // Attributes as the server rendered them, except what belongs to the browser: the value of a field with
-  // unsent edits (§7), and the busy marks of an element whose event is still running.
+  // What the server last rendered for each element: its attributes, by name (§8.4). A merge changes only
+  // what the server changed since, so what the browser did to an element stays: a <details> the user opened,
+  // a class or attribute added by a script or an extension, the busy marks of a running event.
+  const rendered = new WeakMap();
+
+  function rememberRendered(root) {
+    if (root.nodeType === Node.ELEMENT_NODE) rendered.set(root, attributesOf(root));
+    if (root.querySelectorAll) {
+      for (const element of root.querySelectorAll("*")) rendered.set(element, attributesOf(element));
+    }
+  }
+
+  function attributesOf(element) {
+    const attributes = new Map();
+    for (const attribute of element.attributes) attributes.set(attribute.name, attribute.value);
+    return attributes;
+  }
+
+  // A three-way merge: an attribute changes only if the server's new value differs from its previous one.
+  // An element the client never saw rendered (made by a script) is compared with what it shows, which makes
+  // it like the server's rendering. The value of a field with unsent edits is never touched (§7).
   function morphAttributes(element, incoming) {
+    const before = rendered.get(element) ?? attributesOf(element);
+    const after = rendered.get(incoming) ?? attributesOf(incoming);
     const keepValue = isField(element) && hasUnsentEdits(element);
-    for (const attribute of Array.from(incoming.attributes)) {
-      if (keepValue && attribute.name === "value") continue;
-      if (element.getAttribute(attribute.name) !== attribute.value) {
-        element.setAttribute(attribute.name, attribute.value);
-        syncProperty(element, attribute.name, attribute.value);
-      }
+    for (const name of new Set([...before.keys(), ...after.keys()])) {
+      const was = before.get(name) ?? null;
+      const now = after.get(name) ?? null;
+      if (was === now) continue; // the server didn't change it: what the browser did to it stays
+      if (keepValue && name === "value") continue;
+      if (name === "class") mergeClasses(element, was, now);
+      else setRendered(element, name, now);
     }
-    for (const attribute of Array.from(element.attributes)) {
-      if (keepValue && attribute.name === "value") continue;
-      if (!incoming.hasAttribute(attribute.name)) {
-        element.removeAttribute(attribute.name);
-        syncProperty(element, attribute.name, null);
-      }
-    }
+    rendered.set(element, after);
     if (element.jxBusy > 0) {
       element.classList.add("jx-loading");
       element.setAttribute("aria-busy", "true");
     }
+  }
+
+  // Classes the server added are added and those it removed are removed; the others, including classes
+  // added in the browser, stay.
+  function mergeClasses(element, was, now) {
+    const previous = classNames(was);
+    const next = classNames(now);
+    for (const name of previous) if (!next.has(name)) element.classList.remove(name);
+    for (const name of next) if (!previous.has(name)) element.classList.add(name);
+    if (element.getAttribute("class") === "" && now === null) element.removeAttribute("class");
+  }
+
+  function classNames(value) {
+    return new Set(value ? value.split(/\s+/).filter(Boolean) : []);
+  }
+
+  function setRendered(element, name, value) {
+    if (value === null) element.removeAttribute(name);
+    else element.setAttribute(name, value);
+    syncProperty(element, name, value);
   }
 
   // value, checked and selected are what a field shows: the attribute alone doesn't change it.
@@ -366,17 +405,20 @@
   // Attributes and fields (§7)
   // ---------------------------------------------------------------------------------------------
 
+  // An attr patch: the server changed one attribute. `class` is merged by name, as in a merge (§8.4), and
+  // the element's remembered rendering is updated.
   function setAttribute(id, name, value) {
     const element = document.querySelector('[data-jx-id="' + id + '"]');
     if (!element) return;
+    const now = value === null || value === false ? null : value === true ? "" : String(value);
+    const remembered = rendered.get(element) ?? attributesOf(element);
+    const was = remembered.has(name) ? remembered.get(name) : null;
+    if (now === null) remembered.delete(name);
+    else remembered.set(name, now);
+    rendered.set(element, remembered);
     if (name === "value" && hasUnsentEdits(element)) return; // never overwrite what the user typed (§7)
-    if (value === null || value === false) {
-      element.removeAttribute(name);
-    } else {
-      element.setAttribute(name, value === true ? "" : String(value));
-    }
-    if (name === "value") element.value = value === null || value === true ? "" : String(value);
-    else if (name === "checked" || name === "selected") element[name] = value !== null && value !== false;
+    if (name === "class") mergeClasses(element, was, now);
+    else setRendered(element, name, now);
   }
 
   // Each edit of a field bumps its revision. An event remembers the revision of each field it carries,
@@ -829,6 +871,7 @@
     location.reload();
   }
 
+  rememberRendered(document.documentElement); // the page as the server rendered it
   indexHoles(document);
   listenFor(document);
   connect(); // a tab that can't share streams at once; a shared stream opens when its leader is chosen

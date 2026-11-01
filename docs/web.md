@@ -211,6 +211,8 @@ An item counts as changed when the values it uses change: toggling a to-do repla
 
 Without keys, the list is rendered again as a whole, and the browser merges the new HTML into the page: unchanged elements stay, with their focus and typed text, but component state inside the list starts afresh.
 
+A merge never undoes what happened in the browser unless the server changed it: a `<details>` the user opened stays open, a ticked checkbox stays ticked, and a class added by a script stays, until the server renders a different value for that attribute.
+
 ## Pushing from the server
 
 State set outside an event, from a scheduled job, a message listener or another user's action, is pushed to every open page that shows it, over server-sent events:
