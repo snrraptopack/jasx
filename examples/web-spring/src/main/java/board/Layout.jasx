@@ -1,0 +1,130 @@
+package board;
+
+import jasx.runtime.Element;
+import java.util.List;
+
+// The frame of every page: the header, the page's own content, and the activity feed, which is pushed to every
+// open page when anything changes.
+//
+// A style block styles only the elements written in its own file. The base styles of form controls are
+// :global, so that every view's fields and buttons share them.
+
+<style>
+    :global(body) {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        color: #1f2937;
+        background: #f9fafb;
+    }
+
+    :global(button) {
+        padding: .4rem .9rem;
+        border: 1px solid #d1d5db;
+        border-radius: .375rem;
+        background: white;
+        cursor: pointer;
+    }
+
+    /* Not nested: a rule nested in a :global one would be scoped to this file again. */
+    :global(button:hover) {
+        background: #f3f4f6;
+    }
+
+    :global(input:not([type=checkbox])), :global(select) {
+        padding: .4rem .6rem;
+        border: 1px solid #d1d5db;
+        border-radius: .375rem;
+    }
+
+    /* The client marks an element whose event is on its way to the server. */
+    :global(.jx-loading) {
+        opacity: .6;
+    }
+
+    header {
+        display: flex;
+        gap: 1rem;
+        align-items: baseline;
+        padding: 1rem 2rem;
+        background: #111827;
+
+        & a {
+            color: white;
+            font-size: 1.2rem;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        & span {
+            color: #9ca3af;
+            font-size: .9rem;
+        }
+    }
+
+    .page {
+        display: grid;
+        grid-template-columns: 1fr 18rem;
+        gap: 2rem;
+        max-width: 64rem;
+        margin: 2rem auto;
+        padding: 0 2rem;
+
+        @media (max-width: 48rem) {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    aside {
+        align-self: start;
+        padding: 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: .5rem;
+        background: white;
+
+        & h2 {
+            margin-top: 0;
+            font-size: 1rem;
+        }
+
+        & ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        & li {
+            margin-bottom: .4rem;
+            color: #4b5563;
+            font-size: .85rem;
+        }
+    }
+</style>
+
+public Element Layout(String title, TaskService tasks, List<Element> children) {
+    return (
+        <html lang="en">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>{title} · Team board</title>
+            </head>
+            <body>
+                <header>
+                    <a href="/">Team board</a>
+                    <span>Spring Boot + JASX</span>
+                </header>
+                <div class="page">
+                    <main>{children}</main>
+                    <aside>
+                        <h2>Activity</h2>
+                        <ul>
+                            {for (String line : tasks.activity()) {
+                                <li>{line}</li>
+                            }}
+                        </ul>
+                    </aside>
+                </div>
+            </body>
+        </html>
+    );
+}

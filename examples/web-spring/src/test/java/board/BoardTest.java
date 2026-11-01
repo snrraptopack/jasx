@@ -22,7 +22,7 @@ class BoardTest {
 
     @Test
     void addingATaskShowsItAndResetsTheForm() {
-        try (TestPage page = TestPage.render(() -> Views.Board(tasks, "all"))) {
+        try (TestPage page = TestPage.render(() -> BoardView.Board(tasks, "all"))) {
             page.submit("form", Map.of("title", "Write tests", "assignee", "Yaw"));
 
             assertEquals("Write tests", titles(page).get(3));
@@ -34,8 +34,8 @@ class BoardTest {
 
     @Test
     void eachWindowFiltersOnItsOwn() {
-        try (TestPage mine = TestPage.render(() -> Views.Board(tasks, "all"));
-             TestPage theirs = TestPage.render(() -> Views.Board(tasks, "all"))) {
+        try (TestPage mine = TestPage.render(() -> BoardView.Board(tasks, "all"));
+             TestPage theirs = TestPage.render(() -> BoardView.Board(tasks, "all"))) {
             mine.click(".filters button", "Done");
 
             assertEquals(List.of("Set up the Spring Boot project"), titles(mine));
@@ -46,8 +46,8 @@ class BoardTest {
 
     @Test
     void aChangeInOneWindowReachesTheOthers() {
-        try (TestPage mine = TestPage.render(() -> Views.Board(tasks, "all"));
-             TestPage theirs = TestPage.render(() -> Views.Board(tasks, "all"))) {
+        try (TestPage mine = TestPage.render(() -> BoardView.Board(tasks, "all"));
+             TestPage theirs = TestPage.render(() -> BoardView.Board(tasks, "all"))) {
             mine.click("ul > li input[type=checkbox]"); // the first task was done: open again
 
             assertTrue(mine.text("p.hint").startsWith("3 open."));
@@ -57,8 +57,8 @@ class BoardTest {
 
     @Test
     void aTaskCanBeRenamedAndCommentedOn() {
-        try (TestPage page = TestPage.render(() -> Views.TaskPage(tasks, 2))) {
-            page.submit("article form", Map.of("title", "Write the board page"));
+        try (TestPage page = TestPage.render(() -> TaskView.TaskPage(tasks, 2))) {
+            page.submit(".rename", Map.of("title", "Write the board page"));
             page.submit("input[name=text]", Map.of("text", "Looks good")); // the form that holds this field
 
             assertEquals("Write the board page", tasks.find(2).orElseThrow().title());

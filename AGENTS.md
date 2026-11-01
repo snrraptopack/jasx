@@ -91,7 +91,7 @@ docs/discussions/          design proposals under discussion (not specified, not
 examples/hello/            standalone example build (composite build of this repository)
 examples/hello-maven/      the same idea with Maven (needs ./gradlew publishToMavenLocal)
 examples/web/              the web target: counter, shared to-do list, live search, server push (clock and chat)
-examples/web-spring/       the web target in Spring Boot: a team board (controller pages, a @Service with state,
+examples/web-spring/       the web target in Spring Boot: a team board (controller pages, one .jasx per view with its own nested CSS, a @Service with state,
                            a REST API whose changes reach open pages); application plugin, not the Boot plugin
 ```
 

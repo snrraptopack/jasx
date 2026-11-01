@@ -238,6 +238,24 @@ If the connection drops (a laptop asleep, a train tunnel), the browser reconnect
 
 A `<style>` block in a `.jasx` file is scoped to that file's markup, as with every target. The page gets the style sheets it uses in its `<head>`, or where you place `{styles()}`. A style sheet first needed by an update is sent with it.
 
+So keep each view's styles in its own file, next to its markup, and write them with native CSS nesting, which scoping supports:
+
+```css
+.task {
+    display: flex;
+
+    & a {
+        flex: 1;
+    }
+
+    &.done a {
+        text-decoration: line-through;
+    }
+}
+```
+
+Styles every view shares, such as those of form controls, go in the layout's file as `:global(...)` rules. A rule nested inside a `:global` rule is scoped to its file again, so write a shared state as its own rule: `:global(button:hover) { ... }`. [`examples/web-spring`](../examples/web-spring) has one file per view (`Layout.jasx`, `BoardView.jasx`, `TaskView.jasx`), each with its own styles.
+
 ## Serving pages
 
 The runtime is independent of any HTTP server. An adapter describes each request with a `WebApp.Request` (a query parameter, a header, and whether it came over HTTPS) and sends back the `Response` it gets (status, headers, body):
@@ -331,7 +349,7 @@ class BoardTest {
 
     @Test
     void addingATaskShowsIt() {
-        try (TestPage page = TestPage.render(() -> Views.Board(tasks, "all"))) {
+        try (TestPage page = TestPage.render(() -> BoardView.Board(tasks, "all"))) {
             page.submit("form", Map.of("title", "Write tests"));
             assertEquals("Write tests", page.findAll("ul > li a").get(3).text());
             assertEquals("", page.find("input[name=title]").value()); // the form was reset
@@ -340,8 +358,8 @@ class BoardTest {
 
     @Test
     void aChangeInOneWindowReachesTheOthers() {
-        try (TestPage mine = TestPage.render(() -> Views.Board(tasks, "all"));
-             TestPage theirs = TestPage.render(() -> Views.Board(tasks, "all"))) {
+        try (TestPage mine = TestPage.render(() -> BoardView.Board(tasks, "all"));
+             TestPage theirs = TestPage.render(() -> BoardView.Board(tasks, "all"))) {
             mine.click(".filters button", "Done");                      // a selector and the button's text
             mine.click("ul > li input[type=checkbox]");
             theirs.await(() -> assertTrue(theirs.text("p.hint").startsWith("3 open.")));

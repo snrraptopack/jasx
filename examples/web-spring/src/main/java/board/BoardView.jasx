@@ -1,0 +1,129 @@
+package board;
+
+import board.TaskService.Task;
+import jasx.runtime.Element;
+import jasx.ui.State;
+
+import static board.Layout.*;
+import static jasx.web.Web.*;
+
+// The board: the form that adds a task, the filters, and the tasks. The components run once, when their page is
+// rendered; afterwards only the {...} that read a changed state run again, and the browser gets their new content.
+
+<style>
+    .add {
+        display: flex;
+        gap: .5rem;
+        margin-bottom: 1rem;
+
+        & input {
+            flex: 1;
+        }
+    }
+
+    .filters {
+        display: flex;
+        gap: .5rem;
+        margin-bottom: .75rem;
+
+        & .active {
+            border-color: #111827;
+            background: #111827;
+            color: white;
+        }
+    }
+
+    .tasks {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .task {
+        display: flex;
+        gap: .75rem;
+        align-items: center;
+        margin-bottom: .5rem;
+        padding: .6rem .9rem;
+        border: 1px solid #e5e7eb;
+        border-radius: .5rem;
+        background: white;
+
+        & a {
+            flex: 1;
+            color: inherit;
+            text-decoration: none;
+
+            &:hover {
+                text-decoration: underline;
+            }
+        }
+
+        &.done a {
+            color: #9ca3af;
+            text-decoration: line-through;
+        }
+    }
+
+    .who {
+        padding: .1rem .5rem;
+        border-radius: 1rem;
+        background: #eef2ff;
+        color: #3730a3;
+        font-size: .8rem;
+    }
+
+    .hint {
+        color: #6b7280;
+        font-size: .9rem;
+    }
+</style>
+
+/** The add form's fields: e.as(NewTask.class) reads each component from the field of the same name. */
+record NewTask(String title, String assignee) {}
+
+public Element Board(TaskService tasks, String show) {
+    var filter = state(show); // this page's own state: each window filters on its own
+
+    return (
+        <Layout title="Board" tasks={tasks}>
+            <form class="add" onsubmit={e -> {
+                NewTask task = e.as(NewTask.class);
+                tasks.add(task.title().strip(), task.assignee());
+                e.resetForm();
+            }}>
+                <input name="title" placeholder="What needs doing?" required autocomplete="off" />
+                <select name="assignee">
+                    {for (String person : TaskService.PEOPLE) {
+                        <option>{person}</option>
+                    }}
+                </select>
+                <button>Add</button>
+            </form>
+
+            <div class="filters">
+                <FilterButton filter={filter} value="all" label="All" />
+                <FilterButton filter={filter} value="open" label="Open" />
+                <FilterButton filter={filter} value="done" label="Done" />
+            </div>
+
+            <ul class="tasks">
+                {for (Task t : tasks.all()) {
+                    if (!t.shownBy(filter.get())) continue;
+                    <li key={t.id()} class={t.done() ? "task done" : "task"}>
+                        <input type="checkbox" checked={t.done()} onchange={() -> tasks.toggle(t.id())} />
+                        <a href={"/tasks/" + t.id()}>{t.title()}</a>
+                        <span class="who">{t.assignee()}</span>
+                    </li>
+                }}
+            </ul>
+
+            <p class="hint">{tasks.openCount()} open. Add one from a terminal and watch it appear:</p>
+            <pre class="hint">curl -X POST localhost:8080/api/tasks -d title="Ship it" -d assignee=Yaw</pre>
+        </Layout>
+    );
+}
+
+Element FilterButton(State<String> filter, String value, String label) {
+    return <button class={filter.get().equals(value) ? "active" : null} onclick={() -> filter.set(value)}>{label}</button>;
+}

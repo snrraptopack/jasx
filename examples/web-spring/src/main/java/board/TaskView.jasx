@@ -1,0 +1,131 @@
+package board;
+
+import board.TaskService.Task;
+import jasx.runtime.Element;
+
+import static board.Layout.*;
+import static jasx.web.Web.*;
+
+// One task: rename it, reassign it, tick it off, comment on it, or delete it.
+
+<style>
+    .back {
+        margin-top: 0;
+
+        & a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+    }
+
+    .detail {
+        padding: 1.25rem;
+        border: 1px solid #e5e7eb;
+        border-radius: .5rem;
+        background: white;
+
+        & h2 {
+            margin-bottom: .5rem;
+            font-size: 1rem;
+        }
+    }
+
+    .rename, .comment {
+        display: flex;
+        gap: .5rem;
+        margin: 0 0 1rem;
+
+        & input {
+            flex: 1;
+        }
+    }
+
+    .meta {
+        display: flex;
+        gap: 1.5rem;
+        align-items: center;
+
+        & label {
+            display: flex;
+            gap: .4rem;
+            align-items: center;
+        }
+    }
+
+    .comments {
+        padding-left: 1.2rem;
+        color: #374151;
+
+        & li {
+            margin-bottom: .3rem;
+        }
+    }
+
+    .danger {
+        border-color: #fecaca;
+        color: #b91c1c;
+
+        &:hover {
+            background: #fef2f2;
+        }
+    }
+</style>
+
+public Element TaskPage(TaskService tasks, long id) {
+    return (
+        <Layout title="Task" tasks={tasks}>
+            <p class="back"><a href="/">← Back to the board</a></p>
+            {if (tasks.find(id).isPresent()) {
+                <TaskDetail task={tasks.find(id).get()} tasks={tasks} />
+            } else {
+                <p>This task was deleted.</p>
+            }}
+        </Layout>
+    );
+}
+
+Element TaskDetail(Task task, TaskService tasks) {
+    long id = task.id();
+    return (
+        <article class="detail">
+            <form class="rename" onsubmit={e -> tasks.rename(id, e.field("title").strip())}>
+                <input name="title" value={task.title()} required />
+                <button>Rename</button>
+            </form>
+
+            <p class="meta">
+                <span>
+                    Assigned to
+                    <select onchange={e -> tasks.assign(id, e.value())}>
+                        {for (String person : TaskService.PEOPLE) {
+                            <option selected={person.equals(task.assignee())}>{person}</option>
+                        }}
+                    </select>
+                </span>
+                <label>
+                    <input type="checkbox" checked={task.done()} onchange={() -> tasks.toggle(id)} />
+                    Done
+                </label>
+            </p>
+
+            <h2>Comments</h2>
+            <ul class="comments">
+                {for (String comment : task.comments()) {
+                    <li>{comment}</li>
+                }}
+            </ul>
+            <form class="comment" onsubmit={e -> {
+                tasks.comment(id, e.field("text").strip());
+                e.resetForm();
+            }}>
+                <input name="text" placeholder="Add a comment" required autocomplete="off" />
+                <button>Comment</button>
+            </form>
+
+            <button class="danger" onclick={() -> {
+                tasks.remove(id);
+                navigate("/");
+            }}>Delete task</button>
+        </article>
+    );
+}
