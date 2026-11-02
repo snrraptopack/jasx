@@ -23,6 +23,7 @@ const grammarFiles = {
   "source.jasx": path.join(here, "..", "syntaxes", "jasx.tmLanguage.json"),
   "source.java": path.join(here, "java-stub.tmLanguage.json"),
   "source.css": path.join(here, "css-stub.tmLanguage.json"),
+  "source.js": path.join(here, "js-stub.tmLanguage.json"),
 };
 
 const registry = new vsctm.Registry({
@@ -198,6 +199,28 @@ test("a <style> element with an expression inside markup is not a style block", 
   const source = ["return (", "  <head>", "    <style>{CSS}</style>", "  </head>", ");"].join("\n");
   assertNoScope(source, "CSS", "meta.embedded.block.css");
   assertScope(source, "style", "entity.name.tag.jasx", 1);
+});
+
+test("a script block's content is JavaScript", () => {
+  const source = ["<script>", "  import { toggle } from \"./toggle.js\";", "</script>", "Element Card() { return <div/>; }"].join("\n");
+  assertScope(source, "import", "keyword.control.import.js");
+  assertScope(source, "import", "meta.embedded.block.javascript");
+  assertScope(source, "script", "entity.name.tag.jasx", 1);
+  assertScope(source, "div", "entity.name.tag.jasx");
+});
+
+test("a script block in a class body (through the injection)", () => {
+  const source = ["class T {", "  <script>import x from \"./x.js\";</script>", "}"].join("\n");
+  assertScope(source, "import", "keyword.control.import.js");
+});
+
+test("a browser attribute's string is JavaScript", () => {
+  const source = "return <button @click=\"$menu.hidden = true\" class=\"x\">m</button>;";
+  assertScope(source, "@click", "entity.other.attribute-name.jasx");
+  assertScope(source, "$menu", "variable.other.readwrite.js");
+  assertScope(source, "$menu", "meta.embedded.inline.javascript");
+  assertScope(source, "class", "entity.other.attribute-name.jasx");
+  assertNoScope(source, "class", "meta.embedded.inline.javascript");
 });
 
 // --- Run -------------------------------------------------------------------------------------------

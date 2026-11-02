@@ -447,6 +447,44 @@ class LanguageServerTest {
             assertTrue(form.contains("field(String)") && form.contains("resetForm()"), form.toString());
         }
 
+        /** WEB_PAGE with a script block in its class (grammar.md §7.4). */
+        private static String webPageWithScript(String markup) {
+            return WEB_PAGE.replace("class Page {\n", """
+                    class Page {
+                      <script>
+                        import { toggleMenu } from "./menu.js";
+                        export function copy(event, { text }) {}
+                      </script>
+                    """).replace("MARKUP", markup);
+        }
+
+        @Test
+        void browserAttributesAreOfferedOnATargetWithScripts() throws IOException {
+            writeBuildInfo("web", List.of());
+            List<String> names = labels(completeAt(page, webPageWithScript("<button |>x</button>")));
+            assertTrue(names.contains("@click") && names.contains("@render") && names.contains("ref"), names.toString());
+            assertTrue(names.contains("onclick"), "Java handlers too: " + names);
+
+            List<String> afterAt = labels(completeAt(page, webPageWithScript("<button @|>x</button>")));
+            assertTrue(afterAt.contains("@click"), afterAt.toString());
+        }
+
+        @Test
+        void browserCodeOffersTheScriptsNamesAndTheRefs() throws IOException {
+            writeBuildInfo("web", List.of());
+            String markup = "<div><button @click=\"tog|\">m</button><nav ref=\"menu\"></nav></div>";
+            List<Map<String, Object>> items = completeAt(page, webPageWithScript(markup));
+            List<String> names = labels(items);
+            assertTrue(names.containsAll(List.of("toggleMenu", "copy", "$menu")), names.toString());
+            assertFalse(names.contains("count"), "Java names are not offered in browser code yet: " + names);
+        }
+
+        @Test
+        void aTargetWithoutScriptsOffersNoBrowserAttributes() throws IOException {
+            List<String> names = labels(completeAt(page, pageWith("<button |>x</button>;")));
+            assertFalse(names.contains("@click"), names.toString());
+        }
+
         /** Like {@link #completeAt}, but the whole CompletionList. */
         private Map<String, Object> completionListAt(Path file, String text) {
             int cursor = text.indexOf('|');

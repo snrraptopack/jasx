@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0-draft, revision 28
+
+### Added
+
+- `grammar.md` §6.4, §7.4, `ast.md`: **browser attributes** (`@click`, a `JasxEventName`) and **script blocks** (`<script>` where a declaration or statement starts, a `JasxScriptBlock`); JASX1013 for an unclosed script block.
+- `semantics.md` §11, **browser scripts**: a file's script blocks form one ES module; a browser attribute is a call `name(payload)` of a top-level name of the script, whose payload holds refs (`$name`) and Java names, or inline code, which sees `event` and refs; `ref="name"` marks elements. They lower to dynamic attributes `.attr("@event", F.script(module, function, payload))`, and the compiler provides each file's module (the script, its exports, and one function per inline snippet). New descriptor capability `"scripts": "module"`, and JASX2017–JASX2022, JASX2107 and JASX2108.
+- `targets/web.md` §7.1, §8.1, §8.2: `web` supports browser scripts: functions are called as `fn(event, payload)`, Java values arrive as JSON, `State` values kept current, Java handlers as functions that send to the server; refs stand for the nearest element with that ref; `@render`; returned cleanups; modules served under `/_jasx/js/<build>/`.
+
+### Changed
+
+- `targets/web.md` §2: the event attribute builders no longer take a string; on `web`, browser code is a browser attribute (JASX2108 for `onclick="..."`).
+- `targets/web.md` §7: a plain hole that re-runs keeps its component instances whose inputs are unchanged (revision 25 changed §4.2 but left this sentence behind).
+
 ## 1.0-draft, revision 27
 
 ### Changed

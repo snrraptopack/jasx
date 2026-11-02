@@ -98,6 +98,8 @@ public final class WebServer {
 
             if (path.equals(base + "/web.js") && method.equals("GET")) {
                 send(exchange, app.clientScript(request));
+            } else if (path.startsWith(base + "/js/") && method.equals("GET")) {
+                send(exchange, app.module(path.substring((base + "/js/").length())));
             } else if (path.equals(base + "/event") && method.equals("POST")) {
                 event(exchange, request);
             } else if (path.equals(base + "/stream") && method.equals("GET")) {

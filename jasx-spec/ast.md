@@ -69,7 +69,14 @@ interface JasxCompilationUnit <: Node {
   type: "JasxCompilationUnit";
   specVersion: string;                      // e.g. "1.0"
   sourceFile: string | null;                // file name, if known
-  segments: [ JavaCode | JasxElement | JasxFragment | JasxStyleBlock ];
+  segments: [ JavaCode | JasxElement | JasxFragment | JasxStyleBlock | JasxScriptBlock ];
+}
+```
+
+```
+interface JasxScriptBlock <: Node {
+  type: "JasxScriptBlock";
+  script: string;                           // the text between <script> and </script>, as written
 }
 ```
 
@@ -147,6 +154,13 @@ interface JasxNamespacedName <: Node {
 }
 ```
 
+```
+interface JasxEventName <: Node {
+  type: "JasxEventName";
+  name: JasxIdentifier;                     // click, for @click: a browser attribute (semantics.md §11)
+}
+```
+
 Used only for attribute names (e.g. `xlink:href`).
 
 ### 6.2 Elements
@@ -198,7 +212,7 @@ interface JasxClosingFragment <: Node {
 ```
 interface JasxAttribute <: Node {
   type: "JasxAttribute";
-  name: JasxIdentifier | JasxNamespacedName;
+  name: JasxIdentifier | JasxNamespacedName | JasxEventName;
   value: JasxStringLiteral | JasxExpressionContainer | JasxElement | JasxFragment | null;
 }
 ```

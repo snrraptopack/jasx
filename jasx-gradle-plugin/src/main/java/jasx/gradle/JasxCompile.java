@@ -112,6 +112,20 @@ public abstract class JasxCompile extends DefaultTask {
     @OutputDirectory
     public abstract DirectoryProperty getOutputDirectory();
 
+    /** The {@code .js} files next to the {@code .jasx} files, packaged with the browser modules (semantics.md §11). */
+    @InputFiles
+    @IgnoreEmptyDirectories
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getScriptSources();
+
+    /**
+     * Where the browser modules are written, under {@code META-INF/jasx/js/} (targets/web.md §7.1): the modules the
+     * compiler made from {@code .jasx} files, and the {@code .js} files next to them. A resources directory of the
+     * source set.
+     */
+    @OutputDirectory
+    public abstract DirectoryProperty getModulesDirectory();
+
     @TaskAction
     public void compile() throws IOException {
         BuildSources sources = BuildSources.read(paths(getSourceRoots()));
@@ -140,6 +154,7 @@ public abstract class JasxCompile extends DefaultTask {
             typeCheck(sources, result.files());
         }
         BuildSources.writeGeneratedFiles(result.files(), getOutputDirectory().get().getAsFile().toPath());
+        sources.writeScriptModules(result.modules(), getModulesDirectory().get().getAsFile().toPath());
     }
 
     /** Runs javac over the generated and plain sources, and fails if it finds an error in a .jasx file. */

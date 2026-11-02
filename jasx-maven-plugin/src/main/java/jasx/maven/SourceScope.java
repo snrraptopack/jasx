@@ -61,6 +61,23 @@ final class SourceScope {
         return buildDirectory().resolve(directory).resolve("jasx");
     }
 
+    /** Where the browser modules are written (targets/web.md §7.1): a resources directory of the scope. */
+    Path generatedResources() {
+        String directory = test ? "generated-test-resources" : "generated-resources";
+        return buildDirectory().resolve(directory).resolve("jasx");
+    }
+
+    /** Makes Maven copy the browser modules into the classes, so they are in the jar. */
+    void addGeneratedResources() {
+        org.apache.maven.model.Resource resource = new org.apache.maven.model.Resource();
+        resource.setDirectory(generatedResources().toString());
+        if (test) {
+            project.addTestResource(resource);
+        } else {
+            project.addResource(resource);
+        }
+    }
+
     /** Makes Maven compile the generated Java along with the rest. */
     void addGeneratedSourcesToCompilation() {
         String root = generatedSources().toString();

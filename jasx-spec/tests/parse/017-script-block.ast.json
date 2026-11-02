@@ -1,0 +1,238 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    162
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 9,
+      "column": 0
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "017-script-block.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        12
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 2,
+          "column": 2
+        }
+      },
+      "source": "class A {\n  "
+    },
+    {
+      "type": "JasxScriptBlock",
+      "range": [
+        12,
+        105
+      ],
+      "loc": {
+        "start": {
+          "line": 2,
+          "column": 2
+        },
+        "end": {
+          "line": 5,
+          "column": 11
+        }
+      },
+      "script": "\n    import { toggle } from \"./toggle.js\";\n    if (a < b) { x = \"</p>\"; }\n  "
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        105,
+        137
+      ],
+      "loc": {
+        "start": {
+          "line": 5,
+          "column": 11
+        },
+        "end": {
+          "line": 7,
+          "column": 13
+        }
+      },
+      "source": "\n  <T> void m() {}\n  Object x = "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        137,
+        158
+      ],
+      "loc": {
+        "start": {
+          "line": 7,
+          "column": 13
+        },
+        "end": {
+          "line": 7,
+          "column": 34
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          137,
+          145
+        ],
+        "loc": {
+          "start": {
+            "line": 7,
+            "column": 13
+          },
+          "end": {
+            "line": 7,
+            "column": 21
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            138,
+            144
+          ],
+          "loc": {
+            "start": {
+              "line": 7,
+              "column": 14
+            },
+            "end": {
+              "line": 7,
+              "column": 20
+            }
+          },
+          "name": "script"
+        },
+        "attributes": [],
+        "selfClosing": false
+      },
+      "children": [
+        {
+          "type": "JasxExpressionContainer",
+          "range": [
+            145,
+            149
+          ],
+          "loc": {
+            "start": {
+              "line": 7,
+              "column": 21
+            },
+            "end": {
+              "line": 7,
+              "column": 25
+            }
+          },
+          "expression": {
+            "type": "JavaExpression",
+            "range": [
+              146,
+              148
+            ],
+            "loc": {
+              "start": {
+                "line": 7,
+                "column": 22
+              },
+              "end": {
+                "line": 7,
+                "column": 24
+              }
+            },
+            "segments": [
+              {
+                "type": "JavaCode",
+                "range": [
+                  146,
+                  148
+                ],
+                "loc": {
+                  "start": {
+                    "line": 7,
+                    "column": 22
+                  },
+                  "end": {
+                    "line": 7,
+                    "column": 24
+                  }
+                },
+                "source": "js"
+              }
+            ]
+          }
+        }
+      ],
+      "closingElement": {
+        "type": "JasxClosingElement",
+        "range": [
+          149,
+          158
+        ],
+        "loc": {
+          "start": {
+            "line": 7,
+            "column": 25
+          },
+          "end": {
+            "line": 7,
+            "column": 34
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            151,
+            157
+          ],
+          "loc": {
+            "start": {
+              "line": 7,
+              "column": 27
+            },
+            "end": {
+              "line": 7,
+              "column": 33
+            }
+          },
+          "name": "script"
+        }
+      }
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        158,
+        162
+      ],
+      "loc": {
+        "start": {
+          "line": 7,
+          "column": 34
+        },
+        "end": {
+          "line": 9,
+          "column": 0
+        }
+      },
+      "source": ";\n}\n"
+    }
+  ]
+}

@@ -37,7 +37,9 @@
         "path": "./syntaxes/jasx.tmLanguage.json",
         "embeddedLanguages": {
           "meta.embedded.expression.jasx": "java",
-          "meta.embedded.block.css": "css"
+          "meta.embedded.block.css": "css",
+          "meta.embedded.block.javascript": "javascript",
+          "meta.embedded.inline.javascript": "javascript"
         }
       }
     ],

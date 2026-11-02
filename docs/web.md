@@ -9,6 +9,7 @@ This guide shows how to write pages with JASX's `web` target, using examples. Th
 - [Forms and input](#forms-and-input)
 - [Lists](#lists)
 - [Pushing from the server](#pushing-from-the-server)
+- [JavaScript in the browser](#javascript-in-the-browser)
 - [Styles](#styles)
 - [Moving between pages](#moving-between-pages)
 - [Serving pages](#serving-pages)
@@ -129,7 +130,7 @@ If it needs the event, write `e -> ...`. The type of `e` depends on the attribut
 
 A handler can throw. The error is logged and the page stays usable; changes made before the exception are still sent.
 
-`navigate("/done")` in a handler sends the browser to another page.
+`navigate("/done")` in a handler sends the browser to another page. A page of your application is shown in place, as a link to it would be ([Moving between pages](#moving-between-pages)); anything else is loaded the ordinary way.
 
 ## Forms and input
 
@@ -266,6 +267,88 @@ The browser keeps one stream open for all its tabs of your application (`GET /_j
 
 If the connection drops (a laptop asleep, a train tunnel), the browser reconnects and tells the server the last update it applied. The server sends what was missed as one update, keeping only the latest value of each spot, so a clock that ticked sixty times while you were away sends one value. If too much was missed, or the server discarded the page, the page reloads, and what the user had typed in its forms is put back (not passwords), with `input` and `change` fired so your handlers catch up.
 
+## JavaScript in the browser
+
+Some things shouldn't wait for the server: opening a menu, switching a tab, copying to the clipboard, counting characters while typing, drawing a chart. Write them in plain JavaScript, and they run in the browser without a round trip. Many need no JavaScript at all: a `popover` (`<button popovertarget="menu">` with `<nav id="menu" popover="auto">`) or a `<details>` is handled by the browser itself.
+
+**`onclick` is Java, `@click` is JavaScript.** `onclick={...}` runs a Java handler on the server; `@click="..."` runs JavaScript in the browser. The same goes for every event: `@input`, `@keydown`, `@dragover`, ... An element can have both; the JavaScript runs first.
+
+Put the JavaScript in a `.js` file next to your `.jasx` file, and import it in a `<script>` block:
+
+```js
+// web/menu.js
+export function toggleMenu(event, { menu }) {
+  menu.hidden = !menu.hidden;
+}
+```
+
+```java
+<script>
+  import { toggleMenu } from "./menu.js";
+</script>
+
+public Element Menu() {
+    return (
+        <div>
+            <button @click="toggleMenu({menu: $menu})">Menu</button>
+            <nav ref="menu" hidden>...</nav>
+        </div>
+    );
+}
+```
+
+**Every function gets `(event, payload)`.** In the payload:
+
+- `$name` is a **ref**: the element marked `ref="name"`. If there are several (a list of rows, each with its own `ref="details"`), it is the one nearest to the element you clicked, so each row finds its own.
+- Every other name is a **Java variable**, checked by javac: `{text: url}`, `{id: t.id()}`, or `{url}` for short. Values arrive as JSON: strings, numbers, booleans, lists, maps, records (as objects) and enums (by name).
+- A `State` arrives as its value, and stays **current**: when it changes on the server, the next call gets the new value.
+- A Java handler arrives as a **function that calls the server**: `await save(value)` runs it, and resolves once the page has updated. A string or number arrives as `e.value()`, an object as fields (`e.field("from")`, `e.as(Move.class)`).
+- Strings in a payload are written in single quotes: `{question: 'Delete it?'}`.
+
+```java
+Action remove = () -> store.remove(t.id());
+<button @click="confirmDelete({title: t.title(), remove})">Delete</button>
+```
+
+```js
+export async function confirmDelete(event, { title, remove }) {
+  if (window.confirm("Delete " + title + "?")) await remove();
+}
+```
+
+**One line, inline.** Anything that isn't a call of one of your functions is inline JavaScript. It sees `event` and your refs:
+
+```java
+<button @click="$details.open = !$details.open">More</button>
+<li @dragover="event.preventDefault()" @drop="drop({index, move})">...</li>
+<button @click="window.print()">Print</button>
+```
+
+Browser functions are written `window.alert(...)`, `window.print()`: a bare `alert(...)` looks like a call of your own function, and the build fails if your script has none by that name. Inline code can't see Java variables; for those, call a function with a payload.
+
+**Following server state: `@render`.** `@render` runs when the element appears, and again whenever a `State` in its payload changes:
+
+```java
+<div ref="chart" data-jx-ignore @render="drawChart({chart: $chart, points})"></div>
+```
+
+```js
+export function drawChart(event, { chart, points }) {
+  const instance = new Chart(chart, { type: "line", data: { datasets: [{ data: points }] } });
+  return () => instance.destroy();
+}
+```
+
+`data-jx-ignore` keeps the server's updates out of what your JavaScript draws inside the element.
+
+**Styling what JavaScript creates.** A file's `<style>` applies only to the elements written in that file, so an element your JavaScript creates doesn't get it. The same goes for a class your JavaScript adds to an element (`classList.toggle("too-long")`). Style them with an unscoped selector, `:global(...)`: `:global(.bars > div) { width: 18px; }` styles the `<div>`s your code adds inside `<div class="bars">`, and `:global(.too-long)` the class it toggles. These rules apply to the whole page, so give such classes distinct names.
+
+**Cleanups.** Any function may return a function: its cleanup. It runs before the same attribute runs again on the element (so a second click stops the first click's timer), and when the element leaves the page, whether an update removes it or the user moves to another page.
+
+**What reaches the browser.** The build packages your `.js` files and what it generates from your `<script>` blocks; the server serves them under `/_jasx/js/`, cached for good, and the browser loads each one when a page first needs it. Your JavaScript never runs from a string, so a strict Content Security Policy works. Imports between your files work as in any ES module; for npm packages, import from a URL or map their names with an import map in your layout's `<head>`.
+
+[`examples/web`](../examples/web) has a page with tabs, a copy button, a confirmed reset, a character counter and a chart (`Browser.jasx`, `browser.js`).
+
 ## Styles
 
 A `<style>` block in a `.jasx` file is scoped to that file's markup, as with every target. The page gets the style sheets it uses in its `<head>`, or where you place `{styles()}`. A style sheet first needed by an update is sent with it.
@@ -293,6 +376,8 @@ Styles every view shares, such as those of form controls, go in the layout's fil
 Links between your pages need nothing special. A plain click on `<a href="/tasks/2">` fetches that page and shows it in place: the browser keeps its connection and scripts, swaps in the new page's body, title and styles, and updates the history, so back and forward work. It feels like a single-page application, while each page is still an ordinary server-rendered page, with its own URL.
 
 The browser loads a link the ordinary way when it opens a new window (`target="_blank"`, ctrl+click), downloads (`download`), leaves your site, or answers with something other than a page (a PDF, JSON). Mark a link, or an element around links, with `data-jx-reload` to always load it the ordinary way.
+
+The page you leave is discarded on the server at once (going back renders it anew), and the client script is cached under its version, so a move between pages costs one request for the page and one for its stream.
 
 ## Serving pages
 
@@ -378,6 +463,26 @@ Pages need cookies to work. Rate limiting is up to your reverse proxy.
 
 **Many tabs over HTTP/1.1.** Browsers open only about six connections per server over HTTP/1.1, which is why the tabs share one stream. Sharing needs Web Locks and BroadcastChannel, which every current browser has, and a secure context: HTTPS, or `localhost` while developing. On plain HTTP from another host (a phone on your network trying `http://192.168.1.5:8080`), each tab keeps its own stream, and hidden tabs close theirs after 10 seconds. HTTP/2 removes the limit entirely, so prefer it in production. The JDK's built-in server (`WebServer`) speaks only HTTP/1.1: put a reverse proxy with HTTP/2 in front of it, or use a server adapter that supports HTTP/2.
 
+### Several instances, deploys and restarts
+
+**A page lives in the server that rendered it.** Its state, holes and handlers are objects in that JVM, so a browser's events and stream must reach the same instance. With one instance there is nothing to do. With several behind a load balancer, turn on **cookie stickiness**, keyed on the `jasx_session` cookie the runtime already sets, so every request of a browser goes to the same instance:
+
+- **nginx:** `hash $cookie_jasx_session consistent;` in the `upstream` block.
+- **AWS Application Load Balancer:** target group stickiness, application-based, with the cookie name `jasx_session`.
+- **Kubernetes (ingress-nginx):** the annotations `nginx.ingress.kubernetes.io/affinity: "cookie"` and `nginx.ingress.kubernetes.io/session-cookie-name: "jasx_session"`, or `upstream-hash-by: "$cookie_jasx_session"`.
+
+A browser without the cookie yet (its very first page) may land anywhere; the page it gets sets the cookie, and the browser sticks from then on.
+
+**Deploy by draining.** In a rolling deploy, stop sending new browsers to an old instance, let it go on serving its open pages for a while (a few minutes is plenty: pages are short-lived), then stop it. Most users never notice. With Spring Boot, the starter closes the pages when the application starts to stop, so graceful shutdown doesn't wait for open streams; set `server.shutdown=graceful` and a load balancer deregistration delay for the draining.
+
+**What happens when a page is lost.** If a browser comes back to a server that no longer has its page (it was restarted, or the page timed out), the stream tells it so, and the browser reloads the page:
+
+1. Before reloading, it saves the values of the page's named form fields (not passwords, hidden fields or files).
+2. It loads the page again, which renders it afresh on the server it now reaches.
+3. It puts the saved values back, and fires `input` and `change` on each field, so your handlers catch up.
+
+So a user in the middle of a form keeps what they typed. What can't come back is state that lived only in the lost JVM: a `State` holding a counter or the step of a wizard starts from its initial value. Keep state that must survive a restart in the URL (a query parameter, such as `?step=3` or `?tab=billing`) or in your database, and use `State` for what the screen shows while the page is open.
+
 ## Testing pages
 
 `io.github.snrraptopack:jasx-web-test` tests pages without a browser, in plain JUnit tests. `TestPage` renders a component, then clicks, types and submits as a user would, and reads the page as it is after each update:
@@ -415,13 +520,14 @@ class BoardTest {
 | `submit(selector)`, `submit(selector, fields)` | fills the named fields of the form (or of the form holding the element), then submits it |
 | `keydown(selector, key)`, `fire(selector, type)` | a key press; any event |
 | `attach(selector, name, type, bytes)` | chooses a file in a file field; the next submit uploads it |
+| `call(selector, event, name)`, with a value or a map of fields | calls a Java handler that an `@event` attribute passes to its JavaScript, as the JavaScript would |
 | `find`, `findAll`, `has`, `text`, `html` | read the page; an element gives `text()`, `attribute(name)`, `hasClass(name)`, `value()`, `checked()` |
 | `await(() -> ...)` | repeats an assertion until it passes, for what the server pushes from elsewhere |
 | `navigatedTo()` | where `navigate(url)` sent the browser |
 
 Selectors are CSS: tags, `#id`, `.class`, `[attr]`, `[attr=value]`, descendant and `>` combinators, and lists separated by commas. A mistake fails with the page's HTML in the message.
 
-Each `TestPage` is a separate browser with its own session, going through the same requests a browser sends, so the page's handlers, holes, keyed lists and security checks all run for real. Events are sent at once (no 300 ms debounce to wait for). Pass an application's own `WebApp` (a Spring bean, say) with `TestPage.render(app, () -> ...)`. [`examples/web-spring`](../examples/web-spring) has a complete test.
+Each `TestPage` is a separate browser with its own session, going through the same requests a browser sends, so the page's handlers, holes, keyed lists and security checks all run for real. Events are sent at once (no 300 ms debounce to wait for). JavaScript isn't run: for `<button @click="confirmThen({question: 'Reset?', action: reset})">`, the function's `await action()` is `page.call("button", "click", "action")`, and `await save("Milk")` is `page.call("button", "click", "save", "Milk")`. Pass an application's own `WebApp` (a Spring bean, say) with `TestPage.render(app, () -> ...)`. [`examples/web-spring`](../examples/web-spring) has a complete test.
 
 ## Pitfalls
 

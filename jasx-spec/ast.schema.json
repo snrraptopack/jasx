@@ -62,7 +62,8 @@
         { "$ref": "#/$defs/JavaCode" },
         { "$ref": "#/$defs/JasxElement" },
         { "$ref": "#/$defs/JasxFragment" },
-        { "$ref": "#/$defs/JasxStyleBlock" }
+        { "$ref": "#/$defs/JasxStyleBlock" },
+        { "$ref": "#/$defs/JasxScriptBlock" }
       ]
     },
     "Segment": {
@@ -102,6 +103,18 @@
         "type": { "const": "JasxStyleBlock" },
         "range": true, "loc": true,
         "css": { "type": "string" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxScriptBlock": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["script"],
+      "properties": {
+        "type": { "const": "JasxScriptBlock" },
+        "range": true, "loc": true,
+        "script": { "type": "string" }
       },
       "patternProperties": { "^_": true },
       "additionalProperties": false
@@ -169,6 +182,18 @@
         "type": { "const": "JasxNamespacedName" },
         "range": true, "loc": true,
         "namespace": { "$ref": "#/$defs/JasxIdentifier" },
+        "name": { "$ref": "#/$defs/JasxIdentifier" }
+      },
+      "patternProperties": { "^_": true },
+      "additionalProperties": false
+    },
+    "JasxEventName": {
+      "allOf": [{ "$ref": "#/$defs/NodeBase" }],
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "type": { "const": "JasxEventName" },
+        "range": true, "loc": true,
         "name": { "$ref": "#/$defs/JasxIdentifier" }
       },
       "patternProperties": { "^_": true },
@@ -269,7 +294,8 @@
         "name": {
           "oneOf": [
             { "$ref": "#/$defs/JasxIdentifier" },
-            { "$ref": "#/$defs/JasxNamespacedName" }
+            { "$ref": "#/$defs/JasxNamespacedName" },
+            { "$ref": "#/$defs/JasxEventName" }
           ]
         },
         "value": {

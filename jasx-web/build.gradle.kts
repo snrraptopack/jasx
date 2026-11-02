@@ -48,8 +48,8 @@ val eventKinds: Map<String, String> = buildMap {
 
 /**
  * Generates one attribute builder per element (targets/web.md §2): each attribute has a static overload and
- * a Supplier overload for its dynamic form; each event attribute takes inline JavaScript, a jasx.ui.Action, or
- * a jasx.ui.Handler of its kind of event.
+ * a Supplier overload for its dynamic form; each event attribute takes a jasx.ui.Action or a jasx.ui.Handler of
+ * its kind of event. Browser code is a browser attribute (@click), not a string (targets/web.md §7.1).
  */
 val generateAttributeBuilders = tasks.register("generateAttributeBuilders") {
     inputs.file(htmlSchema)
@@ -92,7 +92,6 @@ val generateAttributeBuilders = tasks.register("generateAttributeBuilders") {
         globals.toSortedMap().forEach { (name, spec) -> base.append(methods("T", name, spec)) }
         events.sorted().forEach { name ->
             val kind = "jasx.ui." + (eventKinds[name.removePrefix("on")] ?: "Event")
-            base.append("    public T $name(java.lang.String javaScript) {\n        return set(\"$name\", javaScript);\n    }\n\n")
             base.append("    public T $name(jasx.ui.Action action) {\n        return set(\"$name\", action);\n    }\n\n")
             base.append("    public T $name(jasx.ui.Handler<? super $kind> handler) {\n        return set(\"$name\", handler);\n    }\n\n")
         }

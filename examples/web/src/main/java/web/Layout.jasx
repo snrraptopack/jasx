@@ -26,6 +26,7 @@ public Element Page(String title, List<Element> children) {
                     <a href="/todos">To-do list</a>
                     <a href="/search">Live search</a>
                     <a href="/live">Server push</a>
+                    <a href="/browser">Browser code</a>
                 </nav>
                 <h1>{title}</h1>
                 {children}

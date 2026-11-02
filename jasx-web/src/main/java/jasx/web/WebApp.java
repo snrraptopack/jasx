@@ -129,6 +129,9 @@ public final class WebApp implements AutoCloseable {
     /** Each session's pages, oldest first, for {@link Limits#maxPagesPerSession}. */
     private final Map<String, Deque<Page>> pagesBySession = new ConcurrentHashMap<>();
     private final ScheduledExecutorService sweeper;
+    /** The application's browser modules (targets/web.md §7.1), from the class loader that created the app. */
+    private final ScriptModules modules = ScriptModules.of(Thread.currentThread().getContextClassLoader() != null
+            ? Thread.currentThread().getContextClassLoader() : WebApp.class.getClassLoader());
 
     /** An application with the base path {@code /_jasx} and a page timeout of 2 minutes. */
     public WebApp() {
@@ -386,6 +389,16 @@ public final class WebApp implements AutoCloseable {
         return browserHasIt ? new Response(304, "", headers) : new Response(200, ClientScript.TEXT, headers);
     }
 
+    /**
+     * The answer to {@code GET <basePath>/js/<path>} (targets/web.md §8.1): a browser module of the application, or
+     * a {@code .js} file next to its {@code .jasx} files, cached for good; 404 for anything else.
+     *
+     * @param path the request's path after {@code <basePath>/js/}: {@code <build>/<file>}
+     */
+    public Response module(String path) {
+        return modules.serve(path);
+    }
+
     /** Stops the background thread and discards every page. */
     @Override
     public void close() {
@@ -424,8 +437,10 @@ public final class WebApp implements AutoCloseable {
         Page page = new Page(newId(), session);
         pages.put(page.id, page);
         addToSession(page);
+        String modulesAttribute = modules.build() != null
+                ? " data-jx-js=\"" + basePath + "/js/" + modules.build() + "/\"" : "";
         String scriptTag = "<script src=\"" + basePath + "/web.js?v=" + ClientScript.VERSION + "\" data-jx-page=\""
-                + page.id + "\" defer></script>";
+                + page.id + "\"" + modulesAttribute + " defer></script>";
         try {
             return page.render(root, scriptTag);
         } catch (RuntimeException | Error e) {

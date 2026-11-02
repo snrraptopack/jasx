@@ -57,6 +57,7 @@ public final class JasxPlugin implements Plugin<Project> {
         FileCollection sourceRoots = project.files(sourceRootDirs);
         FileCollection jasxFiles = sourceRoots.getAsFileTree().matching(files -> files.include("**/*.jasx"));
         FileCollection javaFiles = sourceRoots.getAsFileTree().matching(files -> files.include("**/*.java"));
+        FileCollection scriptFiles = sourceRoots.getAsFileTree().matching(files -> files.include("**/*.js"));
 
         // The target's descriptor and schema are resources. A project dependency (in a multi-project or
         // composite build) puts only its classes on the compile classpath, and its resources only on the
@@ -92,6 +93,7 @@ public final class JasxPlugin implements Plugin<Project> {
                     task.getSourceRoots().from(sourceRoots);
                     task.getSource().from(jasxFiles);
                     task.getJavaSources().from(javaFiles);
+                    task.getScriptSources().from(scriptFiles);
                     task.getClasspath().from(jasxClasspath);
                     task.getTarget().set(extension.getTarget());
                     task.getTypeCheck().set(extension.getTypeCheck());
@@ -100,8 +102,13 @@ public final class JasxPlugin implements Plugin<Project> {
                     task.getRelease().set(release);
                     task.getCompilerArgs().set(compilerArgs(project, sourceSet));
                     task.getOutputDirectory().set(outputDirectory);
+                    task.getModulesDirectory().set(project.getLayout().getBuildDirectory()
+                            .dir("generated/resources/jasx/" + sourceSet.getName()));
                     task.dependsOn(editorInfo);
                 });
+
+        // The browser modules (targets/web.md §7.1) go into the source set's resources, so they are in the jar.
+        sourceSet.getResources().srcDir(compileJasx.flatMap(JasxCompile::getModulesDirectory));
 
         // Adding the task's output as a source directory also makes compileJava depend on the task.
         Provider<Directory> generatedSources = compileJasx.flatMap(JasxCompile::getOutputDirectory);

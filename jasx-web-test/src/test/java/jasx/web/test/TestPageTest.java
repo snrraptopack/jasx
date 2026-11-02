@@ -171,6 +171,44 @@ class TestPageTest {
         assertEquals(List.of("1", "2"), texts(root, "div.x.y p, section > p"), "a list: either selector");
     }
 
+    /** Browser code (targets/web.md §7.1): JavaScript isn't run, but the Java handlers it is passed can be called. */
+    private static Element browserCode() {
+        State<Integer> count = Web.state(5);
+        State<String> title = Web.state("");
+        State<String> moved = Web.state("");
+        jasx.ui.Action reset = () -> count.set(0);
+        jasx.ui.Handler<jasx.ui.InputEvent> save = e -> title.set(e.value());
+        jasx.ui.Handler<jasx.ui.FormEvent> move = e -> moved.set(e.field("from") + "->" + e.field("to"));
+        return Web.h("div", null,
+                Web.h("output", null, Web.dynamic(() -> count.get() + " " + title.get() + " " + moved.get())),
+                Web.h("button", Button.create().className("reset").attr("@click", () -> Web.script("T.jasx.js", "confirmThen",
+                        Web.object("question", "Reset?", "action", reset))), "Reset"),
+                Web.h("ul", Li.create().attr("@drop", () -> Web.script("T.jasx.js", "drop", Web.object("save", save, "move", move))),
+                        Web.h("li", null, "row")));
+    }
+
+    @Test
+    void javaHandlersPassedToBrowserCodeCanBeCalled() {
+        try (TestPage page = TestPage.render(TestPageTest::browserCode)) {
+            page.call("button.reset", "click", "action");
+            assertEquals("0", page.text("output"));
+            page.call("li", "drop", "save", "Milk"); // the nearest @drop, on the list
+            page.call("li", "drop", "move", Map.of("from", 1, "to", 3));
+            assertEquals("0 Milk 1->3", page.text("output"));
+        }
+    }
+
+    @Test
+    void browserCodeIsNotRunAndSaysSo() {
+        try (TestPage page = TestPage.render(TestPageTest::browserCode)) {
+            AssertionError click = assertThrows(AssertionError.class, () -> page.click("button.reset"));
+            assertTrue(click.getMessage().contains("call(...)"), click.getMessage());
+            AssertionError notAHandler = assertThrows(AssertionError.class, () -> page.call("button.reset", "click", "question"));
+            assertTrue(notAHandler.getMessage().contains("no Java handler named \"question\""), notAHandler.getMessage());
+            assertThrows(AssertionError.class, () -> page.call("output", "click", "action"));
+        }
+    }
+
     private static List<String> texts(Dom.Element root, String selector) {
         return Selector.parse(selector).select(root).stream().map(element -> Dom.text(element)).toList();
     }

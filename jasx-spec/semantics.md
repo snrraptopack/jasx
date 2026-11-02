@@ -400,6 +400,7 @@ The build selects one target per source set by its `id`. All targets share the g
 | `lowering` | `"factory"` or a class name | Factory lowering (§6), or the class implementing a custom lowering (§7.4). |
 | `eventHandlers` | `"none"` or `"java"` | Whether event attributes accept Java expressions (such as lambdas) as handlers. Where and when a handler runs is defined by the target. |
 | `styles` | `"none"` (the default) or `"css"` | Whether the target supports style blocks (§10). |
+| `scripts` | `"none"` (the default) or `"module"` | Whether the target supports script blocks, browser attributes and refs (§11). |
 
 A descriptor **MAY** contain other fields, which a compiler that doesn't know them ignores. The core defines no field for reactive targets: a reactive target such as `web` uses a custom lowering (§7.4).
 
@@ -435,6 +436,8 @@ The interface through which the compiler loads a custom lowering is defined by t
 | A Java expression as the value of an event attribute on a target with `eventHandlers: "none"` | JASX2103 |
 | A tag not in the schema | JASX2105 |
 | A style block on a target without `"styles": "css"` (§10.6) | JASX2106 |
+| A script block, browser attribute or `ref` on a target without `"scripts": "module"` (§11.8) | JASX2107 |
+| On a target with `"scripts": "module"`, an event attribute whose value is a string (§11.8) | JASX2108 |
 
 JASX2104 is reserved for reactive targets; no target reports it yet.
 
@@ -651,3 +654,123 @@ Both functions mark the element as using the style sheet; only `F.scoped` elemen
 A target supports style blocks if its descriptor has `"styles": "css"` (§7.2). A style block in a file compiled for any other target is an error (JASX2106).
 
 What a style sheet, a scoped element and an unscoped element mean, and how the scoped CSS is delivered, is target-defined. A target **SHOULD** give each scoped element, and no unscoped element, the scope name of its style sheet as a CSS class, so that the scoped CSS applies to it, and **SHOULD** make the scoped CSS of the scoped and unscoped elements it renders available to the application.
+
+## 11. Browser scripts
+
+A target that runs pages in a browser can let a file carry JavaScript for it: **script blocks** (`grammar.md` §7.4) hold the file's JavaScript, **browser attributes** such as `@click` (`grammar.md` §6.4) run it for an event of an element, and **refs** (`ref="name"`) name elements for it. Java event attributes (`onclick={...}`) stay Java; browser attributes are JavaScript, run in the browser.
+
+```java
+<script>
+  import { toggleMenu } from "./menu.js";
+</script>
+
+Element Menu(Action save) {
+    return (
+        <div>
+            <button @click="toggleMenu({menu: $menu, save})">Menu</button>
+            <nav ref="menu" hidden>...</nav>
+        </div>
+    );
+}
+```
+
+The core defines what these mean at compile time and how they are lowered. How the JavaScript reaches the browser, and how it is called there, is defined by the target. They require a target that supports them (§11.8).
+
+### 11.1 The file's script
+
+All the script blocks of a file, in source order and joined by line breaks, form the file's **script**: one JavaScript module (ES module). A script block may be anywhere `grammar.md` §7.4 detects one; it is removed from the Java (its lines stay, empty), wherever it is.
+
+The compiler reads only what it needs from the script: the names it declares at its top level. It is not a JavaScript parser. It skips comments (`//` to the end of the line, `/*` to `*/`), string literals (`'...'`, `"..."`, with `\` escaping the next character) and template literals (`` `...` ``, including `${...}` substitutions), and tracks `(`, `[` and `{`. A `/` starts a regular expression literal when the previous significant token is none, one of `( , = : [ ! & | ? { } ; + - * % < > ~ ^`, or the word `return`, `typeof`, `case`, `do`, `else` or `in`; it then runs to the next `/` not escaped and not in a `[...]` class. Outside every bracket, it reads these **top-level names**:
+
+| Written | Names |
+|---|---|
+| `import d from "m"` | `d` |
+| `import { a, b as c } from "m"` | `a`, `c` |
+| `import * as ns from "m"` | `ns` |
+| `import d, { a } from "m"`, `import d, * as ns from "m"` | `d`, `a` / `d`, `ns` |
+| `function f`, `async function f`, `function* f`, `async function* f` | `f` |
+| `class C` | `C` |
+| `const x =`, `let x =`, `var x =` (each name of a list `const x = 1, y = 2`) | `x` (`x`, `y`) |
+
+Any of these may be preceded by `export` (and `export default` before `function` or `class`); the name is then **exported** already. Names bound by destructuring (`const { a } = o`) are not read: they can't be called from an attribute.
+
+### 11.2 Browser attributes
+
+A browser attribute is an attribute named by a `JasxEventName`: `@` and the name of a DOM event (`@click`, `@input`, `@dragover`), or `@render` (defined by the target). It **MUST** be on an intrinsic element (JASX2018) and **MUST** have a string literal as its value (JASX2017). The string is JavaScript, with Java escape sequences and character references decoded as in any attribute string (`grammar.md` §5). It is one of two things:
+
+- **A call** `name()` or `name(payload)`: the whole value, ignoring whitespace around it, is an identifier, `(`, anything, and the `)` that matches the `(`. `name` **MUST** be a top-level name of the file's script (JASX2019), and what is between the parentheses, if anything, **MUST** be a payload (§11.3, JASX2020). A browser global is written as inline code: `window.alert('Saved')`.
+- **Inline code**: any other value (`$menu.hidden = !$menu.hidden`, `event.preventDefault()`, `window.print()`).
+
+An element may have one browser attribute per event, and both a browser attribute and a Java event attribute for the same event (`@click` and `onclick`).
+
+### 11.3 Payloads
+
+A payload is one value, written in this notation (whitespace may separate tokens):
+
+```
+Payload:    Value
+Value:      Ref | JavaName | Literal | Object | List
+Ref:        $ Name
+JavaName:   JavaPart ( . JavaPart )*
+JavaPart:   Name ( ( ) )?
+Literal:    String | Number | true | false | null
+String:     ' ( any character but ' and \, or \' or \\ )* '
+Number:     -? Digits ( . Digits )?
+Object:     { ( Entry ( , Entry )* ,? )? }
+Entry:      Key : Value | Name
+Key:        Name | String
+List:       [ ( Value ( , Value )* ,? )? ]
+```
+
+`Name` is a Java identifier (JLS §3.8) other than `true`, `false` and `null`. An `Entry` that is a lone `Name` is shorthand for `Name: Name`.
+
+- A `Ref` is the element with that ref (§11.5).
+- A `JavaName` is a **Java expression**: a variable, field or no-argument method call, optionally followed by fields and no-argument method calls (`url`, `t.id()`, `user.address().city()`). It is Java code, written into the generated Java exactly as in the source (§11.6), so javac checks it. What a Java value becomes in the browser is defined by the target.
+- Literals, objects and lists are what they are in JSON.
+
+A payload holds values only, never code: its names are Java names, and refs are written `$name`.
+
+### 11.4 Inline code
+
+Inline code is JavaScript that runs as the body of a function for the event. It sees the event as `event`, the refs it uses as `$name` (§11.5), and JavaScript's own names (`window`, ...). It does not see Java variables; code that needs a Java value calls a function of the script with a payload.
+
+The refs inline code uses are found by reading it as §11.1 reads the script (comments, strings and template literals skipped): each `$` that starts a JavaScript identifier, followed by a `Name`, outside those, is a ref. Inline code is not evaluated from a string in the browser: each snippet becomes a function of the file's module (§11.6).
+
+### 11.5 Refs
+
+A `ref` attribute marks an intrinsic element for browser code. It **MUST** be on an intrinsic element (JASX2018), and its value **MUST** be a string literal holding a `Name` (JASX2022). A ref used in a payload or in inline code, `$name`, **MUST** be declared by a `ref` attribute somewhere in the same file (JASX2021). Which element a ref stands for in the browser is defined by the target.
+
+### 11.6 Lowering
+
+**The file's module.** A file with script blocks or browser attributes has a **module**, named after the file's path in its source set with `.jasx.js` appended (`web/Menu.jasx` gives `web/Menu.jasx.js`). It is the file's script (§11.1), followed by:
+
+1. an `export { ... };` of every top-level name a call uses that the script doesn't export already, if there is one; and
+2. for each inline snippet, in source order, a function `export function jx$N(event, { $a, $b }) { code }` with the refs the snippet uses (or `export function jx$N(event) { code }` without refs), where `N` counts the file's snippets from 1.
+
+The compiler provides the modules of the files it compiles, with their names; how they reach the browser is target-defined.
+
+**Attributes.** A browser attribute `@event` is lowered as a dynamic attribute (§8) passed by name, `.attr("@event", value)`, whose value is
+
+```java
+F.script("web/Menu.jasx.js", "toggleMenu", payload)   // a call
+F.script("web/Menu.jasx.js", "jx$1", refs)            // inline code
+```
+
+where the payload is written with the factory functions `F.object(key1, value1, key2, value2, ...)`, `F.list(...)` and `F.ref("name")`, string literals for strings and keys, Java literals for numbers, `true`, `false` and `null`, and each `JavaName` as its source text, cast to `Object`. A call without a payload passes `null`. For inline code, `refs` is `F.object("$a", F.ref("a"), ...)` with the refs the snippet uses, or `null`. A `ref` attribute is a static attribute passed by name, `.attr("ref", "name")`.
+
+A target with `"scripts": "module"` provides these factory functions, in addition to those of §6.2:
+
+| Function | Purpose |
+|---|---|
+| `Object F.script(String module, String function, Object payload)` | A call of `function` in `module`, with `payload`. |
+| `Object F.object(Object... keysAndValues)` | An object of a payload: keys (strings) and values, alternately. |
+| `Object F.list(Object... values)` | A list of a payload. |
+| `Object F.ref(String name)` | A ref of a payload. |
+
+### 11.7 What is checked
+
+Everything above that names a code is reported by JASX, at its `.jasx` position, before javac runs. Java names in payloads are then checked by javac, with their errors reported at their place in the attribute string (§6.6). JavaScript itself is not checked: a syntax error in a script block or in inline code is reported by the browser.
+
+### 11.8 Target support
+
+A target supports browser scripts if its descriptor has `"scripts": "module"` (§7.2). A script block, browser attribute or `ref` attribute in a file compiled for any other target is an error (JASX2107). On a target that supports them, browser code is written only as browser attributes: an event attribute (kind `event`, §7.3) whose value is a string literal is an error (JASX2108).

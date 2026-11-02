@@ -1,0 +1,14 @@
+{
+  "comment": "A tiny stand-in for VS Code's built-in JavaScript grammar, used only by the tests: it marks the import keyword and identifiers starting with $, enough to see that content is highlighted as JavaScript.",
+  "scopeName": "source.js",
+  "patterns": [
+    {
+      "match": "\\bimport\\b",
+      "name": "keyword.control.import.js"
+    },
+    {
+      "match": "\\$[A-Za-z_]\\w*",
+      "name": "variable.other.readwrite.js"
+    }
+  ]
+}

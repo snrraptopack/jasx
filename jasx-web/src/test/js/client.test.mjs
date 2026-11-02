@@ -33,7 +33,7 @@ after(() => openWindows.forEach((window) => window.close()));
  * is `id`; a page made with a `browser` (browserWithTabs) is one of its tabs, otherwise it can't share its
  * stream.
  */
-async function page(body, answer = () => null, scriptAttributes = "", { id = "P1", browser = null, storage = {}, pages = {} } = {}) {
+async function page(body, answer = () => null, scriptAttributes = "", { id = "P1", browser = null, storage = {}, pages = {}, modules = null } = {}) {
   const sent = [];
   const streams = [];
   const pings = [];
@@ -47,6 +47,10 @@ async function page(body, answer = () => null, scriptAttributes = "", { id = "P1
       resources: new ClientLoader(),
       beforeParse(window) {
         for (const [key, value] of Object.entries(storage)) window.sessionStorage.setItem(key, value);
+        if (modules) {
+          // jsdom can't import ES modules: the client's hook gives the test's modules, by path (§7.1).
+          window.__jasxImport = async (url) => modules[url.replace(/^.*\/_jasx\/js\/[^/]+\//, "")];
+        }
         if (browser) browser.install(window, id);
         else window.BroadcastChannel = undefined;
         window.fetch = async (url, init) => {
@@ -826,4 +830,130 @@ test("a response that isn't a JASX page is loaded the ordinary way", async () =>
   await wait(50);
   assert.deepEqual(fetched, ["/report.pdf"]);
   assert.equal(document.querySelector("a").textContent, "PDF", "the page wasn't replaced");
+});
+
+// -------------------------------------------------------------------------------------------------
+// Browser code (targets/web.md §7.1)
+// -------------------------------------------------------------------------------------------------
+
+const MODULES = `data-jx-js="/_jasx/js/B1/"`;
+
+/** A browser attribute, as the server renders it: the call as JSON in an HTML attribute. */
+function js(type, path, name, payload) {
+  return `data-jx-js-${type}='${JSON.stringify([path, name, payload ?? null])}'`;
+}
+
+test("a browser attribute calls its function with the event and the payload, refs found nearest", async () => {
+  const calls = [];
+  const modules = { "web/Faq.jasx.js": { toggle: (event, values) => calls.push({ type: event.type, ...values }) } };
+  const row = (n) => `<div class="row"><dt ${js("click", "web/Faq.jasx.js", "toggle", { answer: { $ref: "answer" }, n })}>Q${n}</dt>`
+    + `<dd data-jx-ref="answer">A${n}</dd></div>`;
+  const { window, document } = await page(row(1) + row(2), () => null, MODULES, { modules });
+  await wait();
+  fire(window, document.querySelectorAll("dt")[1], "click");
+  await wait();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].type, "click");
+  assert.equal(calls[0].n, 2);
+  assert.equal(calls[0].answer.textContent, "A2", "the second row's own answer");
+});
+
+test("a Java handler in the payload is a function that sends to the server and resolves after the update", async () => {
+  let saved = null;
+  const modules = { "web/C.jasx.js": { pick: (event, { save }) => { saved = save("#ff0000"); } } };
+  const { window, document, sent } = await page(
+    `<p><!--jx:4-->old<!--/jx:4--></p><button ${js("click", "web/C.jasx.js", "pick", { save: { handler: 12 } })}>x</button>`,
+    () => ({ version: 1, patches: [{ op: "html", id: 4, html: "new" }] }), MODULES, { modules });
+  await wait();
+  fire(window, document.querySelector("button"), "click");
+  await saved;
+  assert.equal(sent.at(-1).payload.handler, 12);
+  assert.equal(sent.at(-1).payload.value, "#ff0000");
+  assert.equal(document.querySelector("p").textContent, "new", "the promise resolved after the update was in the page");
+});
+
+test("an object passed to a Java handler arrives as fields", async () => {
+  const modules = { "web/D.jasx.js": { drop: (event, { move }) => move({ from: 2, to: 5 }) } };
+  const { window, document, sent } = await page(
+    `<li ${js("drop", "web/D.jasx.js", "drop", { move: { handler: 7 } })}>x</li>`, () => null, MODULES, { modules });
+  await wait();
+  fire(window, document.querySelector("li"), "drop");
+  await wait();
+  assert.deepEqual(sent.at(-1).payload.fields, { from: ["2"], to: ["5"] });
+});
+
+test("a returned cleanup runs before the next call and when the element leaves the page", async () => {
+  const log = [];
+  let n = 0;
+  const modules = { "web/T.jasx.js": { start: () => { const mine = ++n; log.push("start " + mine); return () => log.push("stop " + mine); } } };
+  const { window, document } = await page(`<button ${js("click", "web/T.jasx.js", "start")}>go</button>`, () => null, MODULES, { modules });
+  await wait();
+  const button = document.querySelector("button");
+  fire(window, button, "click");
+  fire(window, button, "click");
+  await wait();
+  assert.deepEqual(log, ["start 1", "stop 1", "start 2"]);
+  button.remove();
+  await wait();
+  assert.deepEqual(log, ["start 1", "stop 1", "start 2", "stop 2"]);
+});
+
+test("@render runs when the element appears and again when the server changes its payload", async () => {
+  const log = [];
+  const modules = { "web/S.jasx.js": { draw: (event, { points }) => { log.push(event.type + " " + points.join(",")); return () => log.push("destroy"); } } };
+  const { window, streams } = await page(
+    `<canvas data-jx-id="3" ${js("render", "web/S.jasx.js", "draw", { points: [1, 2] })}></canvas>`, () => null, MODULES, { modules });
+  await wait();
+  assert.deepEqual(log, ["render 1,2"]);
+  streams.at(-1).push({ version: 1, patches: [{ op: "attr", id: 3, name: "data-jx-js-render",
+    value: JSON.stringify(["web/S.jasx.js", "draw", { points: [1, 2, 3] }]) }] });
+  await wait();
+  assert.deepEqual(log, ["render 1,2", "destroy", "render 1,2,3"]);
+  assert.ok(window);
+});
+
+test("a browser attribute runs before the element's Java handler is sent, and can prevent the default", async () => {
+  const order = [];
+  const modules = { "web/O.jasx.js": { first: (event) => { order.push("javascript"); event.preventDefault(); } } };
+  const { window, document } = await page(
+    `<a href="/x" data-jx-on="click:1" ${js("click", "web/O.jasx.js", "first")}>x</a>`,
+    () => { order.push("java"); return null; }, MODULES, { modules });
+  await wait(); // the module has loaded: the call is synchronous, so preventDefault() counts
+  const click = fire(window, document.querySelector("a"), "click");
+  await wait();
+  assert.deepEqual(order, ["javascript", "java"]);
+  assert.ok(click.defaultPrevented);
+});
+
+test("inline code is a function of the module, called with the refs it uses", async () => {
+  const modules = { "web/M.jasx.js": { jx$1: (event, { $menu }) => { $menu.hidden = !$menu.hidden; } } };
+  const { window, document } = await page(
+    `<button ${js("click", "web/M.jasx.js", "jx$1", { $menu: { $ref: "menu" } })}>m</button><nav data-jx-ref="menu" hidden></nav>`,
+    () => null, MODULES, { modules });
+  await wait();
+  fire(window, document.querySelector("button"), "click");
+  assert.equal(document.querySelector("nav").hidden, false);
+});
+
+test("a navigation runs the cleanups of the page it leaves", async () => {
+  const log = [];
+  const modules = { "web/N.jasx.js": { draw: () => () => log.push("cleaned") } };
+  const { window, document } = await page(
+    `<canvas ${js("render", "web/N.jasx.js", "draw")}></canvas><a href="/next">next</a>`, () => null, MODULES,
+    { modules, pages: { "/next": NEXT_PAGE } });
+  await wait();
+  fire(window, document.querySelector("a"), "click");
+  await wait(100);
+  assert.deepEqual(log, ["cleaned"]);
+});
+
+test("a function sees the element with the browser attribute as the event's currentTarget", async () => {
+  let seen = null;
+  const modules = { "web/E.jasx.js": { copy: (event) => { seen = event.currentTarget; event.currentTarget.textContent = "Copied"; } } };
+  const { window, document } = await page(
+    `<button ${js("click", "web/E.jasx.js", "copy")}><span>Copy</span></button>`, () => null, MODULES, { modules });
+  await wait();
+  fire(window, document.querySelector("span"), "click");
+  assert.equal(seen, document.querySelector("button"));
+  assert.equal(document.querySelector("button").textContent, "Copied");
 });

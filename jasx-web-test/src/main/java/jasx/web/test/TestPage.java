@@ -34,7 +34,8 @@ import java.util.function.Supplier;
  * store, another page, a background job) arrives on the page's stream: {@link #await} waits for it.
  *
  * <p>Differences from a browser: an event is sent at once (no debounce, so a test needn't wait), a hole's new content
- * replaces the old instead of being merged into it, and nothing of CSS, layout or JavaScript is run.
+ * replaces the old instead of being merged into it, and nothing of CSS, layout or JavaScript is run (a test of browser
+ * code calls the Java handlers it is passed: {@link #call(String, String, String)}).
  *
  * <p>Close the page when the test is done; {@link #render(Supplier)} also closes the {@link WebApp} it made.
  */
@@ -194,8 +195,11 @@ public final class TestPage implements AutoCloseable {
             handled |= dispatch(form, "submit", Map.of(), target);
         }
         if (!handled) {
+            String browserCode = hasBrowserCode(target, "click")
+                    ? " (its @click is JavaScript, which TestPage doesn't run: call(...) calls a Java handler it is passed)"
+                    : "";
             throw new AssertionError("clicking \"" + selector + "\" does nothing: no click handler on it or around it, "
-                    + "and no form to submit: " + Dom.html(target));
+                    + "and no form to submit" + browserCode + ": " + Dom.html(target));
         }
         return this;
     }
@@ -282,6 +286,99 @@ public final class TestPage implements AutoCloseable {
             throw new AssertionError("no " + type + " handler on \"" + selector + "\" or around it");
         }
         return this;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Browser code (targets/web.md §7.1)
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Calls a Java handler that a browser attribute passes to its JavaScript, as that JavaScript would. TestPage runs
+     * no JavaScript, so a test of browser code calls what the code calls: for
+     * {@code <button @click="confirmThen({question: 'Reset?', action: reset})">}, the function's
+     * {@code await action()} is {@code page.call("button", "click", "action")}.
+     *
+     * <p>{@code name} is the handler's name in the payload. The attribute is found as the client finds it: on the
+     * element that matches {@code selector}, or the nearest ancestor with one for {@code event}.
+     */
+    public TestPage call(String selector, String event, String name) {
+        return callHandler(selector, event, name, null, null);
+    }
+
+    /** As {@link #call(String, String, String)}, with a value: JavaScript's {@code await save("Milk")} ({@code e.value()} on the server). */
+    public TestPage call(String selector, String event, String name, String value) {
+        return callHandler(selector, event, name, value, null);
+    }
+
+    /**
+     * As {@link #call(String, String, String)}, with an object: JavaScript's {@code await move({from: 1, to: 3})}
+     * ({@code e.field("from")} or {@code e.as(Move.class)} on the server). A list value gives a field with several
+     * values; anything else is sent as its text, as the client sends {@code String(value)}.
+     */
+    public TestPage call(String selector, String event, String name, Map<String, ?> fields) {
+        return callHandler(selector, event, name, null, fields);
+    }
+
+    private TestPage callHandler(String selector, String event, String name, String value, Map<String, ?> fields) {
+        String payload;
+        synchronized (this) {
+            if (gone) {
+                throw new AssertionError("the page is gone (the server discarded it, or asked the browser to reload)");
+            }
+            int handler = payloadHandler(target(selector), selector, event, name);
+            Map<String, Object> call = new LinkedHashMap<>();
+            call.put("handler", handler);
+            call.put("seq", ++lastSeq);
+            call.put("type", "call");
+            if (value != null) {
+                call.put("value", value);
+            }
+            if (fields != null) {
+                call.put("fields", fieldsOf(fields));
+            }
+            payload = JsonWriter.write(call);
+        }
+        send(payload);
+        return this;
+    }
+
+    /** The id of the Java handler named {@code name} in the payload of the nearest {@code data-jx-js-<event>} (§8.2). */
+    private static int payloadHandler(Element target, String selector, String event, String name) {
+        String attribute = "data-jx-js-" + event;
+        Element element = target;
+        while (element != null && !element.tag.equals("#root") && !element.hasAttribute(attribute)) {
+            element = element.parent;
+        }
+        if (element == null || element.tag.equals("#root")) {
+            throw new AssertionError("no @" + event + " on \"" + selector + "\" or around it: " + Dom.html(target));
+        }
+        // [module, function, payload] (WebScript.json)
+        List<Object> call = JsonReader.list(JsonReader.read(element.attribute(attribute)));
+        Map<String, Object> payload = JsonReader.object(call.get(2));
+        Object entry = payload.get(name);
+        boolean isHandler = entry instanceof Map<?, ?> map && map.size() == 1 && map.get("handler") instanceof Number;
+        if (!isHandler) {
+            throw new AssertionError("the payload of @" + event + " on \"" + selector + "\" has no Java handler named \""
+                    + name + "\": " + element.attribute(attribute));
+        }
+        return ((Number) ((Map<?, ?>) entry).get("handler")).intValue();
+    }
+
+    private static boolean hasBrowserCode(Element target, String event) {
+        for (Element element = target; element != null && !element.tag.equals("#root"); element = element.parent) {
+            if (element.hasAttribute("data-jx-js-" + event)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Map<String, List<String>> fieldsOf(Map<String, ?> fields) {
+        Map<String, List<String>> converted = new LinkedHashMap<>();
+        fields.forEach((key, field) -> converted.put(key, field instanceof List<?> items
+                ? items.stream().map(String::valueOf).toList()
+                : List.of(String.valueOf(field))));
+        return converted;
     }
 
     /** Closes the page's stream, and the WebApp if this page made it. */

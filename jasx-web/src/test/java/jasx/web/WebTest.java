@@ -656,6 +656,38 @@ class WebTest {
         }
 
         @Test
+        void browserModulesAreServedUnderTheBuildAndNamedByEachPage(@org.junit.jupiter.api.io.TempDir java.nio.file.Path classes)
+                throws Exception {
+            java.nio.file.Path root = classes.resolve(ScriptModules.ROOT);
+            java.nio.file.Files.createDirectories(root.resolve("web"));
+            java.nio.file.Files.writeString(root.resolve(".build"), "abc123");
+            java.nio.file.Files.writeString(root.resolve("web/menu.js"), "export function toggleMenu() {}");
+            java.nio.file.Files.writeString(root.resolve("web/notes.txt"), "not a module");
+
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try (var loader = new java.net.URLClassLoader(new java.net.URL[] {classes.toUri().toURL()}, previous)) {
+                thread.setContextClassLoader(loader);
+                try (WebApp withModules = new WebApp()) {
+                    String html = withModules.render(pageRequest(null), () -> Web.h("p", null, "x")).body();
+                    String base = find(html, "data-jx-js=\"([^\"]+)\"");
+                    String build = find(base, "/_jasx/js/([0-9a-f]{12})/");
+
+                    WebApp.Response module = withModules.module(build + "/web/menu.js");
+                    assertEquals(200, module.status());
+                    assertEquals("export function toggleMenu() {}", module.body());
+                    assertEquals("public, max-age=31536000, immutable", module.headers().get("Cache-Control"));
+                    assertEquals(404, withModules.module("000000000000/web/menu.js").status(), "another build");
+                    assertEquals(404, withModules.module(build + "/web/notes.txt").status(), "not a module");
+                    assertEquals(404, withModules.module(build + "/../web/menu.js").status(), "outside the folder");
+                }
+            } finally {
+                thread.setContextClassLoader(previous);
+            }
+            assertFalse(renderForNewBrowser(app)[0].contains("data-jx-js="), "an application without modules names none");
+        }
+
+        @Test
         void theClientScriptIsCachedForGoodUnderItsVersion() {
             String html = renderForNewBrowser(app)[0];
             String version = find(html, "/web\\.js\\?v=([0-9a-f]{12})\"");
@@ -1038,6 +1070,69 @@ class WebTest {
             String ticked = app.event(pageId(html), "{\"handler\":" + tick + ",\"type\":\"click\"}").body();
             assertTrue(ticked.matches(".*tick 1: \\\\u003c!--jx:\\d+-->0.*"), ticked);
             assertEquals(204, click(html, counter).status(), "the replaced instance's handler is gone");
+        }
+
+        /** The value of attribute {@code name} of the first element that has it, HTML entities decoded. */
+        private static String attributeValue(String html, String name) {
+            return find(html, name + "=\"([^\"]*)\"").replace("&quot;", "\"").replace("&amp;", "&");
+        }
+
+        @Test
+        void browserAttributesRenderTheirCallAndPayloadAsJson() {
+            String html = app.render(compile("""
+                    <script>
+                      import { toggleMenu } from "./menu.js";
+                    </script>
+                    static Element Page() {
+                      String label = "Menu";
+                      return <div><button @click="toggleMenu({menu: $menu, label, n: 2})">m</button><nav ref="menu" hidden></nav></div>;
+                    }
+                    """));
+            assertEquals("[\"T.jasx.js\",\"toggleMenu\",{\"menu\":{\"$ref\":\"menu\"},\"label\":\"Menu\",\"n\":2}]",
+                    attributeValue(html, "data-jx-js-click"));
+            assertTrue(html.contains("<nav data-jx-ref=\"menu\" hidden>"), html);
+            assertFalse(html.contains("data-jx-id"), "nothing in it can change: " + html);
+        }
+
+        @Test
+        void inlineCodeNamesItsGeneratedFunctionAndRefs() {
+            String html = app.render(compile("""
+                    static Element Page() {
+                      return <div><button @click="$menu.hidden = !$menu.hidden">m</button><nav ref="menu"></nav></div>;
+                    }
+                    """));
+            assertEquals("[\"T.jasx.js\",\"jx$1\",{\"$menu\":{\"$ref\":\"menu\"}}]", attributeValue(html, "data-jx-js-click"));
+        }
+
+        @Test
+        void aStateInAPayloadIsKeptCurrentAndAHandlerIsCalledFromJavaScript() {
+            String html = app.render(compile("""
+                    <script>
+                      function pick(event, values) {}
+                    </script>
+                    static Element Page() {
+                      var color = state("red");
+                      jasx.ui.Handler<jasx.ui.InputEvent> save = e -> color.set(e.value());
+                      return <div @click="pick({color, save})">x</div>;
+                    }
+                    """));
+            String payload = attributeValue(html, "data-jx-js-click");
+            assertTrue(payload.contains("\"color\":\"red\""), payload);
+            assertTrue(html.contains("data-jx-id="), "the attribute follows the state: " + html);
+            int handler = Integer.parseInt(find(payload, "\"handler\":(\\d+)"));
+
+            // The JavaScript calls save("blue"): an event with a value, as the client sends it.
+            String body = app.event(pageId(html), "{\"handler\":" + handler + ",\"type\":\"call\",\"value\":\"blue\"}").body();
+            assertTrue(body.contains("\"op\":\"attr\"") && body.contains("data-jx-js-click"), body);
+            assertTrue(body.contains("\\\"color\\\":\\\"blue\\\""), body);
+        }
+
+        @Test
+        void eventAttributesTakeNoStringOnWeb() {
+            SourceFile file = new SourceFile("T.jasx", "import jasx.runtime.Element;\nclass T {\n"
+                    + "static Element Page() { return <b onclick=\"window.print()\">x</b>; }\n}\n");
+            CompilationResult result = new JasxCompiler(WEB).compile(List.of(file));
+            assertEquals(List.of("JASX2108"), result.diagnostics().stream().map(CompilerDiagnostic::code).toList());
         }
 
         @Test

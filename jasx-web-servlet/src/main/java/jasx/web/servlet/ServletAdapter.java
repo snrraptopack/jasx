@@ -39,6 +39,11 @@ public final class ServletAdapter {
         }
         String method = request.getMethod();
         String endpoint = path.substring(base.length());
+        if (endpoint.startsWith("/js/")) {
+            if (!method.equals("GET")) return false;
+            send(response, app.module(endpoint.substring("/js/".length())));
+            return true;
+        }
         switch (endpoint) {
             case "/web.js" -> {
                 if (!method.equals("GET")) return false;
