@@ -17,6 +17,8 @@ import java.util.List;
  * @param uses each component tag in markup that was resolved to a component, opening and closing tags
  *     alike, in files that could be lowered
  * @param props each attribute in markup that gives a component a prop, in files that could be lowered
+ * @param modules the JavaScript module of each lowered file with script blocks or browser attributes
+ *     (semantics.md §11.6)
  */
 public record CompilationResult(
         List<GeneratedFile> files,
@@ -24,7 +26,11 @@ public record CompilationResult(
         ComponentIndex index,
         List<Declaration> declarations,
         List<Use> uses,
-        List<PropUse> props) {
+        List<PropUse> props,
+        List<ScriptModule> modules) {
+
+    /** A file's JavaScript module (semantics.md §11.6): its name ({@code web/Menu.jasx.js}) and its content. */
+    public record ScriptModule(String path, String content) {}
 
     /** A component's method name in its source file: {@code [nameStart, nameEnd)} in {@code path}. */
     public record Declaration(ComponentIndex.Component component, String path, int nameStart, int nameEnd) {}

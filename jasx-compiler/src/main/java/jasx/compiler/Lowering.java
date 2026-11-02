@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,6 +23,7 @@ import jasx.parser.ast.Ast.JasxAttribute;
 import jasx.parser.ast.Ast.JasxCompilationUnit;
 import jasx.parser.ast.Ast.JasxElement;
 import jasx.parser.ast.Ast.JasxEmptyExpression;
+import jasx.parser.ast.Ast.JasxEventName;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxIdentifier;
@@ -35,6 +37,7 @@ import jasx.parser.ast.Ast.JasxText;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
 import jasx.parser.ast.Ast.Markup;
+import jasx.parser.ast.Ast.Node;
 import jasx.parser.ast.Ast.Segment;
 
 /**
@@ -153,6 +156,20 @@ final class Lowering {
     private final List<CompilationResult.PropUse> props = new ArrayList<>();
     /** How many statement containers were analysed: each gets its own list variable (semantics.md §6.8). */
     private int statementContainers;
+
+    // Browser scripts (semantics.md §11)
+    /** The file's script: its script blocks, joined; empty if it has none. */
+    private final StringBuilder script = new StringBuilder();
+    /** The script's top-level names, each with whether the script exports it already (§11.1). */
+    private Map<String, Boolean> scriptNames = Map.of();
+    /** The refs the file's `ref` attributes declare (§11.5). */
+    private final Set<String> declaredRefs = new HashSet<>();
+    /** The top-level names that calls use, which the module exports (§11.6). */
+    private final Set<String> calledFunctions = new LinkedHashSet<>();
+    /** The functions of the file's inline snippets, in source order (§11.6). */
+    private final List<String> inlineFunctions = new ArrayList<>();
+    /** Whether the file has a script block or a browser attribute, and so a module. */
+    private boolean hasModule;
     /**
      * The codes and markup nodes of the markup expression being lowered, each of which the target must
      * write exactly once (see {@link Output}).
@@ -208,6 +225,7 @@ final class Lowering {
      */
     GeneratedFile lower(JasxCompilationUnit unit, List<Insertion> insertions, StyleBlocks.Plan styles) {
         this.styles = styles;
+        prepareScripts(unit);
         List<Insertion> pending = new ArrayList<>(insertions);
         pending.sort(Comparator.comparingInt(Insertion::offset).thenComparingInt(Insertion::order));
         int next = 0;
@@ -401,6 +419,12 @@ final class Lowering {
      */
     private MarkupTree.Attribute attribute(String tag, boolean unknownElement, JasxAttribute attribute) {
         String name = JasxParser.attributeNameText(attribute.name());
+        if (attribute.name() instanceof JasxEventName) {
+            return browserAttribute(name, attribute);
+        }
+        if (name.equals("ref") && attribute.name() instanceof JasxIdentifier) {
+            return refAttribute(attribute);
+        }
 
         boolean byName = unknownElement
                 || attribute.name() instanceof JasxNamespacedName
@@ -429,8 +453,15 @@ final class Lowering {
                 attribute.end());
     }
 
-    /** On a target without Java event handlers, an event attribute only takes a string (JASX2103). */
+    /**
+     * On a target without Java event handlers, an event attribute only takes a string (JASX2103). On a target with
+     * browser scripts, it takes no string: browser code is a browser attribute (JASX2108, semantics.md §11.8).
+     */
     private void checkEventHandler(String name, Schema.AttributeSpec spec, JasxAttribute attribute) {
+        if (spec.event() && target.scripts() && attribute.value() instanceof JasxStringLiteral) {
+            error("JASX2108", "on target '" + target.id() + "', '" + name + "' takes a Java handler; write browser"
+                    + " code as @" + name.substring(2) + "=\"...\"", attribute.start(), attribute.end());
+        }
         boolean javaHandler = attribute.value() instanceof JasxExpressionContainer;
         if (spec.event() && javaHandler && !target.javaEventHandlers()) {
             error("JASX2103", "event attribute '" + name + "' accepts only a string on target '" + target.id()
@@ -516,8 +547,12 @@ final class Lowering {
         for (JasxAttribute attribute : attributes) {
             String name = JasxParser.attributeNameText(attribute.name());
             boolean isPlainName = attribute.name() instanceof JasxIdentifier;
+            boolean browserOnly = attribute.name() instanceof JasxEventName || (name.equals("ref") && target.scripts());
 
-            if (name.equals("children") && component.children() != Children.NONE) {
+            if (browserOnly) {
+                error("JASX2018", "'" + name + "' belongs on an element, not on the component " + tag
+                        + " (semantics.md §11.2)", attribute.start(), attribute.end());
+            } else if (name.equals("children") && component.children() != Children.NONE) {
                 error("JASX2008", "pass the children of " + tag + " as child content, not as an attribute",
                         attribute.start(), attribute.end());
             } else if (!isPlainName || component.prop(name) == null) {
@@ -949,6 +984,266 @@ final class Lowering {
             }
         }
         return literal.append('"').toString();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Browser scripts (semantics.md §11)
+    // ---------------------------------------------------------------------------------------------
+
+    /** Reads the file's script blocks and `ref` attributes before its markup is lowered (§11.1, §11.5). */
+    private void prepareScripts(JasxCompilationUnit unit) {
+        for (Segment segment : unit.segments()) {
+            if (segment instanceof JasxScriptBlock block) {
+                if (!target.scripts()) {
+                    error("JASX2107", "target '" + target.id() + "' has no script blocks (semantics.md §11.8)",
+                            block.start(), block.start() + "<script>".length());
+                    continue;
+                }
+                if (hasModule) {
+                    script.append('\n');
+                }
+                script.append(block.script());
+                hasModule = true;
+            }
+        }
+        scriptNames = ScriptReader.topLevelNames(script.toString());
+        collectRefs(unit);
+    }
+
+    /** Adds every name a `ref` attribute with a string literal declares, anywhere under {@code node}. */
+    private void collectRefs(Node node) {
+        switch (node) {
+            case JasxCompilationUnit unit -> unit.segments().forEach(this::collectRefs);
+            case JavaExpression expression -> expression.segments().forEach(this::collectRefs);
+            case JasxMarkupStatement statement -> collectRefs(statement.markup());
+            case JasxStatementContainer container -> container.statement().segments().forEach(this::collectRefs);
+            case JasxExpressionContainer container -> collectRefs(container.expression());
+            case JasxFragment fragment -> fragment.children().forEach(this::collectRefs);
+            case JasxElement element -> {
+                for (JasxAttribute attribute : element.openingElement().attributes()) {
+                    boolean isRef = attribute.name() instanceof JasxIdentifier id && id.name().equals("ref");
+                    if (isRef && attribute.value() instanceof JasxStringLiteral literal) {
+                        declaredRefs.add(literal.value());
+                    }
+                    if (attribute.value() != null) {
+                        collectRefs(attribute.value());
+                    }
+                }
+                element.children().forEach(this::collectRefs);
+            }
+            default -> {} // Java code, text, style and script blocks
+        }
+    }
+
+    /** The module of the file (§11.6), or null if it has no script block and no browser attribute. */
+    CompilationResult.ScriptModule module() {
+        if (!hasModule) {
+            return null;
+        }
+        StringBuilder content = new StringBuilder(script);
+        List<String> toExport = new ArrayList<>();
+        for (String name : calledFunctions) {
+            if (!scriptNames.getOrDefault(name, true)) {
+                toExport.add(name);
+            }
+        }
+        if (!toExport.isEmpty()) {
+            content.append("\nexport { ").append(String.join(", ", toExport)).append(" };");
+        }
+        for (String function : inlineFunctions) {
+            content.append('\n').append(function);
+        }
+        return new CompilationResult.ScriptModule(moduleName(), content.append('\n').toString());
+    }
+
+    /** {@code web/Menu.jasx}: {@code web/Menu.jasx.js}. */
+    private String moduleName() {
+        return file.path() + ".js";
+    }
+
+    /** {@code @click="..."} (§11.2): a dynamic attribute {@code .attr("@click", F.script(...))}, by name (§11.6). */
+    private MarkupTree.Attribute browserAttribute(String name, JasxAttribute attribute) {
+        if (!target.scripts()) {
+            error("JASX2107", "target '" + target.id() + "' has no browser attributes (semantics.md §11.8)",
+                    attribute.start(), attribute.end());
+            return placeholder(name, attribute);
+        }
+        if (!(attribute.value() instanceof JasxStringLiteral literal)) {
+            error("JASX2017", "'" + name + "' takes JavaScript in a string: " + name + "=\"...\"",
+                    attribute.start(), attribute.end());
+            return placeholder(name, attribute);
+        }
+        hasModule = true;
+        SourcePlaces places = new SourcePlaces(literal, attribute);
+        String factory = target.factory();
+        List<Part> parts = new ArrayList<>();
+        switch (BrowserAttribute.parse(literal.value())) {
+            case BrowserAttribute.Problem problem -> {
+                error("JASX2020", "the payload of '" + name + "': " + problem.message(), places.at(problem.start()),
+                        places.at(problem.end()));
+                return placeholder(name, attribute);
+            }
+            case BrowserAttribute.Call call -> {
+                if (!scriptNames.containsKey(call.function())) {
+                    error("JASX2019", "'" + call.function() + "' is not a function of this file's script; import"
+                                    + " or declare it in a <script> block, or write window." + call.function()
+                                    + " for a browser global", places.at(call.functionStart()),
+                            places.at(call.functionEnd()));
+                    return placeholder(name, attribute);
+                }
+                calledFunctions.add(call.function());
+                parts.add(new WritePart(factory + ".script(" + javaString(moduleName()) + ", "
+                        + javaString(call.function()) + ", ", attribute.start()));
+                if (call.payload() == null) {
+                    parts.add(new WritePart(OBJECT_CAST + "null", attribute.start()));
+                } else if (!payload(call.payload(), places, factory, parts)) {
+                    return placeholder(name, attribute);
+                }
+                parts.add(new WritePart(")", attribute.end() - 1));
+            }
+            case BrowserAttribute.Inline inline -> {
+                List<String> refs = new ArrayList<>();
+                for (ScriptReader.RefUse use : inline.refs()) {
+                    if (!checkRef(use.name(), places.at(use.offset()), places.at(use.offset() + 1 + use.name().length()))) {
+                        return placeholder(name, attribute);
+                    }
+                    if (!refs.contains(use.name())) {
+                        refs.add(use.name());
+                    }
+                }
+                String function = "jx$" + (inlineFunctions.size() + 1);
+                String parameters = refs.isEmpty() ? "event"
+                        : "event, { $" + String.join(", $", refs) + " }";
+                inlineFunctions.add("export function " + function + "(" + parameters + ") {\n" + inline.code() + "\n}");
+                StringBuilder call = new StringBuilder(factory + ".script(" + javaString(moduleName()) + ", "
+                        + javaString(function) + ", ");
+                if (refs.isEmpty()) {
+                    call.append(OBJECT_CAST).append("null");
+                } else {
+                    call.append(factory).append(".object(");
+                    for (int i = 0; i < refs.size(); i++) {
+                        call.append(i > 0 ? ", " : "").append(javaString("$" + refs.get(i))).append(", ")
+                                .append(OBJECT_CAST).append(factory).append(".ref(").append(javaString(refs.get(i))).append(")");
+                    }
+                    call.append(")");
+                }
+                parts.add(new WritePart(call.append(")").toString(), attribute.start()));
+            }
+        }
+        MarkupTree.Code code = newCode(parts, attribute.start(), attribute.end());
+        return new MarkupTree.Attribute(name, "attr", true, MarkupTree.AttributeKind.DYNAMIC,
+                new MarkupTree.Expression(code, attribute.start(), attribute.end()), attribute.start(), attribute.end());
+    }
+
+    /**
+     * Writes a payload value (§11.6): objects, lists and refs with the factory's functions, literals as Java
+     * literals, and Java names as their source text. Returns false after reporting an unknown ref.
+     */
+    private boolean payload(BrowserAttribute.Value value, SourcePlaces places, String factory, List<Part> parts) {
+        int anchor = places.anchor();
+        switch (value) {
+            case BrowserAttribute.Literal literal -> parts.add(new WritePart(OBJECT_CAST + literal.java(), anchor));
+            case BrowserAttribute.Ref ref -> {
+                if (!checkRef(ref.name(), places.at(ref.start()), places.at(ref.end()))) {
+                    return false;
+                }
+                parts.add(new WritePart(OBJECT_CAST + factory + ".ref(" + javaString(ref.name()) + ")", anchor));
+            }
+            case BrowserAttribute.JavaName name -> {
+                parts.add(new WritePart(OBJECT_CAST + "(", anchor));
+                if (places.exact()) {
+                    parts.add(new CopyPart(places.at(name.start()), places.at(name.end())));
+                } else {
+                    parts.add(new WritePart(name.text(), anchor));
+                }
+                parts.add(new WritePart(")", anchor));
+            }
+            case BrowserAttribute.ObjectValue object -> {
+                parts.add(new WritePart(OBJECT_CAST + factory + ".object(", anchor));
+                for (int i = 0; i < object.keys().size(); i++) {
+                    parts.add(new WritePart((i > 0 ? ", " : "") + javaString(object.keys().get(i)) + ", ", anchor));
+                    if (!payload(object.values().get(i), places, factory, parts)) {
+                        return false;
+                    }
+                }
+                parts.add(new WritePart(")", anchor));
+            }
+            case BrowserAttribute.ListValue list -> {
+                parts.add(new WritePart(OBJECT_CAST + factory + ".list(", anchor));
+                for (int i = 0; i < list.values().size(); i++) {
+                    if (i > 0) {
+                        parts.add(new WritePart(", ", anchor));
+                    }
+                    if (!payload(list.values().get(i), places, factory, parts)) {
+                        return false;
+                    }
+                }
+                parts.add(new WritePart(")", anchor));
+            }
+        }
+        return true;
+    }
+
+    /** A ref must be declared by a `ref` attribute of the file (JASX2021). */
+    private boolean checkRef(String name, int start, int end) {
+        if (declaredRefs.contains(name)) {
+            return true;
+        }
+        error("JASX2021", "no element of this file has ref=\"" + name + "\"", start, end);
+        return false;
+    }
+
+    /** {@code ref="menu"} (§11.5): a static attribute by name. */
+    private MarkupTree.Attribute refAttribute(JasxAttribute attribute) {
+        if (!target.scripts()) {
+            error("JASX2107", "target '" + target.id() + "' has no refs (semantics.md §11.8)", attribute.start(),
+                    attribute.end());
+            return placeholder("ref", attribute);
+        }
+        boolean isName = attribute.value() instanceof JasxStringLiteral literal && isJavaName(literal.value());
+        if (!isName) {
+            error("JASX2022", "a ref is a name in a string: ref=\"menu\"", attribute.start(), attribute.end());
+            return placeholder("ref", attribute);
+        }
+        return new MarkupTree.Attribute("ref", "attr", true, MarkupTree.AttributeKind.STATIC, value(attribute),
+                attribute.start(), attribute.end());
+    }
+
+    private static boolean isJavaName(String text) {
+        if (text.isEmpty() || !Character.isJavaIdentifierStart(text.charAt(0))) {
+            return false;
+        }
+        for (int i = 1; i < text.length(); i++) {
+            if (!Character.isJavaIdentifierPart(text.charAt(i))) {
+                return false;
+            }
+        }
+        return !text.equals("true") && !text.equals("false") && !text.equals("null");
+    }
+
+    /** An attribute written as null after an error: the file has an error and isn't lowered anyway. */
+    private static MarkupTree.Attribute placeholder(String name, JasxAttribute attribute) {
+        return new MarkupTree.Attribute(name, "attr", true, MarkupTree.AttributeKind.STATIC,
+                new MarkupTree.Literal("null", null, attribute.start()), attribute.start(), attribute.end());
+    }
+
+    /**
+     * Where the characters of an attribute string are in the source. Offsets map exactly when the string has no
+     * escape or character reference (its value is its raw text); otherwise everything maps to the attribute.
+     */
+    private record SourcePlaces(int base, int fallback, boolean exact) {
+        SourcePlaces(JasxStringLiteral literal, JasxAttribute attribute) {
+            this(literal.start() + 1, attribute.start(),
+                    literal.raw().substring(1, literal.raw().length() - 1).equals(literal.value()));
+        }
+
+        int at(int offset) {
+            return exact ? base + offset : fallback;
+        }
+
+        int anchor() {
+            return fallback;
+        }
     }
 
     private void error(String code, String message, int start, int end) {

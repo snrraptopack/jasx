@@ -89,13 +89,14 @@ public final class JasxCompiler {
         List<GeneratedFile> generatedFiles = new ArrayList<>();
         List<CompilationResult.Use> uses = new ArrayList<>();
         List<CompilationResult.PropUse> props = new ArrayList<>();
+        List<CompilationResult.ScriptModule> modules = new ArrayList<>();
         for (ScannedFile scanned : scannedFiles) {
-            GeneratedFile generated = lower(scanned, allComponents, uses, props, diagnostics);
+            GeneratedFile generated = lower(scanned, allComponents, uses, props, modules, diagnostics);
             if (generated != null) {
                 generatedFiles.add(generated);
             }
         }
-        return new CompilationResult(generatedFiles, diagnostics, localComponents, declarations, uses, props);
+        return new CompilationResult(generatedFiles, diagnostics, localComponents, declarations, uses, props, modules);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -189,7 +190,8 @@ public final class JasxCompiler {
      * when the file has errors.
      */
     private GeneratedFile lower(ScannedFile scanned, ComponentIndex components, List<CompilationResult.Use> uses,
-            List<CompilationResult.PropUse> props, List<CompilerDiagnostic> diagnostics) {
+            List<CompilationResult.PropUse> props, List<CompilationResult.ScriptModule> modules,
+            List<CompilerDiagnostic> diagnostics) {
         // .java files are not rewritten.
         if (scanned.parsed() == null) {
             return null;
@@ -209,7 +211,14 @@ public final class JasxCompiler {
         // Code generated around an error (an unknown component, say) is not meaningful, so don't return it.
         boolean hasErrors = lowering.diagnostics().stream()
                 .anyMatch(d -> d.severity() == Diagnostic.Severity.ERROR);
-        return hasErrors ? null : generated;
+        if (hasErrors) {
+            return null;
+        }
+        CompilationResult.ScriptModule module = lowering.module();
+        if (module != null) {
+            modules.add(module);
+        }
+        return generated;
     }
 
     private static void report(List<CompilerDiagnostic> into, SourceFile file, LineMap lines, List<Diagnostic> found) {

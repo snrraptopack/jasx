@@ -17,17 +17,25 @@ import java.util.Map;
  * @param attributesPackage the package of the generated attribute builders
  * @param javaEventHandlers whether event attributes accept Java expressions ({@code eventHandlers: "java"})
  * @param styles whether the target supports style blocks ({@code styles: "css"}, semantics.md §10.6)
+ * @param scripts whether the target supports script blocks, browser attributes and refs ({@code scripts: "module"},
+ *     semantics.md §11.8)
  * @param lowering the target's own lowering class ({@code "lowering": "<class name>"}, semantics.md §7.4), or
  *     null for factory lowering
  */
 public record Target(String id, String factory, String attributesPackage, Schema schema, boolean javaEventHandlers,
-        boolean styles, Class<? extends MarkupLowering> lowering) {
+        boolean styles, boolean scripts, Class<? extends MarkupLowering> lowering) {
     public static final String DESCRIPTOR = "META-INF/jasx/target.json";
 
-    /** A target with factory lowering. */
+    /** A target with factory lowering and without browser scripts. */
     public Target(String id, String factory, String attributesPackage, Schema schema, boolean javaEventHandlers,
             boolean styles) {
-        this(id, factory, attributesPackage, schema, javaEventHandlers, styles, null);
+        this(id, factory, attributesPackage, schema, javaEventHandlers, styles, false, null);
+    }
+
+    /** A target without browser scripts. */
+    public Target(String id, String factory, String attributesPackage, Schema schema, boolean javaEventHandlers,
+            boolean styles, Class<? extends MarkupLowering> lowering) {
+        this(id, factory, attributesPackage, schema, javaEventHandlers, styles, false, lowering);
     }
 
     /**
@@ -65,7 +73,7 @@ public record Target(String id, String factory, String attributesPackage, Schema
         boolean factoryLowering = lowering == null || lowering.equals("factory");
         return new Target(id, Json.string(descriptor.get("factory")), Json.string(descriptor.get("attributes")),
                 schema, "java".equals(descriptor.get("eventHandlers")), "css".equals(descriptor.get("styles")),
-                factoryLowering ? null : loweringClass(id, lowering, loader));
+                "module".equals(descriptor.get("scripts")), factoryLowering ? null : loweringClass(id, lowering, loader));
     }
 
     /** Loads the lowering class {@code name} of target {@code id}, which must implement {@link MarkupLowering}. */
