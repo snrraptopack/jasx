@@ -7,13 +7,18 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.Deque;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -33,8 +38,8 @@ import java.util.function.Supplier;
  *   <li>{@code POST <basePath>/upload?page=ID}: {@link #upload}, a file for a form's coming event;
  * </ul>
  *
- * and serves {@link #clientScript()} at {@code GET <basePath>/web.js}. The adapter sends each {@link Response}
- * as it is: status, headers and body.
+ * and serves the client script at {@code GET <basePath>/web.js} ({@link #clientScript(Request)}). The adapter
+ * sends each {@link Response} as it is: status, headers and body.
  *
  * <p>{@code WebApp} also does what keeps pages safe (§6.3), so every adapter gets it: each page belongs to the
  * browser session that rendered it (a cookie it issues), events must be JSON from the same site, and requests
@@ -231,10 +236,30 @@ public final class WebApp implements AutoCloseable {
             return Optional.of(Response.FORBIDDEN);
         }
         String session = sessionOf(request);
+        Map<String, Long> streamed = streamPages(request.query("pages"));
+        discardReplacedPages(request.query("leave"), streamed.keySet(), session);
         out.open();
-        new SharedStream().run(streamPages(request.query("pages")), pageId -> pageFor(pageId, session),
-                out::send, HEARTBEAT_SECONDS);
+        new SharedStream().run(streamed, pageId -> pageFor(pageId, session), out::send, HEARTBEAT_SECONDS);
         return Optional.empty();
+    }
+
+    /**
+     * Discards the pages a stream request names in {@code leave} (targets/web.md §6.4): the browser navigated from
+     * them to another page of the application, so they will never be shown again (going back renders a new page).
+     * Without it, they would follow state until the page timeout. Only this browser's pages are discarded, never
+     * one the request also streams, and at most {@link SharedStream#MAX_PAGES} of them.
+     */
+    private void discardReplacedPages(String leave, Set<String> streamed, String session) {
+        if (leave == null || leave.isBlank()) {
+            return;
+        }
+        List<String> ids = List.of(leave.split(","));
+        for (String id : ids.subList(0, Math.min(ids.size(), SharedStream.MAX_PAGES))) {
+            Page page = streamed.contains(id) ? null : pageFor(id.strip(), session);
+            if (page != null) {
+                discard(page);
+            }
+        }
     }
 
     /**
@@ -344,6 +369,23 @@ public final class WebApp implements AutoCloseable {
         return ClientScript.TEXT;
     }
 
+    /**
+     * The answer to {@code GET <basePath>/web.js} (targets/web.md §8.1). Pages load the script with its version
+     * ({@code web.js?v=...}, a hash of its content), and that URL is cached for good: navigation and every later
+     * page take it from the browser's cache, and a new version of JASX changes the URL. A request without the
+     * current version must check again ({@code no-cache}); either way an {@code If-None-Match} with the script's
+     * {@code ETag} answers 304, without the script.
+     */
+    public Response clientScript(Request request) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", "text/javascript; charset=utf-8");
+        headers.put("ETag", ClientScript.ETAG);
+        boolean currentVersion = ClientScript.VERSION.equals(request.query("v"));
+        headers.put("Cache-Control", currentVersion ? "public, max-age=31536000, immutable" : "no-cache");
+        boolean browserHasIt = ClientScript.ETAG.equals(request.header("If-None-Match"));
+        return browserHasIt ? new Response(304, "", headers) : new Response(200, ClientScript.TEXT, headers);
+    }
+
     /** Stops the background thread and discards every page. */
     @Override
     public void close() {
@@ -382,7 +424,8 @@ public final class WebApp implements AutoCloseable {
         Page page = new Page(newId(), session);
         pages.put(page.id, page);
         addToSession(page);
-        String scriptTag = "<script src=\"" + basePath + "/web.js\" data-jx-page=\"" + page.id + "\" defer></script>";
+        String scriptTag = "<script src=\"" + basePath + "/web.js?v=" + ClientScript.VERSION + "\" data-jx-page=\""
+                + page.id + "\" defer></script>";
         try {
             return page.render(root, scriptTag);
         } catch (RuntimeException | Error e) {
@@ -500,6 +543,19 @@ public final class WebApp implements AutoCloseable {
     /** The client script, read once from the jar. */
     private static final class ClientScript {
         static final String TEXT = read();
+        /** A short hash of the script, in its URL, so that a new script has a new URL (§8.1). */
+        static final String VERSION = version(TEXT);
+        static final String ETAG = "\"" + VERSION + "\"";
+
+        private static String version(String text) {
+            try {
+                byte[] digest = MessageDigest.getInstance("SHA-256")
+                        .digest(text.getBytes(StandardCharsets.UTF_8));
+                return HexFormat.of().formatHex(digest, 0, 6);
+            } catch (NoSuchAlgorithmException e) {
+                throw new IllegalStateException(e); // every JDK has SHA-256
+            }
+        }
 
         private static String read() {
             try (InputStream in = WebApp.class.getResourceAsStream("/jasx/web/web.js")) {

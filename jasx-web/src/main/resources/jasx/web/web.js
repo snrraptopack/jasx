@@ -38,6 +38,8 @@
 
   const script = document.currentScript;
   const pageId = script.dataset.jxPage;
+  /** Pages to name in the next stream request as left for good (§6.4): the one this page replaced, if any. */
+  const leaving = script.dataset.jxReplaces ? [script.dataset.jxReplaces] : [];
   const base = new URL(script.src, location.href).pathname.replace(/\/web\.js$/, "");
   const query = "?page=" + encodeURIComponent(pageId);
 
@@ -782,9 +784,13 @@
     clearTimeout(joinTimer);
     retryTimer = joinTimer = null;
     if (source) source.close();
-    const stream = new EventSource(base + "/stream?pages=" + streamedPages());
+    const left = leaving.length ? "&leave=" + leaving.join(",") : "";
+    const stream = new EventSource(base + "/stream?pages=" + streamedPages() + left);
     source = stream;
-    stream.onopen = () => { retries = 0; };
+    stream.onopen = () => {
+      retries = 0;
+      leaving.length = 0; // the server has discarded them
+    };
     stream.onmessage = (message) => onFrame(JSON.parse(message.data));
     stream.onerror = () => {
       if (source !== stream) return;
@@ -833,7 +839,7 @@
 
   // Tells the leader this tab's page and version. `resync` asks it to reconnect even if it knows the page.
   function announce(resync) {
-    channel.postMessage({ type: "join", page: pageId, since: applied, resync });
+    channel.postMessage({ type: "join", page: pageId, since: applied, resync, left: leaving.splice(0) });
   }
 
   function onMessage(message) {
@@ -854,6 +860,7 @@
   }
 
   function join(message) {
+    for (const page of message.left || []) leaving.push(page); // named in the reconnection join causes
     const isNew = !members.has(message.page);
     members.set(message.page, { since: message.since, seen: Date.now() });
     if (isNew || message.resync) reconnectSoon();
@@ -1101,6 +1108,7 @@
     addStyles(next.head);
     const client = document.createElement("script"); // a script element made here runs, unlike a parsed one
     for (const attribute of nextScript.attributes) client.setAttribute(attribute.name, attribute.value);
+    client.setAttribute("data-jx-replaces", pageId); // its stream tells the server this page is gone
     nextScript.remove();
     document.body.replaceWith(document.importNode(next.body, true));
     document.body.appendChild(client);

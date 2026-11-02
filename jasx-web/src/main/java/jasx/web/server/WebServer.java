@@ -97,8 +97,7 @@ public final class WebServer {
             WebApp.Request request = request(exchange);
 
             if (path.equals(base + "/web.js") && method.equals("GET")) {
-                send(exchange, new WebApp.Response(200, WebApp.clientScript(),
-                        Map.of("Content-Type", "text/javascript; charset=utf-8")));
+                send(exchange, app.clientScript(request));
             } else if (path.equals(base + "/event") && method.equals("POST")) {
                 event(exchange, request);
             } else if (path.equals(base + "/stream") && method.equals("GET")) {

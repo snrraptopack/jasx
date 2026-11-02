@@ -205,7 +205,7 @@ class WebTest {
                     Web.h("head", null, Web.h("title", null, "T")),
                     Web.h("body", null, Web.scoped(sheet, Web.h("p", null, "x")))));
             assertTrue(html.contains("<title>T</title><style>p.jx-1 { color: red; }</style></head>"), html);
-            assertTrue(html.contains("<p class=\"jx-1\">x</p><script src=\"/_jasx/web.js\" data-jx-page="), html);
+            assertTrue(html.matches("(?s).*<p class=\"jx-1\">x</p><script src=\"/_jasx/web\\.js\\?v=[0-9a-f]{12}\" data-jx-page=.*"), html);
             assertTrue(html.endsWith("defer></script></body></html>"), html);
         }
 
@@ -653,6 +653,53 @@ class WebTest {
 
         private String clickBody(String html) {
             return "{\"handler\":" + handler(html, "click", 1) + ",\"type\":\"click\"}";
+        }
+
+        @Test
+        void theClientScriptIsCachedForGoodUnderItsVersion() {
+            String html = renderForNewBrowser(app)[0];
+            String version = find(html, "/web\\.js\\?v=([0-9a-f]{12})\"");
+
+            WebApp.Response versioned = app.clientScript(new FakeRequest(Map.of("v", version), Map.of(), false));
+            assertEquals(200, versioned.status());
+            assertEquals("public, max-age=31536000, immutable", versioned.headers().get("Cache-Control"));
+            assertEquals(WebApp.clientScript(), versioned.body());
+            String etag = versioned.headers().get("ETag");
+
+            WebApp.Response unversioned = app.clientScript(new FakeRequest(Map.of(), Map.of(), false));
+            assertEquals("no-cache", unversioned.headers().get("Cache-Control"), "an old URL must check again");
+
+            WebApp.Response revalidated = app.clientScript(new FakeRequest(Map.of(), Map.of("If-None-Match", etag), false));
+            assertEquals(304, revalidated.status());
+            assertEquals("", revalidated.body());
+        }
+
+        @Test
+        void aStreamNamingAPageItReplacedDiscardsIt() throws Exception {
+            String[] first = renderForNewBrowser(app);
+            String session = first[1];
+            String replaced = first[0];
+            String kept = app.render(pageRequest(session), () -> {
+                State<Integer> count = Web.state(0);
+                return Web.h("button", Button.create().onclick(() -> count.update(n -> n + 1)), Web.dynamic(() -> count.get()));
+            }).body();
+            String[] otherBrowser = renderForNewBrowser(app);
+
+            // The browser navigated from "replaced" (and names another browser's page, which isn't its to drop).
+            String leave = pageId(replaced) + "," + pageId(otherBrowser[0]);
+            FakeRequest stream = new FakeRequest(Map.of("pages", "", "leave", leave),
+                    Map.of("Cookie", "jasx_session=" + session, "Sec-Fetch-Site", "same-origin"), false);
+            app.stream(stream, new WebApp.EventStream() {
+                @Override
+                public void open() {}
+
+                @Override
+                public void send(String frame) {}
+            });
+
+            assertEquals(410, app.event(eventRequest(pageId(replaced), session), clickBody(replaced)).status());
+            assertEquals(200, app.event(eventRequest(pageId(kept), session), clickBody(kept)).status());
+            assertEquals(200, app.event(eventRequest(pageId(otherBrowser[0]), otherBrowser[1]), clickBody(otherBrowser[0])).status());
         }
 
         @Test
@@ -1149,6 +1196,14 @@ class WebTest {
                         HttpResponse.BodyHandlers.ofString());
                 assertEquals(200, script.statusCode());
                 assertTrue(script.body().contains("data-jx-on"));
+                // Under its version, the script is cached for good; asked for again with its ETag, it answers 304.
+                String etag = script.headers().firstValue("ETag").orElseThrow();
+                HttpResponse<String> versioned = client.send(HttpRequest.newBuilder(
+                        URI.create(base + "/_jasx/web.js?v=" + etag.replace("\"", ""))).build(), HttpResponse.BodyHandlers.ofString());
+                assertEquals("public, max-age=31536000, immutable", versioned.headers().firstValue("Cache-Control").orElseThrow());
+                HttpResponse<String> notModified = client.send(HttpRequest.newBuilder(URI.create(base + "/_jasx/web.js"))
+                        .header("If-None-Match", etag).build(), HttpResponse.BodyHandlers.ofString());
+                assertEquals(304, notModified.statusCode());
 
                 HttpResponse<String> gone = client.send(HttpRequest.newBuilder(URI.create(base + "/_jasx/stream?pages=nope:0")).build(),
                         HttpResponse.BodyHandlers.ofString());

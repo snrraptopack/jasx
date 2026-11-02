@@ -146,7 +146,7 @@ class StarterTest {
             HttpResponse<String> page = get(base() + "/counter/5");
             assertEquals(200, page.statusCode());
             assertTrue(page.body().contains(">5<"), page.body());
-            assertTrue(page.body().contains("src=\"/_jasx/web.js\""), page.body());
+            assertTrue(page.body().contains("src=\"/_jasx/web.js?v="), page.body());
 
             String eventUrl = base() + "/_jasx/event?page=" + pageId(page.body());
             HttpResponse<String> answer = post(eventUrl, cookieOf(page), clickEvent(page.body()));
@@ -264,7 +264,7 @@ class StarterTest {
         void theBasePathIncludesTheContextPath() throws Exception {
             String base = "http://localhost:" + port + "/shop";
             HttpResponse<String> page = get(base + "/counter/1");
-            assertTrue(page.body().contains("src=\"/shop/_jasx/web.js\""), page.body());
+            assertTrue(page.body().contains("src=\"/shop/_jasx/web.js?v="), page.body());
             String eventUrl = base + "/_jasx/event?page=" + pageId(page.body());
             assertEquals(200, post(eventUrl, cookieOf(page), clickEvent(page.body())).statusCode());
             assertEquals(7, app.limits().maxPagesPerSession());

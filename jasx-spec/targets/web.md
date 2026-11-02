@@ -196,10 +196,10 @@ A click on a link to another page of the application loads that page without rel
 
 1. The client follows a link itself when it is a plain click (main button, no modifier key) on an `a` with an `href` of the same origin, outside the base path, without `download`, without a `target` other than `_self`, and not inside an element with `data-jx-reload`. A link to an anchor of the same page is left to the browser.
 2. It fetches the URL. If the answer is not a successful `text/html` response with the client script (`data-jx-page`), or the request fails, the browser loads the URL the ordinary way.
-3. Otherwise the client **stops**: it removes its listeners and timers, closes its stream (or leaves the shared one, §6.2, handing on the Web Lock if it led), and drops its queued events. It pushes the URL to the history, takes the new page's title, adds the style elements the page doesn't have yet, replaces the body with the new page's, and starts a client for the new page, which connects as a page loaded the ordinary way does. The window scrolls to the URL's anchor, or to the top.
+3. Otherwise the client **stops**: it removes its listeners and timers, closes its stream (or leaves the shared one, §6.2, handing on the Web Lock if it led), and drops its queued events. It pushes the URL to the history, takes the new page's title, adds the style elements the page doesn't have yet, replaces the body with the new page's, and starts a client for the new page, which connects as a page loaded the ordinary way does, except that its first stream request names the page it replaced (`leave`, §8.1); in a tab that shares its stream, the new page's client tells the leading tab, which names it in its next stream request. The window scrolls to the URL's anchor, or to the top. The client script's URL is the same for every page, so the browser takes it from its cache (§8.1).
 4. Going back or forward in the history to another path or query loads that page the same way.
 
-The page left behind is discarded by the server when its timeout passes (§6), as for a tab that was closed.
+The page left behind is discarded by the server as soon as a stream request names it in `leave`: it is never shown again, because going back renders the page anew. Should that request never come, the page is discarded when its timeout passes (§6), as for a tab that was closed.
 
 ## 7. Events and input
 
@@ -225,11 +225,11 @@ The runtime serves its client script, events and streams under a base path, `/_j
 
 | Request | Purpose |
 |---|---|
-| `GET /_jasx/web.js` | the client script |
+| `GET /_jasx/web.js?v=VERSION` | the client script. Pages load it with its version, a hash of its content, under which it is cached for good (`Cache-Control: public, max-age=31536000, immutable`); a new script has a new URL. Without the current version it answers `Cache-Control: no-cache`. It has an `ETag`, and a request with a matching `If-None-Match` answers `304` |
 | `POST /_jasx/event?page=ID` | an event (§8.3); answers a batch, or `204` if nothing changed |
 | `POST /_jasx/ping?page=ID` | a hidden tab keeping its page alive (§6); answers `204`, or `410` for an unknown page |
 | `POST /_jasx/upload?page=ID` | a file chosen in a form's file field, sent before the form's event (below): the body is the file, `X-Jasx-Name` (required, URL-encoded) its name and `X-Jasx-Type` its media type; answers `{"upload": TOKEN}`, or `400`, `403`, `410`, or `413` for a file over `maxUploadBytes` (10 MiB by default) or more than 10 uploads waiting |
-| `GET /_jasx/stream?pages=ID:N,ID:N` | the stream of the pages of a browser's tabs, each after its version `N` (§6.1, §6.2): `text/event-stream`, a comment `: connected` once the stream is live, one frame per `data:` line, and a comment every 25 seconds to keep the connection open. A missing or malformed `N` reads as 0 |
+| `GET /_jasx/stream?pages=ID:N,ID:N&leave=ID,ID` | the stream of the pages of a browser's tabs, each after its version `N` (§6.1, §6.2): `text/event-stream`, a comment `: connected` once the stream is live, one frame per `data:` line, and a comment every 25 seconds to keep the connection open. A missing or malformed `N` reads as 0. The optional `leave` names pages the browser navigated away from (§6.4): the server discards those of this browser's session that the request doesn't also stream, at most 100 |
 
 Each stream frame is `{"page": "ID", "batch": B}`, where `B` is a batch, a merged batch (§8.4), or `{"reload": true}`.
 

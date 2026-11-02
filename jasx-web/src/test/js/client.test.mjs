@@ -752,12 +752,25 @@ test("a link to another page loads it in place and starts a client for it", asyn
   assert.equal(document.querySelector("h1").textContent, "Next page");
   assert.ok(Array.from(document.head.querySelectorAll("style")).some((s) => s.textContent.includes(".next")));
   assert.ok(streams[0].closed, "the first page's client stopped");
-  assert.equal(streams.at(-1).url, "/_jasx/stream?pages=P2:0", "a client for the new page connected");
+  assert.equal(streams.at(-1).url, "/_jasx/stream?pages=P2:0&leave=P1",
+    "a client for the new page connected, telling the server the first page is gone");
 
   fire(window, document.querySelector("button"), "click");
   await wait();
   assert.equal(sent.at(-1).url, "/_jasx/event?page=P2", "events go to the new page, once");
   assert.equal(sent.filter((s) => s.payload.handler === 4).length, 1);
+});
+
+test("a tab that navigates has the leader tell the server its old page is gone", async () => {
+  const browser = browserWithTabs();
+  const first = await page(HOLE, () => null, "", { id: "P1", browser });
+  const second = await page(HOLE + `<a href="/next">next</a>`, () => null, "",
+    { id: "P2", browser, pages: { "/next": NEXT_PAGE.replace("P2", "P3") } });
+  await wait(150);
+  fire(second.window, second.document.querySelector("a"), "click");
+  await wait(200);
+  assert.equal(second.streams.length, 0, "the new page joins the shared stream too");
+  assert.equal(first.streams.at(-1).url, "/_jasx/stream?pages=P1:0,P3:0&leave=P2");
 });
 
 test("links that aren't the application's pages, or ask for a new window, are left to the browser", async () => {

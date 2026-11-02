@@ -161,7 +161,7 @@ class JasxServletTest {
     void aContextPathGoesInTheAppsBasePath() throws Exception {
         String base = start("/shop", new WebApp("/shop/_jasx", Duration.ofMinutes(2)));
         HttpResponse<String> page = get(base + "/?start=1", null);
-        assertTrue(page.body().contains("src=\"/shop/_jasx/web.js\""), page.body());
+        assertTrue(page.body().contains("src=\"/shop/_jasx/web.js?v="), page.body());
         String eventUrl = base + "/_jasx/event?page=" + find(page.body(), "data-jx-page=\"([^\"]+)\"");
         assertEquals(200, post(eventUrl, cookieOf(page), clickEvent(page.body())).statusCode());
     }

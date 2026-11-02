@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0-draft, revision 26
+
+### Changed
+
+- `targets/web.md` §8.1, **the client script is cached**: pages load `web.js?v=VERSION`, a hash of the script, which is cached for good (`immutable`); without the current version it answers `no-cache`, and an `If-None-Match` with its `ETag` answers `304`. Before, the script had no caching headers, so every page load and every navigation downloaded it again.
+- `targets/web.md` §6.4, §8.1, **navigation releases the page left behind**: the new page's first stream request names it (`leave=ID`), directly or through the leading tab, and the server discards it at once instead of keeping it, following state, until its timeout.
+
 ## 1.0-draft, revision 25
 
 ### Added

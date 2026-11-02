@@ -8,7 +8,6 @@ import jasx.web.WebApp;
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -43,8 +42,7 @@ public final class ServletAdapter {
         switch (endpoint) {
             case "/web.js" -> {
                 if (!method.equals("GET")) return false;
-                send(response, new WebApp.Response(200, WebApp.clientScript(),
-                        Map.of("Content-Type", "text/javascript; charset=utf-8")));
+                send(response, app.clientScript(request(request)));
             }
             case "/event" -> {
                 if (!method.equals("POST")) return false;
