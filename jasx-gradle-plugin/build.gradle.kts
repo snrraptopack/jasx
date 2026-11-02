@@ -47,17 +47,25 @@ val testCompilerClasspath = configurations.create("testCompilerClasspath") {
     isCanBeResolved = true
 }
 
+// The web target, for the test of browser modules (semantics.md §11).
+val testWebClasspath = configurations.create("testWebClasspath") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
+    testWebClasspath(project(":jasx-web"))
     testTargetClasspath(project(":jasx-target-html"))
     testProcessorClasspath(project(":jasx-processor"))
     testCompilerClasspath(project(":jasx-compiler"))
 }
 
 tasks.test {
-    inputs.files(testTargetClasspath, testProcessorClasspath, testCompilerClasspath)
+    inputs.files(testTargetClasspath, testProcessorClasspath, testCompilerClasspath, testWebClasspath)
     doFirst {
         systemProperty("jasx.test.targetClasspath", testTargetClasspath.asPath)
         systemProperty("jasx.test.processorClasspath", testProcessorClasspath.asPath)
         systemProperty("jasx.test.compilerClasspath", testCompilerClasspath.asPath)
+        systemProperty("jasx.test.webClasspath", testWebClasspath.asPath)
     }
 }

@@ -85,6 +85,8 @@ public final class CompileMojo extends AbstractMojo {
             }
             BuildSources.writeGeneratedFiles(result.files(), sources.generatedSources());
             sources.addGeneratedSourcesToCompilation();
+            files.writeScriptModules(result.modules(), sources.generatedResources());
+            sources.addGeneratedResources();
         } catch (IOException e) {
             throw new MojoExecutionException("JASX: " + e.getMessage(), e);
         }

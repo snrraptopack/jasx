@@ -246,6 +246,45 @@ class JasxPluginFunctionalTest {
     }
 
     @Test
+    void browserModulesGoIntoTheResources() throws IOException {
+        write("build.gradle.kts", """
+                plugins {
+                    java
+                    id("io.github.snrraptopack.jasx")
+                }
+
+                dependencies {
+                    implementation(files(%s))
+                }
+
+                jasx {
+                    target.set("web")
+                }
+                """.formatted(kotlinFiles("jasx.test.webClasspath")));
+        Files.delete(project.resolve("src/main/java/app/Main.java"));
+        write("src/main/jasx/app/menu.js", "export function toggleMenu(event, { menu }) { menu.hidden = !menu.hidden; }\n");
+        write("src/main/jasx/app/Pages.jasx", """
+                package app;
+                <script>
+                  import { toggleMenu } from "./menu.js";
+                </script>
+                public class Pages {
+                    public static jasx.runtime.Element Home() {
+                        return <div><button @click="toggleMenu({menu: $menu})">Menu</button><nav ref="menu" hidden></nav></div>;
+                    }
+                }
+                """);
+
+        BuildResult result = gradle("jar").build();
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":compileJasx").getOutcome());
+        Path modules = project.resolve("build/resources/main/META-INF/jasx/js");
+        assertTrue(Files.readString(modules.resolve("app/Pages.jasx.js")).contains("export { toggleMenu };"));
+        assertTrue(Files.readString(modules.resolve("app/menu.js")).contains("export function toggleMenu"));
+        assertTrue(Files.readString(modules.resolve(".build")).matches("[0-9a-f]{16}"));
+    }
+
+    @Test
     void typeCheckCanBeTurnedOff() throws IOException {
         write("build.gradle.kts", Files.readString(project.resolve("build.gradle.kts"))
                 + "\njasx { typeCheck.set(false) }\n");

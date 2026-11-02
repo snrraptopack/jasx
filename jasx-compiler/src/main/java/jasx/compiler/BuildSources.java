@@ -5,11 +5,15 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Stream;
 
 /**
@@ -23,6 +27,8 @@ import java.util.stream.Stream;
 public final class BuildSources {
     private final List<SourceFile> jasxFiles = new ArrayList<>();
     private final List<SourceFile> javaFiles = new ArrayList<>();
+    /** The {@code .js} files next to the {@code .jasx} files, by path relative to their source root (semantics.md §11). */
+    private final Map<String, String> scriptFiles = new TreeMap<>();
     private final Map<String, Path> absolutePaths = new HashMap<>();
 
     private BuildSources() {}
@@ -49,6 +55,9 @@ public final class BuildSources {
                     String relative = root.relativize(file).toString().replace(File.separatorChar, '/');
                     jasxFiles.add(new SourceFile(relative, Files.readString(file, StandardCharsets.UTF_8)));
                     absolutePaths.put(relative, file);
+                } else if (name.endsWith(".js")) {
+                    String relative = root.relativize(file).toString().replace(File.separatorChar, '/');
+                    scriptFiles.putIfAbsent(relative, Files.readString(file, StandardCharsets.UTF_8));
                 } else if (name.endsWith(".java")) {
                     String absolute = file.toAbsolutePath().toString();
                     javaFiles.add(new SourceFile(absolute, Files.readString(file, StandardCharsets.UTF_8)));
@@ -108,6 +117,40 @@ public final class BuildSources {
             Path target = directory.resolve(file.javaPath());
             Files.createDirectories(target.getParent());
             Files.writeString(target, file.content(), StandardCharsets.UTF_8);
+        }
+    }
+
+    /**
+     * Writes the browser modules of a source set under {@code directory}, a resources directory of the build,
+     * replacing whatever was there (targets/web.md §7.1): the compiler's modules and the {@code .js} files next to
+     * the {@code .jasx} files, under {@code META-INF/jasx/js/}, with {@code META-INF/jasx/js/.build}, a hash of
+     * them all, which the runtime puts in their URLs. Without either, nothing is written.
+     */
+    public void writeScriptModules(List<CompilationResult.ScriptModule> modules, Path directory) throws IOException {
+        deleteContents(directory);
+        Map<String, String> files = new TreeMap<>(scriptFiles);
+        for (CompilationResult.ScriptModule module : modules) {
+            files.put(module.path(), module.content());
+        }
+        if (files.isEmpty()) {
+            return;
+        }
+        Path root = directory.resolve("META-INF/jasx/js");
+        MessageDigest digest = sha256();
+        for (Map.Entry<String, String> file : files.entrySet()) {
+            Path target = root.resolve(file.getKey());
+            Files.createDirectories(target.getParent());
+            Files.writeString(target, file.getValue(), StandardCharsets.UTF_8);
+            digest.update((file.getKey() + "\n" + file.getValue() + "\n").getBytes(StandardCharsets.UTF_8));
+        }
+        Files.writeString(root.resolve(".build"), HexFormat.of().formatHex(digest.digest(), 0, 8), StandardCharsets.UTF_8);
+    }
+
+    private static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e); // every JDK has SHA-256
         }
     }
 
