@@ -22,7 +22,8 @@ It uses a **custom lowering** (`semantics.md` §7.4): every dynamic position (§
   "schema": "schemas/web.json",
   "lowering": "jasx.web.compiler.WebLowering",
   "eventHandlers": "java",
-  "styles": "css"
+  "styles": "css",
+  "scripts": "module"
 }
 ```
 
@@ -36,7 +37,7 @@ The builders (`jasx.web.attrs.<Tag>`) are generated from the schema, like those 
 |---|---|---|
 | boolean (`disabled`) | `disabled(boolean)` | `disabled(Supplier<Boolean>)` |
 | other (`class`, `value`, …) | `className(Object)` | `className(Supplier<?>)` |
-| event (`onclick`, …) | `onclick(String)`, inline JavaScript | `onclick(jasx.ui.Action)` and `onclick(jasx.ui.Handler<? super MouseEvent>)`, a Java handler of the event's kind (`ui.md` §4) |
+| event (`onclick`, …) | none: browser code is a browser attribute, `@click` (§7.1) | `onclick(jasx.ui.Action)` and `onclick(jasx.ui.Handler<? super MouseEvent>)`, a Java handler of the event's kind (`ui.md` §4) |
 
 ## 3. Lowering
 
@@ -212,10 +213,37 @@ Handlers and events are `jasx.ui`'s (`ui.md` §4): a handler is an `Action` (`()
 - `oninput` is **debounced by default**: the event is sent 300 ms after the last keystroke. `Web.debounce(ms, handler)` sets another delay, on any event, and `Web.immediate(handler)` sends every event (both accept a `Handler` or an `Action`).
 - Before an event is sent, every pending debounced event is sent first, so a handler always sees the latest input (a submit right after typing carries the final text).
 - **Typing is never overwritten.** Each edit of a field gives it a new revision, and each event remembers the revisions of the fields it carries (the field with the handler, and a form's fields). A field has *unsent edits* while it has a revision no sent event carried. A patch doesn't change the `value` of a field with unsent edits if the server will receive them (the field has a handler, or its form has one) or the field is focused. So the answer to an older event never overwrites newer typing, even when that event waited in the queue. `checked`, `selected` and `value` are set as DOM properties.
-- **A hole that re-runs is merged into the page** (§8.4): elements that stay keep their focus and typed text, and the kept items of a keyed list aren't touched (§4.3). Component state inside a plain hole is still created again (§4.2).
+- **A hole that re-runs is merged into the page** (§8.4): elements that stay keep their focus and typed text, the kept items of a keyed list aren't touched (§4.3), and component instances whose inputs are unchanged are kept (§4.4).
 - Events are sent one at a time, in order. While its event is queued or running, an element has the class `jx-loading` and `aria-busy="true"`. A form whose submit is in progress ignores further submits.
 
 In a handler, `e.resetForm()` clears the form the event came from (typed text belongs to the browser, so the server can't clear it by setting state): each field returns to its initial value, except a field edited after the event was sent, which keeps the new text. `Web.navigate(url)` makes the browser go to `url`, as a click on a link to it would (§6.4): a page of the application is loaded in place, anything else the ordinary way.
+
+### 7.1 Browser code
+
+Script blocks, browser attributes and refs (`semantics.md` §11) run JavaScript in the browser, without a round trip. `onclick={...}` is Java, run on the server; `@click="..."` is JavaScript, run in the browser.
+
+**Functions.** Every function a browser attribute calls receives the event first, then the payload: `fn(event, payload)`. In the payload:
+
+| Value | What the function receives |
+|---|---|
+| `$name` | the element the ref stands for (below) |
+| a Java value | its JSON form: strings, numbers, booleans and `null` as they are, enums by name, records as objects (by component name), lists and arrays as arrays, maps with string keys as objects; any other value as its `toString()` |
+| a `State` or `Derived` | its value, as above, **kept current**: when it changes, the server sends the new payload (an `attr` patch, §8.4), and the next call gets it |
+| a Java handler (`Action` or `Handler`) | a function that sends an event to that handler on the server (below) |
+
+**Calling the server.** `handler(value)` sends an event to the handler through the page's queue, as `{"handler": H, "value": V}` for a string, number or boolean, or `{"handler": H, "fields": {...}}` for an object, each property as a field with one value (`e.field(name)`, `e.as(Type.class)`, `ui.md` §4); `handler()` sends neither. It returns a promise that resolves once the answer's update is in the page, and rejects if the request fails or the page's client has stopped.
+
+**Inline code** runs as the body of a function of the file's module, called as `fn(event, { $a, ... })`: `event` is the event, `$name` the refs it uses.
+
+**Refs.** `ref="menu"` renders as `data-jx-ref="menu"`. A `$menu` stands for the element with that ref **nearest** to the element whose browser attribute runs: the one with the fewest steps up and down the page's tree from it (up to a common ancestor, then down), the first in document order among equally near ones, or `null` if the page has none. So each row of a list finds its own `$details`, and a component's buttons find its own elements.
+
+**`@render`** is called when the element appears in the page (on load, when an update inserts it, or after a navigation), and again whenever its payload changes (a kept-current value changed). Its event is a `CustomEvent` named `render`.
+
+**Cleanups.** A function called from a browser attribute may return a function, or a promise of one: its **cleanup**. The client calls it before the same browser attribute runs again on the same element, and when the element leaves the page (an update removes it, or a navigation replaces the page, §6.4).
+
+**Modules.** The compiler's modules (`semantics.md` §11.6) and the `.js` files next to the `.jasx` files are packaged by the build under `META-INF/jasx/js/` with a file `META-INF/jasx/js/.build` holding a hash of them, and served at `/_jasx/js/<build>/<path>` (§8.1), where `<build>` combines the hashes of every `.build` on the classpath. Relative imports (`./menu.js`) work as in any ES module. A page whose application has modules names the base URL in its client script element (`data-jx-js`, §8.2), and the client imports a module when an element first needs it; an event that fires before its module has loaded is handled once it has, so `preventDefault()` comes too late for it.
+
+**Order.** On an element with both, the browser attribute runs before the Java handler is sent. Exceptions in browser code are reported in the browser's console.
 
 ## 8. Protocol
 
@@ -225,6 +253,7 @@ The runtime serves its client script, events and streams under a base path, `/_j
 
 | Request | Purpose |
 |---|---|
+| `GET /_jasx/js/BUILD/PATH` | a module or `.js` file of the application (§7.1), from `META-INF/jasx/js/PATH` on the classpath, as `text/javascript`, cached for good (`immutable`); `404` for anything else (another build, a path with `..`, or not ending in `.js`) |
 | `GET /_jasx/web.js?v=VERSION` | the client script. Pages load it with its version, a hash of its content, under which it is cached for good (`Cache-Control: public, max-age=31536000, immutable`); a new script has a new URL. Without the current version it answers `Cache-Control: no-cache`. It has an `ETag`, and a request with a matching `If-None-Match` answers `304` |
 | `POST /_jasx/event?page=ID` | an event (§8.3); answers a batch, or `204` if nothing changed |
 | `POST /_jasx/ping?page=ID` | a hidden tab keeping its page alive (§6); answers `204`, or `410` for an unknown page |
@@ -244,7 +273,9 @@ A request body that isn't valid JSON, or an event without a numeric `handler`, a
 | `<!--jx:N-->` … `<!--/jx:N-->` | the content of dynamic child hole `N` |
 | `data-jx-id="N"` | element `N`, which has a dynamic attribute |
 | `data-jx-on="click:H input:H:300"` | the element's handlers: event type, handler id, and the debounce delay in milliseconds if any |
-| `<script src="/_jasx/web.js" data-jx-page="ID" defer>` | the client script and the page id |
+| `<script src="/_jasx/web.js?v=VERSION" data-jx-page="ID" data-jx-js="/_jasx/js/BUILD/" defer>` | the client script, the page id, and the base URL of the application's modules if it has any (§7.1) |
+| `data-jx-ref="menu"` | a ref (§7.1) |
+| `data-jx-js-click='["web/Menu.jasx.js","toggleMenu",{"menu":{"$ref":"menu"},"save":{"handler":12}}]'` | a browser attribute: the module, the function and the payload as JSON, where `{"$ref": name}` is a ref and `{"handler": H}` a Java handler. With a kept-current value, it is a dynamic attribute (`data-jx-id`), updated by `attr` patches |
 
 Dynamic children of `script`, `style`, `title` and `textarea` are evaluated once and are not holes, because comments are not markup inside those elements.
 

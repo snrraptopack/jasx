@@ -12,12 +12,14 @@ import jasx.parser.ast.Ast.JasxMarkupStatement;
 import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxIdentifier;
+import jasx.parser.ast.Ast.JasxEventName;
 import jasx.parser.ast.Ast.JasxNamespacedName;
 import jasx.parser.ast.Ast.JasxOpeningElement;
 import jasx.parser.ast.Ast.JasxOpeningFragment;
 import jasx.parser.ast.Ast.JasxQualifiedName;
 import jasx.parser.ast.Ast.JasxStringLiteral;
 import jasx.parser.ast.Ast.JasxText;
+import jasx.parser.ast.Ast.JasxScriptBlock;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
@@ -83,6 +85,7 @@ public final class AstJson {
             }
             case JavaCode j -> w.name("source").value(j.source());
             case JasxStyleBlock b -> w.name("css").value(b.css());
+            case JasxScriptBlock b -> w.name("script").value(b.script());
             case JavaExpression e -> nodes("segments", e.segments());
             case JasxEmptyExpression e -> w.name("source").value(e.source());
             case JasxElement e -> {
@@ -112,6 +115,7 @@ public final class AstJson {
                 field("namespace", ns.namespace());
                 field("name", ns.name());
             }
+            case JasxEventName event -> field("name", event.name());
             case JasxAttribute a -> {
                 field("name", a.name());
                 field("value", a.value());

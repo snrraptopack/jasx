@@ -6,6 +6,7 @@ import jasx.parser.Diagnostic;
 import jasx.parser.JasxParser;
 import jasx.parser.LineMap;
 import jasx.parser.ParseResult;
+import jasx.parser.ast.Ast.JasxScriptBlock;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.Markup;
 import jasx.parser.ast.Ast.Segment;
@@ -163,14 +164,16 @@ public final class JasxCompiler {
         return new ScannedFile(file, lines, parsed, structure, insertions, plan, unlowerable);
     }
 
-    /** The markup expressions and style blocks at the top level of a parsed file, which aren't Java. */
+    /** The markup expressions, style blocks and script blocks at the top level of a parsed file, which aren't Java. */
     static List<JavaStructure.Opaque> opaqueRanges(ParseResult parsed) {
         List<JavaStructure.Opaque> ranges = new ArrayList<>();
         for (Segment segment : parsed.unit().segments()) {
             if (segment instanceof Markup) {
-                ranges.add(new JavaStructure.Opaque(segment.start(), segment.end(), false));
+                ranges.add(new JavaStructure.Opaque(segment.start(), segment.end(), JavaStructure.OpaqueKind.MARKUP));
             } else if (segment instanceof JasxStyleBlock) {
-                ranges.add(new JavaStructure.Opaque(segment.start(), segment.end(), true));
+                ranges.add(new JavaStructure.Opaque(segment.start(), segment.end(), JavaStructure.OpaqueKind.STYLE));
+            } else if (segment instanceof JasxScriptBlock) {
+                ranges.add(new JavaStructure.Opaque(segment.start(), segment.end(), JavaStructure.OpaqueKind.SCRIPT));
             }
         }
         return ranges;

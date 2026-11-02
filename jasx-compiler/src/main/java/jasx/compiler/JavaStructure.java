@@ -105,7 +105,10 @@ final class JavaStructure {
      * A part of the file that is not Java and becomes one opaque token: a markup expression, or a style
      * block, so that braces and {@code <} inside it are never seen as Java.
      */
-    record Opaque(int start, int end, boolean isStyleBlock) {}
+    record Opaque(int start, int end, OpaqueKind kind) {}
+
+    /** What an opaque range is: markup (an expression), a style block, or a script block (semantics.md §11.1). */
+    enum OpaqueKind { MARKUP, STYLE, SCRIPT }
 
     /**
      * Where a style block is (semantics.md §10.1).
@@ -120,6 +123,9 @@ final class JavaStructure {
 
     /** The text of the opaque token that stands for a style block. */
     private static final String STYLE_BLOCK = "<style>";
+
+    /** The text of the opaque token that stands for a script block: like a style block, it ends a member. */
+    private static final String SCRIPT_BLOCK = "<script>";
 
     /** The stack entry for a brace that is not a type body. */
     private static final Object BLOCK = new Object();
@@ -198,7 +204,11 @@ final class JavaStructure {
             boolean atOpaque = nextOpaque < opaque.size() && opaque.get(nextOpaque).start() == p;
             if (atOpaque) {
                 Opaque range = opaque.get(nextOpaque);
-                String text = range.isStyleBlock() ? STYLE_BLOCK : MARKUP;
+                String text = switch (range.kind()) {
+                    case MARKUP -> MARKUP;
+                    case STYLE -> STYLE_BLOCK;
+                    case SCRIPT -> SCRIPT_BLOCK;
+                };
                 tokens.add(new Token(Kind.OPERATOR, text, p, range.end()));
                 p = lexer.skipTrivia(range.end());
             } else {
@@ -240,6 +250,13 @@ final class JavaStructure {
             // A style block is noted where it is. In a type body, it ends the member before it like a ';'.
             if (t.is(STYLE_BLOCK)) {
                 styleSightings.add(new StyleSighting(t, innermostType(braces)));
+                if (!isSkipped(braces.peek())) {
+                    memberStart = i + 1;
+                }
+                continue;
+            }
+            // A script block is JavaScript: in a type body, it ends the member before it, as a style block does.
+            if (t.is(SCRIPT_BLOCK)) {
                 if (!isSkipped(braces.peek())) {
                     memberStart = i + 1;
                 }

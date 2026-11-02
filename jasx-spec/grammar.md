@@ -233,9 +233,13 @@ JasxAttribute:
 JasxAttributeName:
     JasxIdentifier
     JasxNamespacedName
+    JasxEventName
 
 JasxNamespacedName:
     JasxIdentifier : JasxIdentifier
+
+JasxEventName:
+    @ JasxIdentifier
 
 JasxAttributeInitializer:
     = JasxAttributeValue
@@ -248,6 +252,8 @@ JasxAttributeValue:
 ```
 
 An attribute without an initializer (`<input disabled />`) has the value `true` (see `semantics.md`).
+
+A `JasxEventName` (`@click`, no whitespace after `@`) names a **browser attribute**: JavaScript run in the browser for that event. Its meaning is defined in `semantics.md` §11.
 
 **Reserved:** `{...expr}` (spread attributes) is reserved for a future version and is an error in 1.0 (JASX1007).
 
@@ -345,9 +351,10 @@ JasxUnitSegment:
     JasxElement
     JasxFragment
     JasxStyleBlock
+    JasxScriptBlock
 ```
 
-`JavaCode` is a maximal run of source text scanned in Java mode that contains no markup and no style block. A JASX source file containing neither is a single `JavaCode` segment.
+`JavaCode` is a maximal run of source text scanned in Java mode that contains no markup, no style block and no script block. A JASX source file containing neither is a single `JavaCode` segment.
 
 ### 7.2 Top-level members
 
@@ -410,6 +417,30 @@ These are the positions where a statement or a member declaration begins. Markup
 
 End of input before `</style>` is an error (JASX1012). The same applies to a style block in markup.
 
+### 7.4 Script blocks
+
+A script block holds the JavaScript of its file (`semantics.md` §11). It is written where a declaration or statement starts, in Java mode, exactly where a style block is detected (§7.3):
+
+```java
+<script>
+  import { toggleMenu } from "./menu.js";
+</script>
+```
+
+```
+JasxScriptBlock:
+    < script > JasxScriptText < / script >
+
+JasxScriptText:
+    any sequence of characters that does not contain </script>
+```
+
+**Detection.** In Java mode, outside expression containers, a `<` begins a script block if and only if the eight characters `<script>` start at it, and the previous significant token and the innermost bracket are as for a style block (§7.3). As for style blocks, a generic method or constructor declared without modifiers can't have a first type parameter named `script`.
+
+**In markup**, `<script>` is an ordinary element (`<script type="importmap">{...}</script>`), never a script block.
+
+**Content.** The text runs from after `<script>` up to the first `</script>`. It is not tokenized, and Unicode escapes are not processed. End of input before `</script>` is an error (JASX1013).
+
 ---
 
 ## 8. Early errors
@@ -430,5 +461,6 @@ The following are syntax errors that a conforming parser **MUST** report, with t
 | An unknown named character reference | JASX1010 |
 | A `JasxIdentifier` ends with `-`, or a qualified name contains `-` | JASX1011 |
 | End of input inside a `JasxStyleBlock` (no `</style>`) | JASX1012 |
+| End of input inside a `JasxScriptBlock` (no `</script>`) | JASX1013 |
 
 Two element names are **identical** if they have the same AST shape and the same identifier strings. `<a.b>` closes only with `</a.b>`.

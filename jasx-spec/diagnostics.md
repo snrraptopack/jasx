@@ -71,6 +71,7 @@ Codes are never renumbered or reused.
 | JASX1010 | Unknown named character reference | The reference |
 | JASX1011 | Identifier ends with `-`, or qualified name contains `-` | The identifier |
 | JASX1012 | Unclosed style block (no `</style>`) at end of input | The `<style>` tag |
+| JASX1013 | Unclosed script block (no `</script>`) at end of input | The `<script>` tag |
 
 ---
 
@@ -94,12 +95,20 @@ Codes are never renumbered or reused.
 | JASX2014 | Invalid CSS in a style block: something unclosed, an unmatched `}`, an empty selector, or `</style` (`semantics.md` §10.4) | The offending text |
 | JASX2015 | A style block outside any class: at the top level of a file without a file class (`semantics.md` §10.1) | The style block's `<style>` tag |
 | JASX2016 | *Retired* in revision 8, when files were allowed several style blocks. Not reported, and not reused | — |
+| JASX2017 | A browser attribute (`@event`) whose value is not a string literal (`semantics.md` §11.2) | The attribute |
+| JASX2018 | A browser attribute or `ref` on a component (§11.2, §11.5) | The attribute |
+| JASX2019 | A browser attribute calls `name(...)`, but `name` is not a function of the file's script (§11.2) | The name |
+| JASX2020 | A malformed payload in a browser attribute's call (§11.3) | The payload, or the point where it goes wrong |
+| JASX2021 | A ref `$name` that no `ref` attribute of the file declares (§11.5) | The ref |
+| JASX2022 | A `ref` attribute whose value is not a string literal holding a name (§11.5) | The attribute |
 | JASX2101 | Attribute not defined by the target schema | The attribute |
 | JASX2102 | Children on a void element | The first child |
 | JASX2103 | Java event handler on a target without event handlers | The attribute value |
 | JASX2104 | *Reserved* for reactive targets (not reported by any target yet) | — |
 | JASX2105 | Tag not defined by the target schema | The element name |
 | JASX2106 | Style block on a target that does not support style blocks (`semantics.md` §10.6) | The style block's `<style>` tag |
+| JASX2107 | A script block, browser attribute or `ref` on a target without `"scripts": "module"` (`semantics.md` §11.8) | The script block's `<script>` tag, or the attribute |
+| JASX2108 | On a target with `"scripts": "module"`, an event attribute (`onclick`, ...) whose value is a string: browser code is written as a browser attribute (`@click`) (§11.8) | The attribute |
 
 ---
 

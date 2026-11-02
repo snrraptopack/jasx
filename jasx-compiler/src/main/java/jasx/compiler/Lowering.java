@@ -29,6 +29,7 @@ import jasx.parser.ast.Ast.JasxMarkupStatement;
 import jasx.parser.ast.Ast.JasxNamespacedName;
 import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JasxStringLiteral;
+import jasx.parser.ast.Ast.JasxScriptBlock;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JasxText;
 import jasx.parser.ast.Ast.JavaCode;
@@ -226,6 +227,9 @@ final class Lowering {
             }
             if (segment instanceof JasxStyleBlock) {
                 continue; // removed; its CSS is in the style sheet field (semantics.md §10.5)
+            }
+            if (segment instanceof JasxScriptBlock) {
+                continue; // removed; its JavaScript is in the file's script module (semantics.md §11.1)
             }
 
             // A Java segment: copy it, writing each insertion that falls inside it at its place.

@@ -21,12 +21,14 @@ import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxIdentifier;
 import jasx.parser.ast.Ast.JasxMarkupStatement;
+import jasx.parser.ast.Ast.JasxEventName;
 import jasx.parser.ast.Ast.JasxNamespacedName;
 import jasx.parser.ast.Ast.JasxOpeningElement;
 import jasx.parser.ast.Ast.JasxOpeningFragment;
 import jasx.parser.ast.Ast.JasxQualifiedName;
 import jasx.parser.ast.Ast.JasxStatementContainer;
 import jasx.parser.ast.Ast.JasxStringLiteral;
+import jasx.parser.ast.Ast.JasxScriptBlock;
 import jasx.parser.ast.Ast.JasxStyleBlock;
 import jasx.parser.ast.Ast.JasxText;
 import jasx.parser.ast.Ast.JavaCode;
@@ -98,6 +100,8 @@ public final class JasxParser {
     private static final Set<String> STATEMENT_STARTERS = Set.of("{", "if", "for", "while", "do");
 
     private static final String STYLE_OPEN = "<style>";
+    private static final String SCRIPT_OPEN = "<script>";
+    private static final String SCRIPT_CLOSE = "</script>";
     private static final String STYLE_CLOSE = "</style>";
 
     private record Bracket(char kind, boolean arrayInit) {}
@@ -153,6 +157,13 @@ public final class JasxParser {
                 pos = block.end();
                 chunk = pos;
                 prev = STYLE_BLOCK;
+            } else if (context == JavaContext.TOP_LEVEL && startsScriptBlock(prev, brackets)) {
+                addJavaCode(segments, chunk, pos);
+                JasxScriptBlock block = parseScriptBlock(pos);
+                segments.add(block);
+                pos = block.end();
+                chunk = pos;
+                prev = STYLE_BLOCK; // a block like a style block: a declaration may follow it
             } else if (markupStatement) {
                 addJavaCode(segments, chunk, pos);
                 Segment statement = parseMarkupStatement(pos);
@@ -264,16 +275,29 @@ public final class JasxParser {
      * block, or at the start of the file), directly inside braces or at the top level.
      */
     private boolean startsStyleBlock(Tok prev, Deque<Bracket> brackets) {
-        if (!src.startsWith(STYLE_OPEN, pos)) {
-            return false;
-        }
-        boolean atDeclarationStart = switch (prev.text()) {
+        return src.startsWith(STYLE_OPEN, pos) && atDeclarationStart(prev, brackets);
+    }
+
+    /**
+     * Whether a script block starts at {@code pos} (grammar.md §7.4): the text is exactly {@code <script>}, at the
+     * same places as a style block in Java mode.
+     */
+    private boolean startsScriptBlock(Tok prev, Deque<Bracket> brackets) {
+        return src.startsWith(SCRIPT_OPEN, pos) && atDeclarationStart(prev, brackets);
+    }
+
+    /**
+     * Whether {@code pos} is where a statement or member begins: after {@code ;}, {@code }}, a block or body
+     * {@code {}, another block, or at the start of the file, directly inside braces or at the top level.
+     */
+    private static boolean atDeclarationStart(Tok prev, Deque<Bracket> brackets) {
+        boolean afterDeclarationEnd = switch (prev.text()) {
             case "", ";", "}" -> true;
             case "{" -> !prev.arrayInit();
             default -> prev == STYLE_BLOCK;
         };
         boolean directlyInBraces = brackets.isEmpty() || brackets.peek().kind() == '{';
-        return atDeclarationStart && directlyInBraces;
+        return afterDeclarationEnd && directlyInBraces;
     }
 
     /**
@@ -299,6 +323,21 @@ public final class JasxParser {
      * first {@code </style>}; nothing inside is tokenized. Without {@code </style>}, the block runs to the
      * end of the file (JASX1012).
      */
+    /**
+     * Parses the script block whose {@code <script>} starts at {@code lt}. Its content is raw text up to the first
+     * {@code </script>}; nothing inside is tokenized. Without {@code </script>}, the block runs to the end of the
+     * file (JASX1013).
+     */
+    private JasxScriptBlock parseScriptBlock(int lt) {
+        int contentStart = lt + SCRIPT_OPEN.length();
+        int close = src.indexOf(SCRIPT_CLOSE, contentStart);
+        if (close < 0) {
+            reportEof("JASX1013", "the script block is not closed: </script> is missing", lt, contentStart);
+            return new JasxScriptBlock(lt, len, src.substring(contentStart));
+        }
+        return new JasxScriptBlock(lt, close + SCRIPT_CLOSE.length(), src.substring(contentStart, close));
+    }
+
     private JasxStyleBlock parseStyleBlock(int lt) {
         int contentStart = lt + STYLE_OPEN.length();
         int close = src.indexOf(STYLE_CLOSE, contentStart);
@@ -374,7 +413,7 @@ public final class JasxParser {
 
             if (c == '{') {
                 parseBracedAttribute(); // {...spread} or a stray {expr}: always an error
-            } else if (isIdentifierStart(pos)) {
+            } else if (isIdentifierStart(pos) || (c == '@' && isIdentifierStart(pos + 1))) {
                 JasxAttribute attribute = parseAttribute();
                 String attributeName = attributeNameText(attribute.name());
                 boolean isDuplicate = !attributeNames.add(attributeName);
@@ -571,9 +610,13 @@ public final class JasxParser {
 
     private JasxAttribute parseAttribute() {
         int start = pos;
+        boolean browserEvent = src.charAt(pos) == '@';
+        if (browserEvent) {
+            pos++;
+        }
         JasxIdentifier first = parseIdentifier();
-        AttributeName name = first;
-        if (pos < len && src.charAt(pos) == ':') {
+        AttributeName name = browserEvent ? new JasxEventName(start, first.end(), first) : first;
+        if (!browserEvent && pos < len && src.charAt(pos) == ':') {
             pos++;
             JasxIdentifier local = parseIdentifier();
             if (local == null) {
@@ -957,11 +1000,12 @@ public final class JasxParser {
         };
     }
 
-    /** The source text of an attribute name: {@code class}, {@code xlink:href}. */
+    /** The source text of an attribute name: {@code class}, {@code xlink:href}, {@code @click}. */
     public static String attributeNameText(AttributeName name) {
         return switch (name) {
             case JasxIdentifier id -> id.name();
             case JasxNamespacedName ns -> ns.namespace().name() + ":" + ns.name().name();
+            case JasxEventName event -> "@" + event.name().name();
         };
     }
 

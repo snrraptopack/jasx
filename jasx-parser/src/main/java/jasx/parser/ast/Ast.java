@@ -45,6 +45,13 @@ public final class Ast {
      */
     public record JasxStyleBlock(int start, int end, String css) implements Segment, Child {}
 
+    /**
+     * A script block, {@code <script>js</script>} (grammar.md §7.4), written where a declaration or statement
+     * starts. Appears in {@code JasxCompilationUnit.segments}. {@code script} is the text between the tags,
+     * exactly as written. A {@code <script>} inside markup is an ordinary element, not a script block.
+     */
+    public record JasxScriptBlock(int start, int end, String script) implements Segment {}
+
     public record JavaExpression(int start, int end, List<Segment> segments) implements Expression {}
 
     /**
@@ -97,6 +104,9 @@ public final class Ast {
 
     public record JasxNamespacedName(int start, int end, JasxIdentifier namespace, JasxIdentifier name)
             implements AttributeName {}
+
+    /** The name of a browser attribute, {@code @click} (grammar.md §6.4): {@code @} and the event's name. */
+    public record JasxEventName(int start, int end, JasxIdentifier name) implements AttributeName {}
 
     /** {@code value} is {@code null} for a shorthand attribute ({@code <input disabled />}). */
     public record JasxAttribute(int start, int end, AttributeName name, AttributeValue value) implements Node {}
