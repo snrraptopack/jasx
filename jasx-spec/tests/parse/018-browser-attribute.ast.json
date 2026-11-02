@@ -1,0 +1,382 @@
+{
+  "type": "JasxCompilationUnit",
+  "range": [
+    0,
+    107
+  ],
+  "loc": {
+    "start": {
+      "line": 1,
+      "column": 0
+    },
+    "end": {
+      "line": 4,
+      "column": 0
+    }
+  },
+  "specVersion": "1.0",
+  "sourceFile": "018-browser-attribute.jasx",
+  "segments": [
+    {
+      "type": "JavaCode",
+      "range": [
+        0,
+        23
+      ],
+      "loc": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 2,
+          "column": 13
+        }
+      },
+      "source": "class A {\n  Object x = "
+    },
+    {
+      "type": "JasxElement",
+      "range": [
+        23,
+        103
+      ],
+      "loc": {
+        "start": {
+          "line": 2,
+          "column": 13
+        },
+        "end": {
+          "line": 2,
+          "column": 93
+        }
+      },
+      "openingElement": {
+        "type": "JasxOpeningElement",
+        "range": [
+          23,
+          93
+        ],
+        "loc": {
+          "start": {
+            "line": 2,
+            "column": 13
+          },
+          "end": {
+            "line": 2,
+            "column": 83
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            24,
+            30
+          ],
+          "loc": {
+            "start": {
+              "line": 2,
+              "column": 14
+            },
+            "end": {
+              "line": 2,
+              "column": 20
+            }
+          },
+          "name": "button"
+        },
+        "attributes": [
+          {
+            "type": "JasxAttribute",
+            "range": [
+              31,
+              61
+            ],
+            "loc": {
+              "start": {
+                "line": 2,
+                "column": 21
+              },
+              "end": {
+                "line": 2,
+                "column": 51
+              }
+            },
+            "name": {
+              "type": "JasxEventName",
+              "range": [
+                31,
+                37
+              ],
+              "loc": {
+                "start": {
+                  "line": 2,
+                  "column": 21
+                },
+                "end": {
+                  "line": 2,
+                  "column": 27
+                }
+              },
+              "name": {
+                "type": "JasxIdentifier",
+                "range": [
+                  32,
+                  37
+                ],
+                "loc": {
+                  "start": {
+                    "line": 2,
+                    "column": 22
+                  },
+                  "end": {
+                    "line": 2,
+                    "column": 27
+                  }
+                },
+                "name": "click"
+              }
+            },
+            "value": {
+              "type": "JasxStringLiteral",
+              "range": [
+                38,
+                61
+              ],
+              "loc": {
+                "start": {
+                  "line": 2,
+                  "column": 28
+                },
+                "end": {
+                  "line": 2,
+                  "column": 51
+                }
+              },
+              "value": "toggle({menu: $menu})",
+              "raw": "\"toggle({menu: $menu})\""
+            }
+          },
+          {
+            "type": "JasxAttribute",
+            "range": [
+              62,
+              72
+            ],
+            "loc": {
+              "start": {
+                "line": 2,
+                "column": 52
+              },
+              "end": {
+                "line": 2,
+                "column": 62
+              }
+            },
+            "name": {
+              "type": "JasxIdentifier",
+              "range": [
+                62,
+                65
+              ],
+              "loc": {
+                "start": {
+                  "line": 2,
+                  "column": 52
+                },
+                "end": {
+                  "line": 2,
+                  "column": 55
+                }
+              },
+              "name": "ref"
+            },
+            "value": {
+              "type": "JasxStringLiteral",
+              "range": [
+                66,
+                72
+              ],
+              "loc": {
+                "start": {
+                  "line": 2,
+                  "column": 56
+                },
+                "end": {
+                  "line": 2,
+                  "column": 62
+                }
+              },
+              "value": "menu",
+              "raw": "\"menu\""
+            }
+          },
+          {
+            "type": "JasxAttribute",
+            "range": [
+              73,
+              92
+            ],
+            "loc": {
+              "start": {
+                "line": 2,
+                "column": 63
+              },
+              "end": {
+                "line": 2,
+                "column": 82
+              }
+            },
+            "name": {
+              "type": "JasxIdentifier",
+              "range": [
+                73,
+                80
+              ],
+              "loc": {
+                "start": {
+                  "line": 2,
+                  "column": 63
+                },
+                "end": {
+                  "line": 2,
+                  "column": 70
+                }
+              },
+              "name": "onclick"
+            },
+            "value": {
+              "type": "JasxExpressionContainer",
+              "range": [
+                81,
+                92
+              ],
+              "loc": {
+                "start": {
+                  "line": 2,
+                  "column": 71
+                },
+                "end": {
+                  "line": 2,
+                  "column": 82
+                }
+              },
+              "expression": {
+                "type": "JavaExpression",
+                "range": [
+                  82,
+                  91
+                ],
+                "loc": {
+                  "start": {
+                    "line": 2,
+                    "column": 72
+                  },
+                  "end": {
+                    "line": 2,
+                    "column": 81
+                  }
+                },
+                "segments": [
+                  {
+                    "type": "JavaCode",
+                    "range": [
+                      82,
+                      91
+                    ],
+                    "loc": {
+                      "start": {
+                        "line": 2,
+                        "column": 72
+                      },
+                      "end": {
+                        "line": 2,
+                        "column": 81
+                      }
+                    },
+                    "source": "e -> go()"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "selfClosing": false
+      },
+      "children": [
+        {
+          "type": "JasxText",
+          "range": [
+            93,
+            94
+          ],
+          "loc": {
+            "start": {
+              "line": 2,
+              "column": 83
+            },
+            "end": {
+              "line": 2,
+              "column": 84
+            }
+          },
+          "value": "x",
+          "raw": "x"
+        }
+      ],
+      "closingElement": {
+        "type": "JasxClosingElement",
+        "range": [
+          94,
+          103
+        ],
+        "loc": {
+          "start": {
+            "line": 2,
+            "column": 84
+          },
+          "end": {
+            "line": 2,
+            "column": 93
+          }
+        },
+        "name": {
+          "type": "JasxIdentifier",
+          "range": [
+            96,
+            102
+          ],
+          "loc": {
+            "start": {
+              "line": 2,
+              "column": 86
+            },
+            "end": {
+              "line": 2,
+              "column": 92
+            }
+          },
+          "name": "button"
+        }
+      }
+    },
+    {
+      "type": "JavaCode",
+      "range": [
+        103,
+        107
+      ],
+      "loc": {
+        "start": {
+          "line": 2,
+          "column": 93
+        },
+        "end": {
+          "line": 4,
+          "column": 0
+        }
+      },
+      "source": ";\n}\n"
+    }
+  ]
+}

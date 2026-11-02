@@ -1,0 +1,3 @@
+class A {
+  Object x = <button @click="toggle({menu: $menu})" ref="menu" onclick={e -> go()}>x</button>;
+}

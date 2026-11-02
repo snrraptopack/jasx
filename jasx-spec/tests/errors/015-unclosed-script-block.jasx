@@ -1,0 +1,4 @@
+class A {
+  <script>
+    let a = 1;
+}
