@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0-draft, revision 27
+
+### Changed
+
+- `targets/web.md` §7, §8.4, **`Web.navigate` navigates in place**: a `navigate` patch to a page of the application loads it as a link to it would (§6.4), without reloading the browser's page, so the client script, fonts and style sheets aren't loaded again and the page left behind is discarded. Before, it always loaded the URL the ordinary way.
+
+### Fixed
+
+- `targets/web.md` §6.4: in a tab that shares its stream but has no other tab, the page a navigation replaced wasn't named in `leave` (the client handed it to the other tabs, of which there were none), so the server kept it until its timeout.
+
 ## 1.0-draft, revision 26
 
 ### Changed

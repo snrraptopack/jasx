@@ -111,11 +111,21 @@ function browserWithTabs() {
   const channels = new Set();
   const waiting = []; // lock requests in order: {tab, name, callback}
   let holder = null;
+  let grant = null; // the current grant, so that letting go of an earlier one doesn't free a later one
+  // As with real Web Locks, the lock is held until the promise the callback returns settles (a navigation
+  // hands it on that way), or until the holding tab closes.
   const grantNext = () => {
     if (holder !== null || waiting.length === 0) return;
     const next = waiting.shift();
+    const thisGrant = {};
     holder = next.tab;
-    next.callback({ name: next.name });
+    grant = thisGrant;
+    Promise.resolve(next.callback({ name: next.name })).then(() => {
+      if (grant !== thisGrant) return;
+      holder = null;
+      grant = null;
+      setTimeout(grantNext, 0);
+    });
   };
   return {
     install(window, tab) {
@@ -153,6 +163,7 @@ function browserWithTabs() {
       waiting.splice(0, waiting.length, ...waiting.filter((request) => request.tab !== tab));
       if (holder === tab) {
         holder = null;
+        grant = null;
         setTimeout(grantNext, 0);
       }
       window.close();
@@ -759,6 +770,26 @@ test("a link to another page loads it in place and starts a client for it", asyn
   await wait();
   assert.equal(sent.at(-1).url, "/_jasx/event?page=P2", "events go to the new page, once");
   assert.equal(sent.filter((s) => s.payload.handler === 4).length, 1);
+});
+
+test("a single tab that shares its stream names the page it replaced when it navigates", async () => {
+  const browser = browserWithTabs();
+  const only = await page(`<a href="/next">next</a>`, () => null, "", { id: "P1", browser, pages: { "/next": NEXT_PAGE } });
+  await wait(150);
+  fire(only.window, only.document.querySelector("a"), "click");
+  await wait(200);
+  assert.equal(only.streams.at(-1).url, "/_jasx/stream?pages=P2:0&leave=P1");
+});
+
+test("a navigate patch from the server loads the page in place, as a link would", async () => {
+  const { window, document, streams, fetched } = await page(`<button data-jx-on="click:1">delete</button>`,
+    () => ({ version: 1, patches: [{ op: "navigate", url: "/next" }] }), "", { pages: { "/next": NEXT_PAGE } });
+  fire(window, document.querySelector("button"), "click");
+  await wait(100);
+  assert.deepEqual(fetched, ["/next"], "fetched by the client, not loaded by the browser");
+  assert.equal(window.location.pathname, "/next");
+  assert.equal(document.querySelector("h1").textContent, "Next page");
+  assert.equal(streams.at(-1).url, "/_jasx/stream?pages=P2:0&leave=P1");
 });
 
 test("a tab that navigates has the leader tell the server its old page is gone", async () => {

@@ -215,7 +215,7 @@ Handlers and events are `jasx.ui`'s (`ui.md` §4): a handler is an `Action` (`()
 - **A hole that re-runs is merged into the page** (§8.4): elements that stay keep their focus and typed text, and the kept items of a keyed list aren't touched (§4.3). Component state inside a plain hole is still created again (§4.2).
 - Events are sent one at a time, in order. While its event is queued or running, an element has the class `jx-loading` and `aria-busy="true"`. A form whose submit is in progress ignores further submits.
 
-In a handler, `e.resetForm()` clears the form the event came from (typed text belongs to the browser, so the server can't clear it by setting state): each field returns to its initial value, except a field edited after the event was sent, which keeps the new text. `Web.navigate(url)` makes the browser go to `url`.
+In a handler, `e.resetForm()` clears the form the event came from (typed text belongs to the browser, so the server can't clear it by setting state): each field returns to its initial value, except a field edited after the event was sent, which keeps the new text. `Web.navigate(url)` makes the browser go to `url`, as a click on a link to it would (§6.4): a page of the application is loaded in place, anything else the ordinary way.
 
 ## 8. Protocol
 
@@ -295,7 +295,7 @@ A member that is not sent reads as empty (`""`, `false`, `0`, no fields). An eve
 | `attr` | sets attribute `name` of element `id`: a string, `true` for a bare attribute, or `null` to remove it |
 | `css` | adds a style sheet the page didn't have yet |
 | `tpl` | defines template `t`: its statics `s`, a list of strings (below) |
-| `navigate` | goes to `url` |
+| `navigate` | goes to `url` as a link to it would (§6.4): in place for a page of the application (same origin, outside the base path, a JASX page), otherwise the ordinary way |
 | `reset` | resets the form of the event whose `seq` is `event` (§7), wherever the batch arrives: in the event's answer, after an earlier batch it waited for, or in a catch-up |
 
 Batch versions increase by one per batch of a page. The client applies batches in version order, whether they arrive on the stream or in an event response.

@@ -115,7 +115,7 @@
       case "attr": setAttribute(patch.id, patch.name, patch.value); break;
       case "css": addStyleSheet(patch.css); break;
       case "tpl": templates.set(patch.t, patch.s); break;
-      case "navigate": location.assign(patch.url); break;
+      case "navigate": follow(patch.url); break;
       case "reset": resetForm(patch.event); break;
       default: console.warn("jasx: unknown patch", patch);
     }
@@ -839,7 +839,8 @@
 
   // Tells the leader this tab's page and version. `resync` asks it to reconnect even if it knows the page.
   function announce(resync) {
-    channel.postMessage({ type: "join", page: pageId, since: applied, resync, left: leaving.splice(0) });
+    // A copy: if no other tab leads (this one will), its own first stream request still names them.
+    channel.postMessage({ type: "join", page: pageId, since: applied, resync, left: leaving.slice() });
   }
 
   function onMessage(message) {
@@ -1081,6 +1082,15 @@
     const samePage = url.pathname === location.pathname && url.search === location.search;
     if (samePage && url.hash) return null; // an anchor on this page: the browser scrolls to it
     return link;
+  }
+
+  // Goes to `url` as a click on a link to it would (§8.4): in place for a page of the application, otherwise
+  // the ordinary way.
+  function follow(url) {
+    const target = new URL(url, location.href);
+    const inApplication = target.origin === location.origin && !target.pathname.startsWith(base + "/");
+    if (inApplication) navigate(target.href, true);
+    else location.assign(target.href);
   }
 
   // Fetches the page at `url` and shows it in place of this one: its title, new style sheets and body, and a
