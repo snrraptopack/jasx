@@ -1,16 +1,18 @@
 # Discussion: plain JavaScript in the browser
 
-**Status:** proposal with every question decided; waiting for the user's feedback. Nothing is implemented.
+**Status:** proposal; the user's decisions of 2026-11-02 are recorded (§10). Waiting for the go-ahead to implement. Of it, only §7 (server updates keep browser changes) is implemented, as spec revision 20.
 
-**Date:** 2026-11-01.
+**Dates:** 2026-11-01, revised 2026-11-02.
 
-**Scope:** the `web` target. Other targets reject script blocks until they support them (§9).
+**Scope:** the `web` target. Other targets reject script blocks and `@` attributes until they support them (§10).
 
 ## 1. Goal
 
-To do small things in the browser without a round trip to the server: open a menu, switch a tab, copy to the clipboard, preview a colour, draw a chart. The code is plain JavaScript, in `.js` files with full editor support, connected to `.jasx` files by a `<script>` block.
+To do small things in the browser without a round trip to the server: open a menu, switch a tab, copy to the clipboard, preview a colour, draw a chart. The code is plain JavaScript, in `.js` files with full editor support, connected to `.jasx` files by a `<script>` block, or written inline for one line.
 
-The server stays in charge of its state. This is not a JavaScript framework: there is no client state system, no Java-to-JavaScript compiler, and no API to learn beyond one way of calling a function.
+The server stays in charge of its state. This is not a JavaScript framework: there is no client state system, no Java-to-JavaScript compiler, and nothing to learn beyond one shape of function.
+
+**Before reaching for JavaScript:** much of this needs none. A menu can be a `popover` (`<button popovertarget="menu">` and `<nav id="menu" popover="auto">`), a collapsible section a `<details>`; the browser does them itself, and server updates leave them as the user set them (§7).
 
 ## 2. The idea in one example
 
@@ -30,61 +32,53 @@ export function toggleMenu(event, { menu }) {
 public Element Menu() {
     return (
         <div>
-            <button onclick="toggleMenu({menu: $menu})">Menu</button>
+            <button @click="toggleMenu({menu: $menu})">Menu</button>
             <nav ref="menu" hidden>...</nav>
         </div>
     );
 }
 ```
 
-- `onclick="toggleMenu(...)"` calls `toggleMenu` from this file's script, in the browser. Nothing is sent to the server.
-- The function always gets the **event first**, then what is written in the brackets.
-- `$menu` is a **ref**: the element with `ref="menu"` in the same component.
-- A bare name, such as `color` or `save`, is a **Java variable** (§3.2).
+- **`on...` is Java, `@...` is JavaScript.** `onclick={...}` is a Java handler, run on the server. `@click="..."` is JavaScript, run in the browser; nothing is sent to the server.
+- `@click="toggleMenu(...)"` calls `toggleMenu` from this file's script. Every function called this way has the same shape: **`(event, payload)`**.
+- In the payload, `$menu` is a **ref**: the element with `ref="menu"` in the same component. Any other name is a **Java variable**.
 
 ## 3. Rules
 
-### 3.1 Calling a function
+### 3.1 `@` attributes
 
-An event attribute whose value is a string literal of the form `name` or `name(arguments)` calls the function `name` of the file's script (§4). The script must import or declare `name`; otherwise the build fails at that attribute.
+An attribute named `@` followed by an event name (`@click`, `@input`, `@keydown`, `@dragover`, ...) holds JavaScript for that event, in a string literal. Its value is one of two things:
 
-```java
-<button onclick="toggleMenu">...</button>                      // toggleMenu(event)
-<button onclick="toggleMenu({menu: $menu})">...</button>       // toggleMenu(event, {menu: <nav>})
-<button onclick="move(1, -1)">...</button>                     // move(event, 1, -1)
-```
+- **A call**, `name()` or `name(payload)`, where `name` is a function of the file's script (§4): imported or declared at its top level. The function receives the event and the payload. A bare `name(...)` that isn't a function of the script is a compile error at that attribute, so a typo fails the build.
+- **Inline code**: any other JavaScript (§3.4).
 
-Any other string, such as `this.hidden = true` or `window.print()`, is inline JavaScript, as in HTML. In a file without a script block, every string is inline JavaScript, exactly as today.
+There is one `@` attribute per event on an element, and an element may have both `onclick={...}` (Java) and `@click="..."` (JavaScript); the JavaScript runs first. The Java event attributes no longer take a string: `onclick="..."` is a compile error, and inline JavaScript is written as `@click="..."`.
 
-### 3.2 What can go in the brackets
+### 3.2 The payload
 
-Only values, never JavaScript code:
+The payload is one value:
 
 | Written | The function receives |
 |---|---|
-| `"text"`, `3`, `-1.5`, `true`, `false`, `null` | that literal value |
-| `$name` | the element with `ref="name"` in the same component (§3.3) |
-| a Java name: `color`, `t.id()`, `user.address().city()` | the value of that Java expression, converted to JSON (below) |
+| `$name` | the element with `ref="name"` in the same component (§3.6) |
+| a Java name: `url`, `t.id()`, `user.address().city()` | the value of that Java expression, converted to JSON (below) |
 | a Java name whose value is a `State` or `Derived` | its value, **kept current**: when it changes, the server sends the new value, and the next call gets it |
-| a Java name whose value is a Java handler (`Handler` or `Action`) | a JavaScript function that sends to that handler on the server (§3.4) |
+| a Java name whose value is a Java handler (`Handler` or `Action`) | a JavaScript function that sends to that handler on the server (§3.3) |
+| `'text'`, `3`, `-1.5`, `true`, `false`, `null` | that literal value (strings in single quotes: the attribute itself is in double quotes) |
 | `{a: ..., b: ...}`, `[..., ...]` | an object or a list of the above |
-| `{color}` | shorthand for `{color: color}` |
+| `{url}` | shorthand for `{url: url}` |
 
-- A Java name is a variable, optionally followed by fields and no-argument method calls. javac checks it, so a typo is a compile error at the `.jasx` line. For anything more complex, use a local variable.
+- A Java name is a variable, optionally followed by fields and no-argument method calls. The lowering writes it as Java code, so javac checks it, and a typo is a compile error at the `.jasx` line. For anything more complex, use a local variable.
 - Values are converted to JSON: strings, numbers, booleans, `null`, enums (by name), lists and arrays, maps with string keys, and records (by component name).
-- `$` means a ref only outside quotes: `"$5"` is the string `$5`.
+- The payload holds only values, never code. Names in it are Java's, refs are `$name`; there is nothing else to tell apart.
 
-### 3.3 Refs
+### 3.3 Calling the server from JavaScript
 
-`ref="name"` marks an element. A `$name` in a call refers to the element with that ref **in the same markup**: the component's own elements, not those of components inside it or around it. Each instance of a component has its own refs, so a list of fifty rows, each with `$details`, gets fifty different elements.
-
-### 3.4 Sending to the server from JavaScript
-
-A Java handler passed in the brackets arrives as a function. Calling it sends an event to that handler, through the same queue as every other event:
+A Java handler in the payload arrives as a function. Calling it sends an event to that handler, through the same queue as every other event:
 
 ```java
 Handler<InputEvent> saveColor = e -> color.set(e.value());
-<input type="color" oninput="preview({save: saveColor})" />
+<input type="color" @input="preview({save: saveColor})" />
 ```
 
 ```js
@@ -98,17 +92,47 @@ export async function preview(event, { save }) {
 2. The browser receives `{"handler": 12}` in place of the function and turns it into a JavaScript function.
 3. `save("#ff0000")` sends `{"handler": 12, "value": "#ff0000"}`, as an event does.
 4. On the server, the handler runs with `e.value()` equal to `"#ff0000"`. An object, such as `save({from: 2, to: 5})`, arrives as fields: `e.field("from")`, or `e.as(Move.class)`. A handler written as an `Action` (`() -> ...`) is called with no argument.
-5. The answer is the usual update. The promise returned by `save(...)` resolves once the update is in the page, and rejects if the request fails.
+5. The answer is the usual update. The promise returned by `save(...)` resolves once the update is in the page, and rejects if the request fails or the page's client has stopped (after a navigation).
 
 Values from JavaScript are input from the browser, like form fields, so the server checks them as it would check a form.
 
-### 3.5 Values the browser changes
+### 3.4 Inline code
 
-What the function receives is a **copy**. Changing it in JavaScript changes nothing on the server; to change server state, call a handler (§3.4). State that only matters in this browser (a menu open, a tab chosen) lives in the DOM or in JavaScript variables.
+Anything that isn't a call (§3.1) is inline code. It sees the **event** as `event`, the component's **refs** as `$name`, and JavaScript's own names:
 
-### 3.6 Running code when an element appears: `onrender`
+```java
+<button @click="$menu.hidden = !$menu.hidden">Menu</button>
+<li @dragover="event.preventDefault()" @drop="drop({index, move})">...</li>
+<button @click="window.print()">Print</button>
+```
 
-`onrender="name(...)"` calls the function when the element appears in the page (on load, or when an update inserts it), and again whenever one of its kept-current values changes. The event is a `CustomEvent` named `render`. This is for code that follows server state, such as a chart (§5.8).
+- **Browser globals are written `window.name`**: `window.print()`, `window.alert('Saved')`, `window.navigator.clipboard`. The compiler trusts them and doesn't check that they exist. A bare call such as `alert('Saved')` has the form of a call, so it must be a function of the script (§3.1); written `window.alert('Saved')`, it is inline code.
+- Inline code has no payload, so it can't use Java variables. Code that needs a Java value is a function called with a payload.
+- Inline code is not evaluated from a string in the browser: the build moves each snippet into the file's generated module as a function (§8), and the attribute names that function. So a strict Content Security Policy works.
+
+### 3.5 `@render` and cleanups
+
+`@render="name(payload)"` is called when the element appears in the page (on load, when an update inserts it, or after a navigation), and again whenever a kept-current value in its payload changes. The event is a `CustomEvent` named `render`. It is for code that follows server state, such as a chart (§5.8).
+
+**Every function called from an `@` attribute may return a cleanup function**, or a promise of one. The client calls it:
+
+- before the same attribute runs again on the same element, so ten clicks don't leave ten timers running; and
+- when the element leaves the page: removed by an update, or by a navigation (§6).
+
+```js
+export function drawChart(event, { canvas, points }) {
+  const chart = new Chart(canvas, { type: "line", data: { datasets: [{ data: points }] } });
+  return () => chart.destroy();   // before the next draw, and when the canvas leaves the page
+}
+```
+
+A widget can also manage its own lifecycle as a **custom element** (`connectedCallback`, `attributeChangedCallback`, `disconnectedCallback`), which the browser calls itself; the server updates its attributes with the usual `attr` patches. JASX needs nothing for that.
+
+### 3.6 Refs
+
+`ref="name"` marks an element. A `$name` refers to the element with that ref **in the same markup**: the component's own elements, not those of components inside it or around it. Each instance of a component has its own refs, so a list of fifty rows, each with `$details`, gets fifty different elements.
+
+A component may render several top-level elements (a fragment) or none with a ref; refs are looked up among all the elements one rendering of the component produced (§8).
 
 ### 3.7 Which file's script
 
@@ -117,10 +141,9 @@ A name refers to the script of the `.jasx` file **where the element is written**
 ## 4. Script blocks and JavaScript files
 
 - A `<script>` block may appear where a top-level declaration or a class member starts, as style blocks do (`semantics.md` §10). Its content is raw JavaScript up to `</script>`.
-- All the blocks of a `.jasx` file form **one ES module**, in source order. A function used in an attribute must be imported or declared at the top level of it (`import { a } from`, `function b`, `const c =`, ...). It need not be exported: the compiler exports what the file's attributes use.
+- All the blocks of a `.jasx` file form **one ES module**, in source order. A function called from an attribute must be imported or declared at the top level of it (`import { a } from`, `function b`, `const c =`, ...). It need not be exported: the compiler exports what the file's attributes use.
 - A `<script>` **inside markup** stays an ordinary HTML element, as today (import maps, JSON-LD, analytics snippets).
 - `.js` files live next to the `.jasx` files, in `src/<set>/jasx`. Relative imports (`./menu.js`, `../shared/util.js`) work as in any ES module.
-- **Types in the editor:** start a `.js` file with `// @ts-check` and use JSDoc types, and VS Code checks it like TypeScript (§5.11). Real `.ts` files come in phase 3 (§8).
 - **npm packages:** import them from a URL, or map their names once with an import map in the layout's `<head>`:
 
   ```java
@@ -144,8 +167,8 @@ A name refers to the script of the `.jasx` file **where the element is written**
 public Element Settings() {
     return (
         <div class="tabs">
-            <button onclick="showTab({show: $profile, hide: [$billing]})">Profile</button>
-            <button onclick="showTab({show: $billing, hide: [$profile]})">Billing</button>
+            <button @click="showTab({show: $profile, hide: [$billing]})">Profile</button>
+            <button @click="showTab({show: $billing, hide: [$profile]})">Billing</button>
             <section ref="profile">...</section>
             <section ref="billing" hidden>...</section>
         </div>
@@ -169,7 +192,7 @@ export function showTab(event, { show, hide }) {
 </script>
 
 public Element ShareLink(String url) {
-    return <button onclick="copy({text: url})">Copy link</button>;
+    return <button @click="copy({text: url})">Copy link</button>;
 }
 ```
 
@@ -191,7 +214,7 @@ export async function copy(event, { text }) {
 public Element Tweet() {
     return (
         <form onsubmit={e -> posts.add(e.field("text"))}>
-            <textarea name="text" oninput="count({counter: $counter, max: 280})"></textarea>
+            <textarea name="text" @input="count({counter: $counter, max: 280})"></textarea>
             <span ref="counter">0 / 280</span>
             <button>Post</button>
         </form>
@@ -220,7 +243,7 @@ public Element TodoRow(Todo t, TodoStore store) {
     return (
         <li>
             <span>{t.title()}</span>
-            <button onclick="confirmDelete({title: t.title(), remove})">Delete</button>
+            <button @click="confirmDelete({title: t.title(), remove})">Delete</button>
         </li>
     );
 }
@@ -229,7 +252,7 @@ public Element TodoRow(Todo t, TodoStore store) {
 ```js
 // confirm.js
 export async function confirmDelete(event, { title, remove }) {
-  if (confirm("Delete \"" + title + "\"?")) {
+  if (window.confirm("Delete \"" + title + "\"?")) {
     await remove();
   }
 }
@@ -247,7 +270,7 @@ public Element ColorPicker() {
     Handler<InputEvent> saveColor = e -> color.set(e.value());
     return (
         <div>
-            <input type="color" value={color} onchange="preview({swatch: $swatch, save: saveColor})" />
+            <input type="color" value={color} @change="preview({swatch: $swatch, save: saveColor})" />
             <div ref="swatch" class="swatch"></div>
             <p>Saved: {color}</p>
         </div>
@@ -282,9 +305,9 @@ public Element Board(TaskStore store) {
             {for (int i = 0; i < store.size(); i++) {
                 int index = i;
                 <li key={store.get(i).id()} draggable="true"
-                    ondragstart="startDrag({index})"
-                    ondragover="event.preventDefault()"
-                    ondrop="drop({index, move})">{store.get(i).title()}</li>
+                    @dragstart="startDrag({index})"
+                    @dragover="event.preventDefault()"
+                    @drop="drop({index, move})">{store.get(i).title()}</li>
             }}
         </ul>
     );
@@ -308,7 +331,7 @@ export function drop(event, { index, move }) {
 
 ```java
 <script>
-  import { open, close, saveAndClose } from "./dialog.js";
+  import { saveAndClose } from "./dialog.js";
 </script>
 
 record Profile(String name, String email) {}
@@ -317,9 +340,9 @@ public Element EditProfile(UserStore users) {
     Handler<FormEvent> save = e -> users.update(e.as(Profile.class));
     return (
         <div>
-            <button onclick="open({dialog: $dialog})">Edit profile</button>
-            <dialog ref="dialog" onkeydown="close({dialog: $dialog})">
-                <form ref="form" onsubmit="saveAndClose({dialog: $dialog, form: $form, save})">
+            <button @click="$dialog.showModal()">Edit profile</button>
+            <dialog ref="dialog">
+                <form ref="form" @submit="saveAndClose({dialog: $dialog, form: $form, save})">
                     <input name="name" />
                     <input name="email" type="email" />
                     <button>Save</button>
@@ -332,20 +355,14 @@ public Element EditProfile(UserStore users) {
 
 ```js
 // dialog.js
-export function open(event, { dialog }) {
-  dialog.showModal();
-}
-
-export function close(event, { dialog }) {
-  if (event.key === "Escape") dialog.close();
-}
-
 export async function saveAndClose(event, { dialog, form, save }) {
   event.preventDefault();
   await save(Object.fromEntries(new FormData(form)));   // arrives as fields: e.as(Profile.class)
   dialog.close();
 }
 ```
+
+A `<dialog>` already closes on Escape by itself.
 
 ### 5.8 A chart that follows server state
 
@@ -356,7 +373,7 @@ export async function saveAndClose(event, { dialog, form, save }) {
 
 public Element Sales(SalesStore store) {
     var points = store.points();   // a State<List<Point>>, updated by the server
-    return <canvas ref="canvas" data-jx-ignore onrender="drawChart({canvas: $canvas, points})"></canvas>;
+    return <canvas ref="canvas" data-jx-ignore @render="drawChart({canvas: $canvas, points})"></canvas>;
 }
 ```
 
@@ -364,17 +381,13 @@ public Element Sales(SalesStore store) {
 // chart.js
 import Chart from "chart.js";
 
-const charts = new WeakMap();
-
 export function drawChart(event, { canvas, points }) {
-  const chart = charts.get(canvas) ?? new Chart(canvas, { type: "line", data: { datasets: [{ data: [] }] } });
-  charts.set(canvas, chart);
-  chart.data.datasets[0].data = points;
-  chart.update();
+  const chart = new Chart(canvas, { type: "line", data: { datasets: [{ data: points }] } });
+  return () => chart.destroy();
 }
 ```
 
-`onrender` runs when the canvas appears, and again each time the server changes `points`. `data-jx-ignore` keeps server updates out of the chart's own content (§6).
+`@render` runs when the canvas appears, and again each time the server changes `points`; each time, the previous chart is destroyed first. `data-jx-ignore` keeps server updates out of the chart's own content (§7).
 
 ### 5.9 The same component many times
 
@@ -396,7 +409,7 @@ public Element Faq(List<Question> questions) {
 Element QuestionRow(Question question) {
     return (
         <div>
-            <dt onclick="toggle({answer: $answer})">{question.text()}</dt>
+            <dt @click="toggle({answer: $answer})">{question.text()}</dt>
             <dd ref="answer" hidden>{question.answer()}</dd>
         </div>
     );
@@ -405,87 +418,98 @@ Element QuestionRow(Question question) {
 
 Each `QuestionRow` has its own `$answer`, so clicking a question opens only its own answer.
 
-### 5.10 A one-liner: inline JavaScript (exists today)
+### 5.10 One line, inline
 
 ```java
-<button onclick="window.print()">Print</button>
+<button @click="window.print()">Print</button>
+<button @click="$details.open = !$details.open">More</button>
 ```
 
-### 5.11 Types in the editor
+### 5.11 A timer, cleaned up
+
+```java
+<button @click="startCountdown({label: $label})">Start</button>
+<span ref="label"></span>
+```
 
 ```js
-// @ts-check
-
-/**
- * @param {MouseEvent} event
- * @param {{ menu: HTMLElement, save: import("jasx").ServerHandler }} values
- */
-export function toggleMenu(event, { menu, save }) {
-  menu.hidden = !menu.hidden;
+export function startCountdown(event, { label }) {
+  let seconds = 10;
+  const timer = window.setInterval(() => { label.textContent = String(--seconds); }, 1000);
+  return () => window.clearInterval(timer);   // a second click stops this countdown first
 }
 ```
 
-The build provides `jasx.d.ts` (types such as `ServerHandler`), and a `jsconfig.json` with `"checkJs": true` in `src/main/jasx` turns checking on for every file.
+## 6. Navigation, and pages
 
-## 6. Server updates keep browser changes
+- **Cleanups on navigation.** When a navigation replaces the page in place (`targets/web.md` §6.4), every pending cleanup of the old body runs before the new page's client starts.
+- **Modules stay loaded across navigations.** In-place navigation keeps the document, so ES modules are loaded once per tab and their top-level code runs once. Module-level state (a cache, a `WeakMap`) survives navigations; listeners and timers belong in functions that return a cleanup, not at a module's top level.
+- **Loading.** The page's `<head>` gets `<link rel="modulepreload">` for each module it uses, and a `module` patch adds one that an update needs, as `css` patches do for style sheets. On a navigation, the client loads the next page's modules before starting its client. An event that fires before its module has loaded waits for it; for such an event, `preventDefault()` comes too late.
 
-This rule also fixes a bug that exists today: a `<details>` the user opened closes again when anything in the same hole changes.
+## 7. Server updates keep browser changes
 
-**The rule.** The client remembers, for each element, the attributes the server last rendered. When a hole is merged, or an `attr` patch arrives, the client changes an attribute only if the **server's new value differs from the server's previous value**. An attribute the server didn't change keeps whatever the browser did to it.
+**Implemented** (spec revision 20, `targets/web.md` §8.4). It is what lets JavaScript and server updates share an element.
 
-1. The server renders `<nav hidden>`.
-2. JavaScript shows it (`hidden = false`).
-3. Something else in the hole changes, and the server renders `<nav hidden>` again. The server's value didn't change, so the nav stays visible.
-4. If the server later renders `<nav>` without `hidden`, and then `<nav hidden>` again, those are real changes, and they are applied.
+The client remembers, for each element, the attributes the server last rendered. When a hole is merged, or an `attr` patch arrives, the client changes an attribute only if the **server's new value differs from the server's previous value**. An attribute the server didn't change keeps whatever the browser did to it.
 
 - **`class` is merged name by name.** Classes the server added are added, classes it removed are removed, and classes added by JavaScript stay.
 - `style` is one attribute: kept if the server didn't change it, replaced if it did.
 - Field values keep the existing rule: typing the server hasn't received is never overwritten (`targets/web.md` §7).
 - **Structure is still the server's.** Inside a hole, nodes that JavaScript inserted or removed are reconciled with what the server rendered. An element marked `data-jx-ignore` keeps its children as JavaScript left them; its attributes still follow the rule above.
 
-## 7. What reaches the browser
+## 8. What reaches the browser
 
-- **Files.** The build plugins copy the `.js` files from `src/<set>/jasx` into the jar, keeping their folders, and add one generated module per `.jasx` file that has script blocks. It is served under `/_jasx/js/<build>/`, where `<build>` is a hash of all the files, so the URLs can be cached forever and relative imports work.
-- **Markup.** `onclick="toggleMenu({menu: $menu, save})"` in `Menu.jasx` renders as one attribute with the module, the function and the values as JSON:
+- **Files.** The build plugins copy the `.js` files from `src/<set>/jasx` into the jar, keeping their folders, and add one generated module per `.jasx` file that has script blocks or inline code. It holds the file's script, and one function for each inline snippet. Modules are served under `/_jasx/js/<build>/`, where `<build>` is a hash of all the files, so the URLs are cached for good, as the client script is (`targets/web.md` §8.1), and relative imports work.
+- **In development**, the server serves the `.js` files from the source directories instead, so a browser reload picks up an edited file without a rebuild.
+- **Markup.** `@click="toggleMenu({menu: $menu, save})"` in `Menu.jasx` renders as one attribute with the module, the function and the payload as JSON:
 
   ```html
-  <button data-jx-js='{"click":["web/Menu","toggleMenu",[{"menu":{"$ref":"menu"},"save":{"handler":12}}]]}'>
+  <button data-jx-js='{"click":["web/Menu","toggleMenu",{"menu":{"$ref":"menu"},"save":{"handler":12}}]}'>
   ```
 
-  `ref="menu"` renders as `data-jx-ref="menu"`, and the component's root element gets `data-jx-scope`, which bounds where refs are looked up. If a value is kept current, the attribute is dynamic, and an `attr` patch updates it.
-- **Loading.** The page's `<head>` gets `<link rel="modulepreload">` for each module it uses, and a `module` patch adds one that an update needs, as `css` patches do for style sheets. An event that fires before its module has loaded waits for it; for such an event, `preventDefault()` comes too late.
-- **Calling.** The client's one listener per event type finds the element's function, resolves the refs and handlers, and calls `fn(event, ...values)`. Exceptions are reported in the console, as for any listener.
+  Inline code renders the same way, naming its generated function and the refs it uses. `ref="menu"` renders as `data-jx-ref="menu"`. Each top-level element of a component's rendering gets `data-jx-scope` with the same instance id, which bounds where its refs are looked up, so components that render a fragment work too. If the payload holds a kept-current value, the attribute is dynamic, and an `attr` patch updates it.
+- **Calling.** The client's one listener per event type finds the element's function, resolves the refs and handlers, runs the previous cleanup if any, and calls `fn(event, payload)`. Exceptions are reported in the console, as for any listener.
+- **Sizes.** A kept-current value is sent again as a whole when it changes. That suits small values; a large list that changes often (chart data) is better sent in smaller pieces, through a handler the JavaScript calls for what it needs.
 
-## 8. Phases
+## 9. Tooling and tests
 
-1. **Server updates keep browser changes** (§6), with `data-jx-ignore`. It is small, fixes today's bug, and everything else depends on it.
-2. **Script blocks and calls**: the parser and spec, the call syntax with refs, Java values and handlers, `onrender`, the build plugins copying files, serving and loading, and highlighting and completion in the editor.
-3. **TypeScript**: `.ts` files next to the `.jasx` files, converted to `.js` by esbuild (a small binary the build downloads, only for projects with `.ts` files). Imports follow TypeScript's convention, `import { toggleMenu } from "./menu.js"` for `menu.ts`. Optional bundling of npm packages with the same tool, if import maps prove not enough.
+- **Editor.** The language server completes, in `@` attributes, the functions of the file's script, the refs of the component, and Java names in the payload, and gives hover and go-to-definition on them (into the `.js` file, or to the Java declaration). Java names in a payload are Java code inside a string, so completion, hover and rename treat them as the Java they are. Highlighting covers `@` attributes as JavaScript.
+- **Types in `.js` files.** With `// @ts-check` and JSDoc, VS Code checks a `.js` file like TypeScript. The build provides `jasx.d.ts`, and per call a type for its payload derived from the Java types (`State<Integer>` gives `number`, a record gives an object type, a handler a function), so a mismatch between JavaScript and Java shows in the editor.
+- **Tests.** `jasx-web-test` runs no JavaScript. A `TestPage` can call a Java handler that a payload passes, with the value the JavaScript would send, so flows like a confirmed delete or a drop are tested without a browser; the JavaScript itself is tested with a JavaScript test runner.
 
-## 9. Decided questions
+## 10. Decisions
 
 | Question | Decision |
 |---|---|
 | A Java DSL for browser state (signals) or commands (`Js`)? | No. Plain JavaScript only. |
-| How does a function get server data? | Java names in the call's brackets (§3.2); `State` values are kept current. |
-| How does JavaScript change server state? | It calls a Java handler passed in the brackets (§3.4). |
-| How does JavaScript react to server changes? | `onrender` (§3.6). |
-| Refs? | `ref="name"`, used as `$name`, scoped to the component instance (§3.3). |
-| Can the brackets hold JavaScript code? | No, only values. The browser never evaluates code strings, so a strict Content Security Policy works. |
-| A typo in a function name? | In a file with a script block, `name` and `name(...)` must be a function of its script: a compile error otherwise. |
+| How is browser code told apart from Java handlers? | `@event` attributes are JavaScript; `on...` attributes are Java only, and no longer take a string. |
+| The shape of a browser function? | Always `(event, payload)`. |
+| What is in a payload? | `$name` refs; every other name is a Java variable: a value (JSON), a `State` or `Derived` (kept current), or a handler (a function that calls the server). Literals, objects and lists of those. Never code. |
+| Inline code? | Anything that isn't a call. It sees `event`, the refs and JavaScript's names, not Java variables. The build moves it into the generated module, so a strict CSP works. |
+| Browser globals? | `window.name`, trusted without a check. A bare `name(...)` must be a function of the script, so typos fail the build. |
+| How does JavaScript change server state? | It calls a Java handler passed in the payload (§3.3). |
+| How does JavaScript follow server changes? | `@render`, called when the element appears and when a kept-current value in its payload changes. Custom elements work too. |
+| Cleanup? | Any function called from `@` may return a cleanup (or a promise of one), run before that attribute runs again on the element and when the element leaves the page. |
+| Refs? | `ref="name"`, used as `$name`, scoped to the component instance, fragments included. |
 | `<script src="./x.js">` as a block form? | No. Use `import` in the block; one way to do it. |
 | Must functions be exported? | No. Imported or top-level names are enough. |
 | Is `<script>` inside markup a block? | No. It stays an HTML element. |
-| A JavaScript function and a Java handler on the same event? | One attribute per event. The function calls the handler (§3.4). |
-| TypeScript? | `// @ts-check` with JSDoc from phase 2; real `.ts` through esbuild in phase 3. |
+| TypeScript? | `// @ts-check` with JSDoc and generated payload types in phase 2; real `.ts` through esbuild in phase 3. |
 | npm packages? | URLs or an import map; no bundler before phase 3. |
 | Widgets that own their DOM? | `data-jx-ignore`. |
-| The `html` target? | It rejects script blocks and calls (a target capability error, as for style blocks without `"styles"`) until it gets a loader of its own. |
-| Where does this go in the spec? | Script blocks, the call syntax and refs in the core (`grammar.md`, `semantics.md`), with a descriptor capability `"scripts": "module"`; serving, loading, values and merging in `targets/web.md`. |
+| The `html` target? | It rejects script blocks and `@` attributes (a target capability error, as for style blocks without `"styles"`) until it gets a loader of its own. |
+| Where does this go in the spec? | `@` attribute names in `grammar.md`; script blocks, calls, payloads, inline code and refs in `semantics.md`, with a descriptor capability `"scripts": "module"`; serving, loading, values, `@render`, cleanups and merging in `targets/web.md`. |
 
-## 10. What changes in the repository when this is accepted
+## 11. Phases
 
-- `AGENTS.md`: replace "no browser-only layer" with "browser code is plain JavaScript (script blocks and calls, `targets/web.md`); no Java DSL for it".
-- The spec, as in §9's last row, with conformance tests for parsing script blocks, the call syntax and its errors.
+1. **Server updates keep browser changes** (§7), with `data-jx-ignore`. Done (spec revision 20).
+2. **Script blocks and `@` attributes**: the grammar and spec, calls with payloads, inline code moved into generated modules, refs, `@render` and cleanups, removing the string form of `on...`, the build plugins copying files, serving (and serving from source in development), loading and navigation, the language server and highlighting, generated payload types, and `TestPage` calling payload handlers.
+3. **TypeScript**: `.ts` files next to the `.jasx` files, converted to `.js` by esbuild (a small binary the build downloads, only for projects with `.ts` files). Imports follow TypeScript's convention, `import { toggleMenu } from "./menu.js"` for `menu.ts`. Optional bundling of npm packages with the same tool, if import maps prove not enough.
+
+## 12. What changes in the repository when this is accepted
+
+- `AGENTS.md`: replace "no browser-only layer" with "browser code is plain JavaScript in `@` attributes and script blocks (`targets/web.md`); `on...` is Java only; no Java DSL for browser code".
+- The spec, as in §10's last row, with conformance tests for parsing script blocks and `@` attributes, payloads and their errors.
+- `jasx-web`: the `on...(String)` builder overloads are removed.
 - `docs/web.md`: a section "JavaScript in the browser", with §5's examples.
 - `examples/web`: tabs, a copy button and a confirmed delete, using `.js` files.
