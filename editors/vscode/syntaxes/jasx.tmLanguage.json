@@ -4,18 +4,20 @@
   "fileTypes": ["jasx"],
   "comment": "Java (VS Code's built-in source.java grammar) with JSX-style markup. In Java code, '<' starts markup only after a token that can precede an expression, as in jasx-spec/grammar.md §4; a regular expression can only approximate that rule, so 'markup-in-java' looks at the previous non-space character or keyword on the same line, or at the start of a line. The injection makes markup work inside every Java construct (class bodies, method bodies, lambdas), not only at the top level.",
   "patterns": [
+    { "include": "#script-block" },
     { "include": "#style-block" },
     { "include": "#markup-in-java" },
     { "include": "source.java" }
   ],
   "injections": {
-    "L:source.jasx -comment -string -meta.embedded.block.css": {
+    "L:source.jasx -comment -string -meta.embedded.block.css -meta.embedded.block.javascript -meta.embedded.inline.javascript": {
       "patterns": [
         { "include": "#markup-in-java" }
       ]
     },
-    "L:source.jasx -comment -string -meta.tag.jasx -meta.embedded.block.css": {
+    "L:source.jasx -comment -string -meta.tag.jasx -meta.embedded.block.css -meta.embedded.block.javascript": {
       "patterns": [
+        { "include": "#script-block" },
         { "include": "#style-block" }
       ]
     }
@@ -40,6 +42,25 @@
       "patterns": [{ "include": "source.css" }]
     },
 
+    "script-block": {
+      "comment": "A script block (jasx-spec/grammar.md §7.4): '<script>' where a declaration starts (after ; { } or at the start of a line), outside markup. Its content is JavaScript, highlighted by the editor's JavaScript grammar. Inside markup, <script> stays an element.",
+      "name": "meta.script-block.jasx",
+      "begin": "(?<=^|[;{}])\\s*(<)(script)(>)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.jasx" },
+        "2": { "name": "entity.name.tag.jasx" },
+        "3": { "name": "punctuation.definition.tag.end.jasx" }
+      },
+      "end": "(</)(script)(>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.jasx" },
+        "2": { "name": "entity.name.tag.jasx" },
+        "3": { "name": "punctuation.definition.tag.end.jasx" }
+      },
+      "contentName": "meta.embedded.block.javascript",
+      "patterns": [{ "include": "source.js" }]
+    },
+
     "style-block-in-markup": {
       "comment": "A style block among the children of an element (jasx-spec/grammar.md §6.5): '<style>' whose content doesn't start with '{' on the same line. '<style>{css}</style>' stays an ordinary element.",
       "name": "meta.style-block.jasx",
@@ -60,7 +81,7 @@
     },
 
     "markup-in-java": {
-      "comment": "Markup that starts in Java code: '<' after ( [ , = ? : { -> && || return yield, or at the start of a line. A '<' followed by what looks like a generic method header ('<T> Element ListOf(') is Java, not markup: top-level methods (jasx-spec/semantics.md §9) often start a line that way. '<style>' at the start of a line or after '{' is left to 'style-block'.",
+      "comment": "Markup that starts in Java code: '<' after ( [ , = ? : { -> && || return yield, or at the start of a line. A '<' followed by what looks like a generic method header ('<T> Element ListOf(') is Java, not markup: top-level methods (jasx-spec/semantics.md §9) often start a line that way. '<style>' and '<script>' at the start of a line or after '{' are left to 'style-block' and 'script-block'.",
       "patterns": [
         {
           "name": "meta.tag.jasx",
@@ -78,7 +99,7 @@
         },
         {
           "name": "meta.tag.jasx",
-          "begin": "(?!(?<=^|\\{)\\s*<style>)(?<=^|[(\\[,=?:{};]|->|&&|\\|\\||\\breturn|\\byield)\\s*(?!<\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?(?:\\s*,\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?)*\\s*>\\s*[A-Za-z_$][\\w$.]*(?:\\s*<[^()]*?>)?(?:\\s*\\[\\])*\\s+[A-Za-z_$][\\w$]*\\s*\\()(<)\\s*([A-Za-z_$][\\w$.:-]*)(?=[\\s/>{]|$)",
+          "begin": "(?!(?<=^|\\{)\\s*<(?:style|script)>)(?<=^|[(\\[,=?:{};]|->|&&|\\|\\||\\breturn|\\byield)\\s*(?!<\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?(?:\\s*,\\s*[A-Za-z_$][\\w$]*(?:\\s+extends\\s+[^<>]+?)?)*\\s*>\\s*[A-Za-z_$][\\w$.]*(?:\\s*<[^()]*?>)?(?:\\s*\\[\\])*\\s+[A-Za-z_$][\\w$]*\\s*\\()(<)\\s*([A-Za-z_$][\\w$.:-]*)(?=[\\s/>{]|$)",
           "beginCaptures": {
             "1": { "name": "punctuation.definition.tag.begin.jasx" },
             "2": { "patterns": [{ "include": "#tag-name" }] }
@@ -163,6 +184,19 @@
 
     "attribute": {
       "patterns": [
+        {
+          "comment": "A browser attribute (jasx-spec/semantics.md §11.2): @click=\"...\". Its string is JavaScript, run in the browser.",
+          "begin": "(@[A-Za-z_$][\\w$-]*)\\s*(=)\\s*(\")",
+          "beginCaptures": {
+            "1": { "name": "entity.other.attribute-name.jasx" },
+            "2": { "name": "keyword.operator.assignment.jasx" },
+            "3": { "name": "punctuation.definition.string.begin.jasx" }
+          },
+          "end": "\"",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.jasx" } },
+          "contentName": "meta.embedded.inline.javascript",
+          "patterns": [{ "include": "source.js" }]
+        },
         {
           "match": "([A-Za-z_$][\\w$-]*(?::[A-Za-z_$][\\w$-]*)?)\\s*(=)?",
           "captures": {
