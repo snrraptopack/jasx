@@ -6,5 +6,6 @@
   "schema": "schemas/web.json",
   "lowering": "jasx.web.compiler.WebLowering",
   "eventHandlers": "java",
-  "styles": "css"
+  "styles": "css",
+  "scripts": "module"
 }

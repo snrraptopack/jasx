@@ -76,6 +76,8 @@ final class AttributeHole extends Computation {
             written = Boolean.TRUE;
         } else if (value instanceof Element element) {
             written = Renderer.staticHtml(page, element);
+        } else if (value instanceof WebScript script) {
+            written = script.json(page); // a browser attribute (targets/web.md §7.1)
         } else {
             written = String.valueOf(value);
         }

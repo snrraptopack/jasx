@@ -59,6 +59,37 @@ public final class Web {
         return new WebElement.Component(call);
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Browser scripts (semantics.md §11.6, targets/web.md §7.1), as lowered markup builds them
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * A browser attribute's value: {@code @click="toggleMenu({menu: $menu})"} becomes
+     * {@code .attr("@click", () -> script("web/Menu.jasx.js", "toggleMenu", object("menu", ref("menu"))))}.
+     */
+    public static Object script(String module, String function, Object payload) {
+        return new WebScript(module, function, payload);
+    }
+
+    /** An object of a payload: keys (strings) and values, alternately. */
+    public static Object object(Object... keysAndValues) {
+        Map<String, Object> entries = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < keysAndValues.length; i += 2) {
+            entries.put(String.valueOf(keysAndValues[i]), keysAndValues[i + 1]);
+        }
+        return new WebScript.PayloadObject(entries);
+    }
+
+    /** A list of a payload. */
+    public static Object list(Object... values) {
+        return java.util.Arrays.asList(values);
+    }
+
+    /** A ref of a payload: the element with {@code ref="name"} nearest to the one whose attribute runs. */
+    public static Object ref(String name) {
+        return new WebScript.Ref(name);
+    }
+
     /** A keyed element already built. It is never kept between runs, because its inputs can't be compared. */
     public static Element keyed(Object key, Element element) {
         return new WebElement.Keyed(key, () -> element);

@@ -328,7 +328,7 @@ final class Renderer {
         int count = attributes != null ? attributes.size() : 0;
 
         for (int i = 0; i < count; i++) {
-            String name = attributes.name(i);
+            String name = htmlName(attributes.name(i));
             Object value = attributes.value(i);
 
             boolean isHandler = value instanceof Handler<?> || value instanceof Action;
@@ -368,6 +368,17 @@ final class Renderer {
         if (handlers.length() > 0) {
             attribute("data-jx-on", handlers.toString());
         }
+    }
+
+    /**
+     * The HTML name of an attribute as the builder holds it (targets/web.md §7.1): {@code ref} renders as
+     * {@code data-jx-ref}, and a browser attribute {@code @click} as {@code data-jx-js-click}.
+     */
+    private static String htmlName(String name) {
+        if (name.equals("ref")) {
+            return "data-jx-ref";
+        }
+        return name.startsWith("@") ? "data-jx-js-" + name.substring(1) : name;
     }
 
     /**
