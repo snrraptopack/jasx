@@ -20,9 +20,10 @@ import static web.Layout.*;
 <style>
     section { margin-bottom: 1.5rem; }
     .bars { display: flex; gap: 4px; align-items: flex-end; height: 80px; margin: .5rem 0; }
-    .bars div { width: 18px; background: #2563eb; }
+    /* Elements and classes that JavaScript adds have no scope class, so they are styled with :global (semantics.md §10.4). */
+    :global(.bars > div) { width: 18px; background: #2563eb; }
     textarea { width: 100%; }
-    .too-long { color: #dc2626; }
+    :global(.too-long) { color: #dc2626; }
 </style>
 
 public Element Browser() {

@@ -341,6 +341,8 @@ export function drawChart(event, { chart, points }) {
 
 `data-jx-ignore` keeps the server's updates out of what your JavaScript draws inside the element.
 
+**Styling what JavaScript creates.** A file's `<style>` applies only to the elements written in that file, so an element your JavaScript creates doesn't get it. The same goes for a class your JavaScript adds to an element (`classList.toggle("too-long")`). Style them with an unscoped selector, `:global(...)`: `:global(.bars > div) { width: 18px; }` styles the `<div>`s your code adds inside `<div class="bars">`, and `:global(.too-long)` the class it toggles. These rules apply to the whole page, so give such classes distinct names.
+
 **Cleanups.** Any function may return a function: its cleanup. It runs before the same attribute runs again on the element (so a second click stops the first click's timer), and when the element leaves the page, whether an update removes it or the user moves to another page.
 
 **What reaches the browser.** The build packages your `.js` files and what it generates from your `<script>` blocks; the server serves them under `/_jasx/js/`, cached for good, and the browser loads each one when a page first needs it. Your JavaScript never runs from a string, so a strict Content Security Policy works. Imports between your files work as in any ES module; for npm packages, import from a URL or map their names with an import map in your layout's `<head>`.
