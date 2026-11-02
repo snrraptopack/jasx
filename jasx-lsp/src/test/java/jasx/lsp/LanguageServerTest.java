@@ -209,6 +209,8 @@ class LanguageServerTest {
             String watchers = Json.write(Json.object(registration.get("params")).get("registrations"));
             assertTrue(watchers.contains("\"workspace/didChangeWatchedFiles\""), watchers);
             assertTrue(watchers.contains("\"**/*.jasx\"") && watchers.contains("\"**/*.java\""), watchers);
+            assertTrue(watchers.contains("\"**/build/jasx/editor/*.json\"")
+                    && watchers.contains("\"**/target/jasx/editor/*.json\""), watchers);
         }
 
         @Test
@@ -325,7 +327,7 @@ class LanguageServerTest {
             Map<String, Object> init = sent.get(0);
             Map<String, Object> capabilities = Json.object(Json.object(init.get("result")).get("capabilities"));
             Map<String, Object> completion = Json.object(capabilities.get("completionProvider"));
-            assertEquals(List.of("<", " ", "."), completion.get("triggerCharacters"));
+            assertEquals(List.of("<", " ", ".", "@", "$"), completion.get("triggerCharacters"));
         }
 
         @Test
@@ -477,6 +479,44 @@ class LanguageServerTest {
             List<String> names = labels(items);
             assertTrue(names.containsAll(List.of("toggleMenu", "copy", "$menu")), names.toString());
             assertFalse(names.contains("count"), "Java names are not offered in browser code yet: " + names);
+        }
+
+        @Test
+        void scriptBlocksAndBrowserAttributesHaveNoDiagnosticsOnWeb() throws IOException {
+            writeBuildInfo("web", List.of());
+            String text = webPageWithScript("<button @click=\"toggleMenu({menu: $menu})\" ref=\"menu\">m</button>");
+            open(page, text);
+            assertEquals(List.of(), diagnosticsOf(page));
+        }
+
+        @Test
+        void aBuildRefreshesTheTargetOfAnAlreadyOpenDocument() throws IOException {
+            String text = webPageWithScript("<button @click=\"toggleMenu()\">m</button>");
+            open(page, text);
+            assertTrue(diagnosticsOf(page).stream().anyMatch(d -> d.startsWith("JASX2107@")), diagnosticsOf(page).toString());
+
+            writeBuildInfo("web", List.of());
+            Path metadata = project.resolve("build/jasx/editor/main.json");
+            notification("workspace/didChangeWatchedFiles", Map.of("changes",
+                    List.of(Map.of("uri", uri(metadata), "type", 1))));
+            assertEquals(List.of(), diagnosticsOf(page), "the first build clears fallback-target errors without an edit");
+
+            Files.delete(metadata);
+            notification("workspace/didChangeWatchedFiles", Map.of("changes",
+                    List.of(Map.of("uri", uri(metadata), "type", 3))));
+            assertTrue(diagnosticsOf(page).stream().anyMatch(d -> d.startsWith("JASX2107@")), diagnosticsOf(page).toString());
+        }
+
+        @Test
+        void mavenMetadataAlsoRefreshesTheTarget() throws IOException {
+            open(page, webPageWithScript("<button @click=\"copy()\">m</button>"));
+            writeBuildInfo("web", List.of());
+            Path metadata = project.resolve("target/jasx/editor/main.json");
+            Files.createDirectories(metadata.getParent());
+            Files.move(project.resolve("build/jasx/editor/main.json"), metadata);
+            notification("workspace/didChangeWatchedFiles", Map.of("changes",
+                    List.of(Map.of("uri", uri(metadata), "type", 1))));
+            assertEquals(List.of(), diagnosticsOf(page));
         }
 
         @Test

@@ -177,7 +177,15 @@ final class JasxLanguageServer {
             case "workspace/didChangeWatchedFiles":
                 for (Object change : (List<?>) params.get("changes")) {
                     String uri = Json.string(Json.object(change).get("uri"));
-                    publish(workspace().analyze(uri));
+                    if (uri.endsWith(".json")) {
+                        for (String document : workspace().documentsForBuildInfo(uri)) {
+                            publish(workspace().analyze(document));
+                            workspace().writeGeneratedSources(document);
+                            startJavacCheck(document);
+                        }
+                    } else {
+                        publish(workspace().analyze(uri));
+                    }
                 }
                 return null;
             case "textDocument/definition":
@@ -242,8 +250,8 @@ final class JasxLanguageServer {
         capabilities.put("documentSymbolProvider", true);
         // With prepareRename, the editor asks first, and shows why a rename is refused before the user types.
         capabilities.put("renameProvider", prepareSupport ? Map.of("prepareProvider", true) : true);
-        // '<' starts a tag name, ' ' an attribute name, '.' the rest of a qualified component name.
-        capabilities.put("completionProvider", Map.of("triggerCharacters", List.of("<", " ", ".")));
+        // '<' starts a tag, ' ' an attribute, '.' a qualified name, '@' a browser event, '$' a ref.
+        capabilities.put("completionProvider", Map.of("triggerCharacters", List.of("<", " ", ".", "@", "$")));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("capabilities", capabilities);
@@ -252,14 +260,17 @@ final class JasxLanguageServer {
     }
 
     /**
-     * Asks the client to report changes to {@code .jasx} and {@code .java} files on disk
+     * Asks the client to report changes to source files and Gradle/Maven editor metadata on disk
      * ({@code workspace/didChangeWatchedFiles}). The client's answer needs no handling.
      */
     private void registerFileWatchers() {
         if (!watcherRegistration) {
             return;
         }
-        List<Object> watchers = List.of(Map.of("globPattern", "**/*.jasx"), Map.of("globPattern", "**/*.java"));
+        List<Object> watchers = List.of(
+                Map.of("globPattern", "**/*.jasx"), Map.of("globPattern", "**/*.java"),
+                Map.of("globPattern", "**/build/jasx/editor/*.json"),
+                Map.of("globPattern", "**/target/jasx/editor/*.json"));
         Map<String, Object> registration = new LinkedHashMap<>();
         registration.put("id", "jasx-watched-files");
         registration.put("method", "workspace/didChangeWatchedFiles");

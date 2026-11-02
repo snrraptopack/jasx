@@ -29,6 +29,10 @@ From the root of the repository:
 
 This builds the language server and the plugin into `editors/intellij/build/distributions/jasx-intellij-<version>.zip`. In IntelliJ, open **Settings | Plugins**, click the gear icon, choose **Install Plugin from Disk...**, pick the zip, and restart the IDE when asked. Open a `.jasx` file: it should be highlighted, and a JASX error (an unclosed tag) should be underlined as you type.
 
+Repeat the build and installation after changing the language server, parser, compiler or grammar. The installed plugin carries its own server jar and grammar; building your application or this repository does not update that installed copy. Restart IntelliJ after installing the update so it starts the new server and reloads the grammar.
+
+For browser JavaScript, `<script>` blocks and `@click="..."` require a current plugin and the `web` target. If valid `@` attributes report `JASX1006: unexpected '@' in markup`, or a script block reports bogus top-level Java declaration errors, check for an older installed plugin. If the error is `JASX2107` instead, the server is using a target without browser scripts: configure `jasx { target.set("web") }` and build the application once. The server watches the Gradle/Maven editor metadata and refreshes already-open files when it appears or changes.
+
 The build downloads IntelliJ IDEA 2025.3 to compile against the first time. To use an IDE you already have instead, pass its directory:
 
 ```

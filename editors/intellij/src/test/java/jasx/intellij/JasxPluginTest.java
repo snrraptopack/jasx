@@ -33,6 +33,8 @@ public final class JasxPluginTest extends BasePlatformTestCase {
         ServerCapabilities capabilities = server.getInitializeResult().getCapabilities();
         assertTrue(capabilities.getHoverProvider().getLeft());
         assertNotNull(capabilities.getCompletionProvider());
+        assertTrue(capabilities.getCompletionProvider().getTriggerCharacters().contains("@"));
+        assertTrue(capabilities.getCompletionProvider().getTriggerCharacters().contains("$"));
 
         manager.stopServers(JasxLspServerSupportProvider.class);
     }

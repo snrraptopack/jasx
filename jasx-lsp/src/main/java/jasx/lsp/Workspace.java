@@ -131,6 +131,19 @@ final class Workspace {
         openDocuments.remove(toPath(uri));
     }
 
+    /** Open source sets to recheck when Gradle or Maven creates, rewrites or deletes their metadata. */
+    List<String> documentsForBuildInfo(String uri) {
+        Path metadata = toPath(uri);
+        Map<Path, String> groups = new LinkedHashMap<>();
+        for (Path document : openDocuments.keySet()) {
+            Path source = sourceDirectory(document);
+            if (source != null && BuildInfo.filesFor(source).contains(metadata)) {
+                groups.putIfAbsent(source.getParent(), uriOf(document));
+            }
+        }
+        return List.copyOf(groups.values());
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Analysis
     // ---------------------------------------------------------------------------------------------

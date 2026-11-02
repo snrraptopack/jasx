@@ -58,11 +58,9 @@ record BuildInfo(Path file, long modified, Target target, ComponentIndex depende
      * If both exist, the newer one; if neither does, the Gradle one (so that its creation is noticed).
      */
     static Path fileFor(Path sourceDirectory) {
-        Path sourceSet = sourceDirectory.getParent();     // <project>/src/main
-        Path project = sourceSet.getParent().getParent(); // <project>
-        String relative = EditorInfo.relativePath(sourceSet.getFileName().toString());
-        Path gradle = project.resolve("build").resolve(relative);
-        Path maven = project.resolve("target").resolve(relative);
+        List<Path> candidates = filesFor(sourceDirectory);
+        Path gradle = candidates.get(0);
+        Path maven = candidates.get(1);
         if (!Files.isRegularFile(maven)) {
             return gradle;
         }
@@ -70,6 +68,14 @@ record BuildInfo(Path file, long modified, Target target, ComponentIndex depende
             return maven;
         }
         return modified(maven) > modified(gradle) ? maven : gradle;
+    }
+
+    /** Both possible metadata paths, including ones that have not been created yet or were deleted. */
+    static List<Path> filesFor(Path sourceDirectory) {
+        Path sourceSet = sourceDirectory.getParent();     // <project>/src/main
+        Path project = sourceSet.getParent().getParent(); // <project>
+        String relative = EditorInfo.relativePath(sourceSet.getFileName().toString());
+        return List.of(project.resolve("build").resolve(relative), project.resolve("target").resolve(relative));
     }
 
     private static long modified(Path file) {
