@@ -518,13 +518,14 @@ class BoardTest {
 | `submit(selector)`, `submit(selector, fields)` | fills the named fields of the form (or of the form holding the element), then submits it |
 | `keydown(selector, key)`, `fire(selector, type)` | a key press; any event |
 | `attach(selector, name, type, bytes)` | chooses a file in a file field; the next submit uploads it |
+| `call(selector, event, name)`, with a value or a map of fields | calls a Java handler that an `@event` attribute passes to its JavaScript, as the JavaScript would |
 | `find`, `findAll`, `has`, `text`, `html` | read the page; an element gives `text()`, `attribute(name)`, `hasClass(name)`, `value()`, `checked()` |
 | `await(() -> ...)` | repeats an assertion until it passes, for what the server pushes from elsewhere |
 | `navigatedTo()` | where `navigate(url)` sent the browser |
 
 Selectors are CSS: tags, `#id`, `.class`, `[attr]`, `[attr=value]`, descendant and `>` combinators, and lists separated by commas. A mistake fails with the page's HTML in the message.
 
-Each `TestPage` is a separate browser with its own session, going through the same requests a browser sends, so the page's handlers, holes, keyed lists and security checks all run for real. Events are sent at once (no 300 ms debounce to wait for). Pass an application's own `WebApp` (a Spring bean, say) with `TestPage.render(app, () -> ...)`. [`examples/web-spring`](../examples/web-spring) has a complete test.
+Each `TestPage` is a separate browser with its own session, going through the same requests a browser sends, so the page's handlers, holes, keyed lists and security checks all run for real. Events are sent at once (no 300 ms debounce to wait for). JavaScript isn't run: for `<button @click="confirmThen({question: 'Reset?', action: reset})">`, the function's `await action()` is `page.call("button", "click", "action")`, and `await save("Milk")` is `page.call("button", "click", "save", "Milk")`. Pass an application's own `WebApp` (a Spring bean, say) with `TestPage.render(app, () -> ...)`. [`examples/web-spring`](../examples/web-spring) has a complete test.
 
 ## Pitfalls
 
