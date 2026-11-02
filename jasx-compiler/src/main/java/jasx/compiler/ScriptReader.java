@@ -9,14 +9,15 @@ import java.util.Set;
 
 /**
  * Reads what the compiler needs from JavaScript (semantics.md §11.1, §11.4): the top-level names a file's script
- * declares, and the refs ({@code $name}) inline code uses.
+ * declares, and the refs ({@code $name}) inline code uses. The language server also completes browser code with
+ * {@link #topLevelNames}.
  *
  * <p>It is not a JavaScript parser, and must stay one that the spec can describe exactly, as {@link ScopedCss} is
  * for CSS. It splits the text into identifiers and punctuation, skipping comments, string literals, template
  * literals (with their {@code ${...}} substitutions) and regular expression literals, and tracks the depth of
  * {@code ( [ {}. Names are read only at depth 0.
  */
-final class ScriptReader {
+public final class ScriptReader {
     private ScriptReader() {}
 
     /** A significant token: an identifier or keyword, or one punctuation character. */
@@ -35,7 +36,7 @@ final class ScriptReader {
      * function and class declarations, and {@code const}/{@code let}/{@code var} names, at the start of a
      * statement, outside every bracket.
      */
-    static Map<String, Boolean> topLevelNames(String script) {
+    public static Map<String, Boolean> topLevelNames(String script) {
         List<Token> tokens = tokens(script);
         Map<String, Boolean> names = new LinkedHashMap<>();
         Set<String> exportedByList = new LinkedHashSet<>();

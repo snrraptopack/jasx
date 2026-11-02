@@ -633,7 +633,8 @@ final class Workspace {
             // The group's own components, and those of dependencies they don't hide.
             ComponentIndex index = analysis.result().index().withFallback(analysis.dependencies());
             SourceFile source = new SourceFile(relative, text);
-            Completions.Result result = Completions.at(source, offset, index, analysis.target().schema());
+            Completions.Result result = Completions.at(source, offset, index, analysis.target().schema(),
+                    analysis.target().scripts());
             if (result.items().isEmpty() && relative.endsWith(".jasx") && Completions.inJava(source, offset)) {
                 result = javaCompletion(analysis, relative, offset);
             }

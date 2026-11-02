@@ -2,6 +2,7 @@ package jasx.lsp;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -9,6 +10,7 @@ import jasx.compiler.ComponentIndex;
 import jasx.compiler.ComponentIndex.Prop;
 import jasx.compiler.ComponentIndex.PropKind;
 import jasx.compiler.Schema;
+import jasx.compiler.ScriptReader;
 import jasx.compiler.SourceFile;
 import jasx.compiler.VisibleComponents;
 import jasx.parser.JasxParser;
@@ -16,11 +18,15 @@ import jasx.parser.ParseResult;
 import jasx.parser.ast.Ast.ElementName;
 import jasx.parser.ast.Ast.JasxAttribute;
 import jasx.parser.ast.Ast.JasxElement;
+import jasx.parser.ast.Ast.JasxEventName;
 import jasx.parser.ast.Ast.JasxExpressionContainer;
 import jasx.parser.ast.Ast.JasxFragment;
 import jasx.parser.ast.Ast.JasxMarkupStatement;
+import jasx.parser.ast.Ast.JasxIdentifier;
 import jasx.parser.ast.Ast.JasxOpeningElement;
+import jasx.parser.ast.Ast.JasxScriptBlock;
 import jasx.parser.ast.Ast.JasxStatementContainer;
+import jasx.parser.ast.Ast.JasxStringLiteral;
 import jasx.parser.ast.Ast.JavaCode;
 import jasx.parser.ast.Ast.JavaExpression;
 
@@ -37,14 +43,18 @@ import jasx.parser.ast.Ast.JavaExpression;
  *       complete a <b>tag name</b>;
  *   <li>{@code <Card title="a" ti} ends in an attribute with no value whose name ends at the cursor, and
  *       {@code <Card title="a" } in whitespace inside the opening tag: complete an <b>attribute name</b>;
- *   <li>inside an attribute string or in text: nothing; in Java (also Java inside {@code {...}}),
+ *   <li>{@code <button @click="tog} ends in a browser attribute whose string isn't closed: complete the
+ *       <b>browser code</b> (semantics.md §11.2), with the names the file's script declares and its refs;
+ *   <li>inside another attribute string or in text: nothing; in Java (also Java inside {@code {...}}),
  *       {@link JavaCompletions} completes instead ({@link #inJava}).
  * </ul>
  *
  * <p><b>What is offered.</b> For a tag name: the components the file can use there, named as they resolve
  * ({@link VisibleComponents}), and the target's intrinsic elements. For an attribute of a component: its
  * props not given yet, required ones first. For an attribute of an intrinsic element: the attributes the
- * target's schema allows on it.
+ * target's schema allows on it, and on a target with browser scripts (semantics.md §11) its {@code @} events,
+ * {@code @render} and {@code ref}. In browser code: the top-level names of the file's script blocks
+ * ({@link ScriptReader#topLevelNames}), and {@code $name} for each {@code ref="name"} in the file.
  */
 final class Completions {
     private Completions() {}
@@ -52,6 +62,7 @@ final class Completions {
     /** LSP CompletionItemKind values. */
     private static final int KIND_FUNCTION = 3;
     private static final int KIND_FIELD = 5;
+    private static final int KIND_VARIABLE = 6;
     private static final int KIND_PROPERTY = 10;
 
     /**
@@ -90,6 +101,9 @@ final class Completions {
     /** Typing an attribute name (from {@code nameStart}) in the opening tag of {@code element}. */
     private record AttributeName(ElementName element, int nameStart, Set<String> given) implements Context {}
 
+    /** Typing browser code in the string of an {@code @event} attribute; the word being typed starts at {@code wordStart}. */
+    private record BrowserCode(int wordStart) implements Context {}
+
     /**
      * The suggestions at {@code offset} in {@code file}.
      *
@@ -97,6 +111,14 @@ final class Completions {
      * @param schema the target's element and attribute schema
      */
     static Result at(SourceFile file, int offset, ComponentIndex index, Schema schema) {
+        return at(file, offset, index, schema, false);
+    }
+
+    /**
+     * The suggestions at {@code offset} in {@code file}, on a target that supports browser scripts or not
+     * ({@code scripts}, semantics.md §11).
+     */
+    static Result at(SourceFile file, int offset, ComponentIndex index, Schema schema, boolean scripts) {
         String upToCursor = file.content().substring(0, offset);
         ParseResult parsed = JasxParser.parse(upToCursor, file.path());
         Context context = inLast(parsed.unit().segments(), upToCursor);
@@ -104,7 +126,8 @@ final class Completions {
             case null -> Result.NONE;
             case TagName tag -> new Result(tag.nameStart(), tagNames(file, offset, index, schema));
             case AttributeName attribute ->
-                    new Result(attribute.nameStart(), attributeNames(file, offset, attribute, index, schema));
+                    new Result(attribute.nameStart(), attributeNames(file, offset, attribute, index, schema, scripts));
+            case BrowserCode code -> scripts ? new Result(code.wordStart(), browserNames(file)) : Result.NONE;
         };
     }
 
@@ -235,6 +258,9 @@ final class Completions {
 
         if (!attributes.isEmpty()) {
             JasxAttribute last = attributes.get(attributes.size() - 1);
+            if (inUnclosedBrowserCode(last, cursor)) {
+                return new BrowserCode(wordStart(text, cursor)); // <button @click="tog
+            }
             boolean typingItsName = last.value() == null && last.name().end() == cursor;
             if (typingItsName) {
                 given.remove(JasxParser.attributeNameText(last.name()));
@@ -244,8 +270,34 @@ final class Completions {
 
         // After the name or a complete attribute: only whitespace may follow (<Card title="a" ).
         int endOfLast = attributes.isEmpty() ? opening.name().end() : attributes.get(attributes.size() - 1).end();
-        boolean afterWhitespace = endOfLast < cursor && text.substring(endOfLast, cursor).isBlank();
-        return afterWhitespace ? new AttributeName(opening.name(), cursor, given) : null;
+        String after = text.substring(endOfLast, cursor);
+        boolean afterWhitespace = endOfLast < cursor && after.isBlank();
+        if (afterWhitespace) {
+            return new AttributeName(opening.name(), cursor, given);
+        }
+        // A lone @ isn't an attribute yet (grammar.md §6.4 needs a name after it): <button @
+        boolean startingBrowserAttribute = after.endsWith("@") && after.length() > 1
+                && after.substring(0, after.length() - 1).isBlank();
+        return startingBrowserAttribute ? new AttributeName(opening.name(), cursor - 1, given) : null;
+    }
+
+    /** Whether the cursor is in the string of an {@code @event} attribute that isn't closed yet. */
+    private static boolean inUnclosedBrowserCode(JasxAttribute attribute, int cursor) {
+        if (!(attribute.name() instanceof JasxEventName) || !(attribute.value() instanceof JasxStringLiteral string)) {
+            return false;
+        }
+        String raw = string.raw();
+        boolean closed = raw.length() >= 2 && raw.endsWith("\"");
+        return string.end() == cursor && !closed;
+    }
+
+    /** Where the JavaScript word ending at the cursor starts: identifier characters and {@code $}. */
+    private static int wordStart(String text, int cursor) {
+        int start = cursor;
+        while (start > 0 && Character.isJavaIdentifierPart(text.charAt(start - 1))) {
+            start--;
+        }
+        return start;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -270,7 +322,7 @@ final class Completions {
     // ---------------------------------------------------------------------------------------------
 
     private static List<Item> attributeNames(SourceFile file, int offset, AttributeName attribute,
-            ComponentIndex index, Schema schema) {
+            ComponentIndex index, Schema schema, boolean scripts) {
         String tagName = JasxParser.nameText(attribute.element());
         // Names that don't start with a lowercase letter are components (semantics.md §5).
         boolean isComponent = !Character.isLowerCase(tagName.charAt(0));
@@ -278,7 +330,11 @@ final class Completions {
             ComponentIndex.Component component = VisibleComponents.named(tagName, file, offset, index);
             return component == null ? List.of() : props(component, attribute);
         }
-        return intrinsicAttributes(tagName, attribute, schema);
+        List<Item> items = new ArrayList<>(intrinsicAttributes(tagName, attribute, schema));
+        if (scripts && schema.element(tagName) != null) {
+            items.addAll(browserAttributes(tagName, attribute, schema));
+        }
+        return items;
     }
 
     /** The component's props that aren't given yet; the children parameter is not an attribute. */
@@ -327,5 +383,80 @@ final class Completions {
             items.add(new Item(name, KIND_PROPERTY, detail, null, newText, true, group + name));
         }
         return items;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Browser code (semantics.md §11)
+    // ---------------------------------------------------------------------------------------------
+
+    /** {@code @click} for each event the schema allows on the element, {@code @render}, and {@code ref}. */
+    private static List<Item> browserAttributes(String tag, AttributeName attribute, Schema schema) {
+        List<Item> items = new ArrayList<>();
+        for (Map.Entry<String, Schema.AttributeSpec> entry : schema.attributesOf(tag).entrySet()) {
+            if (!entry.getValue().event()) {
+                continue;
+            }
+            String name = "@" + entry.getKey().substring("on".length());
+            if (!attribute.given().contains(name)) {
+                items.add(new Item(name, KIND_PROPERTY, "browser code (JavaScript)", null, name + "=\"$1\"", true, "3" + name));
+            }
+        }
+        if (!attribute.given().contains("@render")) {
+            items.add(new Item("@render", KIND_PROPERTY, "browser code (JavaScript), when the element appears and its payload changes",
+                    null, "@render=\"$1\"", true, "3@render"));
+        }
+        if (!attribute.given().contains("ref")) {
+            items.add(new Item("ref", KIND_PROPERTY, "a name for browser code ($name)", null, "ref=\"$1\"", true, "1ref"));
+        }
+        return items;
+    }
+
+    /** The names browser code can use: the file script's top-level names, then {@code $name} for each ref. */
+    private static List<Item> browserNames(SourceFile file) {
+        List<?> segments = JasxParser.parse(file.content(), file.path()).unit().segments();
+        List<Item> items = new ArrayList<>();
+        StringBuilder script = new StringBuilder();
+        for (Object segment : segments) {
+            if (segment instanceof JasxScriptBlock block) {
+                script.append(block.script()).append('\n');
+            }
+        }
+        for (String name : ScriptReader.topLevelNames(script.toString()).keySet()) {
+            items.add(new Item(name, KIND_FUNCTION, "from the file's script", null, name, false, "0" + name));
+        }
+        Set<String> refs = new LinkedHashSet<>();
+        collectRefs(segments, refs);
+        for (String ref : refs) {
+            items.add(new Item("$" + ref, KIND_VARIABLE, "ref", null, "$" + ref, false, "1" + ref));
+        }
+        return items;
+    }
+
+    /** The names of every {@code ref="name"} in the nodes, at any depth (semantics.md §11.5). */
+    private static void collectRefs(List<?> nodes, Set<String> refs) {
+        for (Object node : nodes) {
+            switch (node) {
+                case JasxElement element -> {
+                    for (JasxAttribute attribute : element.openingElement().attributes()) {
+                        boolean isRef = attribute.name() instanceof JasxIdentifier name && name.name().equals("ref");
+                        if (isRef && attribute.value() instanceof JasxStringLiteral value && !value.value().isEmpty()) {
+                            refs.add(value.value());
+                        } else if (attribute.value() instanceof JasxExpressionContainer container) {
+                            collectRefs(List.of(container), refs);
+                        }
+                    }
+                    collectRefs(element.children(), refs);
+                }
+                case JasxFragment fragment -> collectRefs(fragment.children(), refs);
+                case JasxExpressionContainer container -> {
+                    if (container.expression() instanceof JavaExpression java) {
+                        collectRefs(java.segments(), refs);
+                    }
+                }
+                case JasxStatementContainer container -> collectRefs(container.statement().segments(), refs);
+                case JasxMarkupStatement statement -> collectRefs(List.of(statement.markup()), refs);
+                default -> { }
+            }
+        }
     }
 }
