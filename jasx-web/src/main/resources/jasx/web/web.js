@@ -856,7 +856,7 @@
       runCleanup(element, type);
       let result;
       try {
-        result = fn.call(element, event, resolvePayload(element, payload));
+        result = fn.call(element, asIfOn(element, event), resolvePayload(element, payload));
       } catch (error) {
         console.error(error);
         return;
@@ -873,6 +873,19 @@
     const module = loadedModules.get(path);
     if (module) run(module);
     else loadModule(path).then(run, () => {});
+  }
+
+  // The event as the function sees it: as if its listener were on the element with the browser attribute, so
+  // event.currentTarget is that element (the client listens on the document). Everything else, preventDefault()
+  // included, is the event's own.
+  function asIfOn(element, event) {
+    return new Proxy(event, {
+      get(target, property) {
+        if (property === "currentTarget") return element;
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
   }
 
   function keepCleanup(element, type, cleanup) {

@@ -222,7 +222,7 @@ In a handler, `e.resetForm()` clears the form the event came from (typed text be
 
 Script blocks, browser attributes and refs (`semantics.md` §11) run JavaScript in the browser, without a round trip. `onclick={...}` is Java, run on the server; `@click="..."` is JavaScript, run in the browser.
 
-**Functions.** Every function a browser attribute calls receives the event first, then the payload: `fn(event, payload)`. In the payload:
+**Functions.** Every function a browser attribute calls receives the event first, then the payload: `fn(event, payload)`. The event is seen as if its listener were on the element with the browser attribute: `event.currentTarget` (and `this`) is that element. In the payload:
 
 | Value | What the function receives |
 |---|---|

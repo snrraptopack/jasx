@@ -1,0 +1,79 @@
+package web;
+
+import jasx.runtime.Element;
+import jasx.ui.Action;
+import java.util.ArrayList;
+import java.util.List;
+
+import static jasx.web.Web.*;
+import static web.Layout.*;
+
+// Browser code (targets/web.md §7.1): @click and the other @ attributes run JavaScript in the browser,
+// without a round trip; onclick={...} stays a Java handler on the server. The functions live in browser.js,
+// next to this file, and each is called as fn(event, payload): in the payload, $name is a ref and every other
+// name is a Java variable.
+
+<script>
+    import { showTab, copy, confirmThen, count, drawBars } from "./browser.js";
+</script>
+
+<style>
+    section { margin-bottom: 1.5rem; }
+    .bars { display: flex; gap: 4px; align-items: flex-end; height: 80px; margin: .5rem 0; }
+    .bars div { width: 18px; background: #2563eb; }
+    textarea { width: 100%; }
+    .too-long { color: #dc2626; }
+</style>
+
+public Element Browser() {
+    var clicks = state(0);
+    var values = state(List.of(3, 5, 2));
+    Action reset = () -> clicks.set(0);
+    Action addBar = () -> values.update(list -> {
+        var next = new ArrayList<>(list);
+        next.add(1 + (int) (Math.random() * 9));
+        return next;
+    });
+    String link = "https://github.com/snrraptopack/jasx";
+
+    return (
+        <Page title="Browser code">
+            <section>
+                <h2>Tabs, in the browser only</h2>
+                <button @click="showTab({show: $one, hide: [$two]})">One</button>
+                <button @click="showTab({show: $two, hide: [$one]})">Two</button>
+                <p ref="one">The first tab.</p>
+                <p ref="two" hidden>The second tab.</p>
+            </section>
+
+            <section>
+                <h2>One line, inline</h2>
+                <button @click="$more.open = !$more.open">Toggle the details</button>
+                <details ref="more"><summary>More</summary><p>Opened by one line of inline JavaScript.</p></details>
+            </section>
+
+            <section>
+                <h2>A Java value, and a Java handler</h2>
+                <p><button @click="copy({text: link})">Copy the link</button></p>
+                <p>
+                    Count on the server: {clicks}
+                    <button onclick={() -> clicks.update(n -> n + 1)}>+1</button>
+                    <button @click="confirmThen({question: 'Reset the count?', action: reset})">Reset…</button>
+                </p>
+            </section>
+
+            <section>
+                <h2>Counting while you type, with nothing sent</h2>
+                <textarea rows="2" @input="count({counter: $counter, max: 40})"></textarea>
+                <p ref="counter">0 / 40</p>
+            </section>
+
+            <section>
+                <h2>Drawing server state</h2>
+                <div class="bars" ref="bars" data-jx-ignore @render="drawBars({bars: $bars, values})"></div>
+                <button onclick={addBar}>Add a bar on the server</button>
+                <p class="hint">@render runs when the element appears and each time the server changes the values.</p>
+            </section>
+        </Page>
+    );
+}

@@ -9,6 +9,7 @@ This guide shows how to write pages with JASX's `web` target, using examples. Th
 - [Forms and input](#forms-and-input)
 - [Lists](#lists)
 - [Pushing from the server](#pushing-from-the-server)
+- [JavaScript in the browser](#javascript-in-the-browser)
 - [Styles](#styles)
 - [Moving between pages](#moving-between-pages)
 - [Serving pages](#serving-pages)
@@ -265,6 +266,86 @@ public final class Clock {
 The browser keeps one stream open for all its tabs of your application (`GET /_jasx/stream`): one tab holds it and passes each update to the tab it is for, and when that tab closes another takes over. Nothing goes through it when nothing changes, apart from a keep-alive comment every 25 seconds.
 
 If the connection drops (a laptop asleep, a train tunnel), the browser reconnects and tells the server the last update it applied. The server sends what was missed as one update, keeping only the latest value of each spot, so a clock that ticked sixty times while you were away sends one value. If too much was missed, or the server discarded the page, the page reloads, and what the user had typed in its forms is put back (not passwords), with `input` and `change` fired so your handlers catch up.
+
+## JavaScript in the browser
+
+Some things shouldn't wait for the server: opening a menu, switching a tab, copying to the clipboard, counting characters while typing, drawing a chart. Write them in plain JavaScript, and they run in the browser without a round trip. Many need no JavaScript at all: a `popover` (`<button popovertarget="menu">` with `<nav id="menu" popover="auto">`) or a `<details>` is handled by the browser itself.
+
+**`onclick` is Java, `@click` is JavaScript.** `onclick={...}` runs a Java handler on the server; `@click="..."` runs JavaScript in the browser. The same goes for every event: `@input`, `@keydown`, `@dragover`, ... An element can have both; the JavaScript runs first.
+
+Put the JavaScript in a `.js` file next to your `.jasx` file, and import it in a `<script>` block:
+
+```js
+// web/menu.js
+export function toggleMenu(event, { menu }) {
+  menu.hidden = !menu.hidden;
+}
+```
+
+```java
+<script>
+  import { toggleMenu } from "./menu.js";
+</script>
+
+public Element Menu() {
+    return (
+        <div>
+            <button @click="toggleMenu({menu: $menu})">Menu</button>
+            <nav ref="menu" hidden>...</nav>
+        </div>
+    );
+}
+```
+
+**Every function gets `(event, payload)`.** In the payload:
+
+- `$name` is a **ref**: the element marked `ref="name"`. If there are several (a list of rows, each with its own `ref="details"`), it is the one nearest to the element you clicked, so each row finds its own.
+- Every other name is a **Java variable**, checked by javac: `{text: url}`, `{id: t.id()}`, or `{url}` for short. Values arrive as JSON: strings, numbers, booleans, lists, maps, records (as objects) and enums (by name).
+- A `State` arrives as its value, and stays **current**: when it changes on the server, the next call gets the new value.
+- A Java handler arrives as a **function that calls the server**: `await save(value)` runs it, and resolves once the page has updated. A string or number arrives as `e.value()`, an object as fields (`e.field("from")`, `e.as(Move.class)`).
+- Strings in a payload are written in single quotes: `{question: 'Delete it?'}`.
+
+```java
+Action remove = () -> store.remove(t.id());
+<button @click="confirmDelete({title: t.title(), remove})">Delete</button>
+```
+
+```js
+export async function confirmDelete(event, { title, remove }) {
+  if (window.confirm("Delete " + title + "?")) await remove();
+}
+```
+
+**One line, inline.** Anything that isn't a call of one of your functions is inline JavaScript. It sees `event` and your refs:
+
+```java
+<button @click="$details.open = !$details.open">More</button>
+<li @dragover="event.preventDefault()" @drop="drop({index, move})">...</li>
+<button @click="window.print()">Print</button>
+```
+
+Browser functions are written `window.alert(...)`, `window.print()`: a bare `alert(...)` looks like a call of your own function, and the build fails if your script has none by that name. Inline code can't see Java variables; for those, call a function with a payload.
+
+**Following server state: `@render`.** `@render` runs when the element appears, and again whenever a `State` in its payload changes:
+
+```java
+<div ref="chart" data-jx-ignore @render="drawChart({chart: $chart, points})"></div>
+```
+
+```js
+export function drawChart(event, { chart, points }) {
+  const instance = new Chart(chart, { type: "line", data: { datasets: [{ data: points }] } });
+  return () => instance.destroy();
+}
+```
+
+`data-jx-ignore` keeps the server's updates out of what your JavaScript draws inside the element.
+
+**Cleanups.** Any function may return a function: its cleanup. It runs before the same attribute runs again on the element (so a second click stops the first click's timer), and when the element leaves the page, whether an update removes it or the user moves to another page.
+
+**What reaches the browser.** The build packages your `.js` files and what it generates from your `<script>` blocks; the server serves them under `/_jasx/js/`, cached for good, and the browser loads each one when a page first needs it. Your JavaScript never runs from a string, so a strict Content Security Policy works. Imports between your files work as in any ES module; for npm packages, import from a URL or map their names with an import map in your layout's `<head>`.
+
+[`examples/web`](../examples/web) has a page with tabs, a copy button, a confirmed reset, a character counter and a chart (`Browser.jasx`, `browser.js`).
 
 ## Styles
 

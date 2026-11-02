@@ -17,6 +17,7 @@ public class Main {
                 .page("/todos", () -> Pages.Todos(todos))
                 .page("/search", Pages::Search)
                 .page("/live", () -> Pages.Live(room))
+                .page("/browser", Browser::Browser)
                 .start();
         System.out.println("Serving the JASX web example at http://localhost:" + server.port());
     }

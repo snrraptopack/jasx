@@ -1,6 +1,6 @@
 # Discussion: plain JavaScript in the browser
 
-**Status:** proposal; the user's decisions of 2026-11-02 are recorded (§10). Waiting for the go-ahead to implement. Of it, only §7 (server updates keep browser changes) is implemented, as spec revision 20.
+**Status:** phase 2's core is implemented as spec revision 28 (`semantics.md` §11, `targets/web.md` §7.1); the user said go on 2026-11-02. One deviation from this document: refs resolve to the **nearest** element with that ref (`targets/web.md` §7.1), not per component instance (§3.6 below), because component children are evaluated inside the child's instance since revision 25, so instance scoping can't be told apart at run time, and scope attributes on roots break fragments. Not done yet: highlighting and the language server, generated payload types, `TestPage` calling payload handlers, serving `.js` from source in development, and phase 3.
 
 **Dates:** 2026-11-01, revised 2026-11-02.
 

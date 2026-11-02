@@ -946,3 +946,14 @@ test("a navigation runs the cleanups of the page it leaves", async () => {
   await wait(100);
   assert.deepEqual(log, ["cleaned"]);
 });
+
+test("a function sees the element with the browser attribute as the event's currentTarget", async () => {
+  let seen = null;
+  const modules = { "web/E.jasx.js": { copy: (event) => { seen = event.currentTarget; event.currentTarget.textContent = "Copied"; } } };
+  const { window, document } = await page(
+    `<button ${js("click", "web/E.jasx.js", "copy")}><span>Copy</span></button>`, () => null, MODULES, { modules });
+  await wait();
+  fire(window, document.querySelector("span"), "click");
+  assert.equal(seen, document.querySelector("button"));
+  assert.equal(document.querySelector("button").textContent, "Copied");
+});
