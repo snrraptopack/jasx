@@ -538,13 +538,20 @@
     const elements = root.querySelectorAll ? root.querySelectorAll("[data-jx-on]") : [];
     for (const element of elements) {
       for (const entry of element.getAttribute("data-jx-on").split(" ")) {
-        const type = entry.split(":")[0];
-        if (!listening.has(type)) {
-          listening.add(type);
-          listen(document, type, onEvent, true);
-        }
+        ensureListening(entry.split(":")[0]);
       }
     }
+  }
+
+  // One listener per event type, for browser attributes and Java handlers alike: on an element with both, the
+  // browser attribute runs first (§7.1), then the Java handler's event is sent.
+  function ensureListening(type) {
+    if (listening.has(type)) return;
+    listening.add(type);
+    listen(document, type, (event) => {
+      runBrowserAttribute(event);
+      onEvent(event);
+    }, true);
   }
 
   function handlerOf(element, type) {
@@ -720,7 +727,9 @@
         if (response.status === 410) { reload(); return; }
         if (response.status === 200) receive(await response.json());
         else if (response.status !== 204) console.error("jasx: event failed with status " + response.status);
+        item.done?.(response.status === 200 || response.status === 204);
       } catch (error) {
+        item.done?.(false);
         if (error instanceof Gone) { reload(); return; }
         // The handler may have run although its answer was lost: the server still has the batch, and
         // a reconnection fetches it (§6.1).
@@ -740,6 +749,243 @@
     element.classList.toggle("jx-loading", isBusy);
     if (isBusy) element.setAttribute("aria-busy", "true");
     else element.removeAttribute("aria-busy");
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Browser code (§7.1): browser attributes (data-jx-js-<event>), refs, @render and cleanups
+  // ---------------------------------------------------------------------------------------------
+  //
+  // A browser attribute names a function of a module and its payload: ["web/Menu.jasx.js", "toggleMenu",
+  // {...}]. The function is called as fn(event, payload), with refs ({"$ref": name}) resolved to elements and
+  // Java handlers ({"handler": id}) turned into functions that send to the server. What it returns, if a function
+  // (or a promise of one), is its cleanup: run before the same attribute runs again on the element, and when the
+  // element leaves the page.
+
+  const modulesBase = script.dataset.jxJs || null;
+  /** Modules being loaded or loaded, by path; and the loaded ones, so calls can be synchronous. */
+  const loadingModules = new Map();
+  const loadedModules = new Map();
+  /** The pending cleanups: element -> Map(attribute event -> cleanup). */
+  const cleanups = new Map();
+  /** The payload each element's @render last ran with, so it runs again only when it changes. */
+  const renderedWith = new WeakMap();
+  let observer = null;
+
+  // How a module is imported: import() in a browser; tests give their own.
+  const importModule = window.__jasxImport || ((url) => import(url));
+
+  function loadModule(path) {
+    if (!loadingModules.has(path)) {
+      const loading = importModule(modulesBase + path).then((module) => {
+        loadedModules.set(path, module);
+        return module;
+      });
+      loading.catch((error) => console.error("jasx: the module " + path + " didn't load", error));
+      loadingModules.set(path, loading);
+    }
+    return loadingModules.get(path);
+  }
+
+  function browserAttributes(element) {
+    const found = [];
+    for (const attribute of element.attributes || []) {
+      if (attribute.name.startsWith("data-jx-js-")) found.push(attribute.name.substring("data-jx-js-".length));
+    }
+    return found;
+  }
+
+  // Prepares the elements under root that have browser attributes: listens for their events, loads their
+  // modules, and runs each @render that hasn't run with its current payload.
+  function bindBrowserCode(root) {
+    if (!modulesBase) return;
+    const elements = [];
+    if (root.nodeType === 1) elements.push(root);
+    if (root.querySelectorAll) elements.push(...root.querySelectorAll("*"));
+    for (const element of elements) {
+      for (const type of browserAttributes(element)) {
+        const call = parseCall(element, type);
+        if (call) loadModule(call[0]);
+        if (type === "render") renderIfChanged(element);
+        else ensureListening(type);
+      }
+    }
+  }
+
+  function renderIfChanged(element) {
+    const payload = element.getAttribute("data-jx-js-render");
+    if (payload === null || renderedWith.get(element) === payload) return;
+    renderedWith.set(element, payload);
+    callBrowserAttribute(element, "render", new CustomEvent("render"));
+  }
+
+  // The nearest element with a browser attribute for the event's type, as if the event bubbled to it.
+  function runBrowserAttribute(event) {
+    if (!modulesBase || !event.target || event.target.nodeType !== 1) return;
+    const name = "data-jx-js-" + event.type;
+    for (let element = event.target; element && element !== document; element = element.parentNode) {
+      if (element.hasAttribute && element.hasAttribute(name)) {
+        callBrowserAttribute(element, event.type, event);
+        return;
+      }
+      if (!event.bubbles) return;
+    }
+  }
+
+  function parseCall(element, type) {
+    try {
+      return JSON.parse(element.getAttribute("data-jx-js-" + type));
+    } catch (error) {
+      console.error("jasx: a malformed browser attribute", element, error);
+      return null;
+    }
+  }
+
+  // Calls the element's function for this browser attribute: at once if its module is loaded (so that
+  // preventDefault() works), otherwise once it has loaded.
+  function callBrowserAttribute(element, type, event) {
+    const call = parseCall(element, type);
+    if (!call) return;
+    const [path, name, payload] = call;
+    const run = (module) => {
+      if (stopped) return;
+      const fn = module[name];
+      if (typeof fn !== "function") {
+        console.error("jasx: " + name + " is not a function of " + path);
+        return;
+      }
+      runCleanup(element, type);
+      let result;
+      try {
+        result = fn.call(element, event, resolvePayload(element, payload));
+      } catch (error) {
+        console.error(error);
+        return;
+      }
+      // A cleanup returned at once is kept at once, so a second click right after the first still runs it.
+      if (typeof result === "function") {
+        keepCleanup(element, type, result);
+      } else if (result && typeof result.then === "function") {
+        result.then((cleanup) => {
+          if (typeof cleanup === "function") keepCleanup(element, type, cleanup);
+        }, (error) => console.error(error));
+      }
+    };
+    const module = loadedModules.get(path);
+    if (module) run(module);
+    else loadModule(path).then(run, () => {});
+  }
+
+  function keepCleanup(element, type, cleanup) {
+    if (!cleanups.has(element)) cleanups.set(element, new Map());
+    cleanups.get(element).set(type, cleanup);
+  }
+
+  function runCleanup(element, type) {
+    const forElement = cleanups.get(element);
+    const cleanup = forElement?.get(type);
+    if (!cleanup) return;
+    forElement.delete(type);
+    if (forElement.size === 0) cleanups.delete(element);
+    try {
+      cleanup();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  // Runs the cleanups of elements that have left the page.
+  function cleanUpRemoved() {
+    for (const element of Array.from(cleanups.keys())) {
+      if (!element.isConnected) {
+        for (const type of Array.from(cleanups.get(element).keys())) runCleanup(element, type);
+      }
+    }
+  }
+
+  // The payload as the function receives it: refs as elements, handlers as functions.
+  function resolvePayload(origin, value) {
+    if (Array.isArray(value)) return value.map((item) => resolvePayload(origin, item));
+    if (value === null || typeof value !== "object") return value;
+    const keys = Object.keys(value);
+    if (keys.length === 1 && keys[0] === "$ref") return findRef(origin, value.$ref);
+    if (keys.length === 1 && keys[0] === "handler" && typeof value.handler === "number") {
+      return serverHandler(origin, value.handler);
+    }
+    const resolved = {};
+    for (const key of keys) resolved[key] = resolvePayload(origin, value[key]);
+    return resolved;
+  }
+
+  // The element with this ref nearest to origin: the fewest steps up to a common ancestor and down to it; the
+  // first in document order among equally near ones.
+  function findRef(origin, name) {
+    const depthOf = new Map();
+    let depth = 0;
+    for (let node = origin; node; node = node.parentNode) depthOf.set(node, depth++);
+    let best = null;
+    let bestDistance = Infinity;
+    for (const candidate of document.querySelectorAll('[data-jx-ref="' + name + '"]')) {
+      let down = 0;
+      let node = candidate;
+      while (node && !depthOf.has(node)) {
+        node = node.parentNode;
+        down++;
+      }
+      const distance = node ? depthOf.get(node) + down : Infinity;
+      if (distance < bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  // A Java handler, as a function: handler(value) sends an event to it through the queue, with a string,
+  // number or boolean as the value, or an object's properties as fields; it resolves once the update is in the
+  // page, and rejects if the request fails or this client has stopped.
+  function serverHandler(element, handler) {
+    return (value) => new Promise((resolve, reject) => {
+      if (stopped) {
+        reject(new Error("jasx: the page has gone"));
+        return;
+      }
+      const payload = { handler, seq: ++lastSeq, type: "call" };
+      if (value !== null && typeof value === "object") {
+        payload.fields = {};
+        for (const [key, field] of Object.entries(value)) {
+          payload.fields[key] = Array.isArray(field) ? field.map(String) : [String(field)];
+        }
+      } else if (value !== undefined) {
+        payload.value = String(value);
+      }
+      flushPending(); // the handler sees the latest input
+      busy(element, +1);
+      queue.push({ element, payload, revisions: [], uploads: [], done: (ok) => {
+        if (ok) resolve();
+        else reject(new Error("jasx: the event failed"));
+      } });
+      pump();
+    });
+  }
+
+  function startBrowserCode() {
+    if (!modulesBase) return;
+    bindBrowserCode(document);
+    observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "attributes") renderIfChanged(record.target);
+        for (const added of record.addedNodes || []) bindBrowserCode(added);
+      }
+      cleanUpRemoved();
+    });
+    observer.observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-jx-js-render"] });
+  }
+
+  function stopBrowserCode() {
+    if (observer) observer.disconnect();
+    for (const element of Array.from(cleanups.keys())) {
+      for (const type of Array.from(cleanups.get(element).keys())) runCleanup(element, type);
+    }
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -1139,10 +1385,11 @@
     else window.scrollTo(0, 0);
   }
 
-  // Stops this client for good: its listeners and timers, its stream (or its part in the shared one), and
-  // its queued events, which were for this page.
+  // Stops this client for good: its listeners and timers, its stream (or its part in the shared one), its
+  // queued events, which were for this page, and every cleanup browser code left (§7.1).
   function stop() {
     stopped = true;
+    stopBrowserCode();
     for (const [target, type, listener, options] of registrations) target.removeEventListener(type, listener, options);
     for (const id of timers) {
       window.clearTimeout(id);
@@ -1161,6 +1408,7 @@
   rememberRendered(document.documentElement); // the page as the server rendered it
   indexHoles(document);
   listenFor(document);
+  startBrowserCode();
   restoreForms();
   connect(); // a tab that can't share streams at once; a shared stream opens when its leader is chosen
 })();
