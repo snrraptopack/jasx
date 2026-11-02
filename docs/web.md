@@ -129,7 +129,7 @@ If it needs the event, write `e -> ...`. The type of `e` depends on the attribut
 
 A handler can throw. The error is logged and the page stays usable; changes made before the exception are still sent.
 
-`navigate("/done")` in a handler sends the browser to another page.
+`navigate("/done")` in a handler sends the browser to another page. A page of your application is shown in place, as a link to it would be ([Moving between pages](#moving-between-pages)); anything else is loaded the ordinary way.
 
 ## Forms and input
 
@@ -294,6 +294,8 @@ Links between your pages need nothing special. A plain click on `<a href="/tasks
 
 The browser loads a link the ordinary way when it opens a new window (`target="_blank"`, ctrl+click), downloads (`download`), leaves your site, or answers with something other than a page (a PDF, JSON). Mark a link, or an element around links, with `data-jx-reload` to always load it the ordinary way.
 
+The page you leave is discarded on the server at once (going back renders it anew), and the client script is cached under its version, so a move between pages costs one request for the page and one for its stream.
+
 ## Serving pages
 
 The runtime is independent of any HTTP server. An adapter describes each request with a `WebApp.Request` (a query parameter, a header, and whether it came over HTTPS) and sends back the `Response` it gets (status, headers, body):
@@ -377,6 +379,26 @@ A page is kept for 2 minutes after its browser goes away (no stream and no event
 Pages need cookies to work. Rate limiting is up to your reverse proxy.
 
 **Many tabs over HTTP/1.1.** Browsers open only about six connections per server over HTTP/1.1, which is why the tabs share one stream. Sharing needs Web Locks and BroadcastChannel, which every current browser has, and a secure context: HTTPS, or `localhost` while developing. On plain HTTP from another host (a phone on your network trying `http://192.168.1.5:8080`), each tab keeps its own stream, and hidden tabs close theirs after 10 seconds. HTTP/2 removes the limit entirely, so prefer it in production. The JDK's built-in server (`WebServer`) speaks only HTTP/1.1: put a reverse proxy with HTTP/2 in front of it, or use a server adapter that supports HTTP/2.
+
+### Several instances, deploys and restarts
+
+**A page lives in the server that rendered it.** Its state, holes and handlers are objects in that JVM, so a browser's events and stream must reach the same instance. With one instance there is nothing to do. With several behind a load balancer, turn on **cookie stickiness**, keyed on the `jasx_session` cookie the runtime already sets, so every request of a browser goes to the same instance:
+
+- **nginx:** `hash $cookie_jasx_session consistent;` in the `upstream` block.
+- **AWS Application Load Balancer:** target group stickiness, application-based, with the cookie name `jasx_session`.
+- **Kubernetes (ingress-nginx):** the annotations `nginx.ingress.kubernetes.io/affinity: "cookie"` and `nginx.ingress.kubernetes.io/session-cookie-name: "jasx_session"`, or `upstream-hash-by: "$cookie_jasx_session"`.
+
+A browser without the cookie yet (its very first page) may land anywhere; the page it gets sets the cookie, and the browser sticks from then on.
+
+**Deploy by draining.** In a rolling deploy, stop sending new browsers to an old instance, let it go on serving its open pages for a while (a few minutes is plenty: pages are short-lived), then stop it. Most users never notice. With Spring Boot, the starter closes the pages when the application starts to stop, so graceful shutdown doesn't wait for open streams; set `server.shutdown=graceful` and a load balancer deregistration delay for the draining.
+
+**What happens when a page is lost.** If a browser comes back to a server that no longer has its page (it was restarted, or the page timed out), the stream tells it so, and the browser reloads the page:
+
+1. Before reloading, it saves the values of the page's named form fields (not passwords, hidden fields or files).
+2. It loads the page again, which renders it afresh on the server it now reaches.
+3. It puts the saved values back, and fires `input` and `change` on each field, so your handlers catch up.
+
+So a user in the middle of a form keeps what they typed. What can't come back is state that lived only in the lost JVM: a `State` holding a counter or the step of a wizard starts from its initial value. Keep state that must survive a restart in the URL (a query parameter, such as `?step=3` or `?tab=billing`) or in your database, and use `State` for what the screen shows while the page is open.
 
 ## Testing pages
 
